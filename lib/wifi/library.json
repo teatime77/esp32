@@ -1,0 +1,12 @@
+{
+  "name": "UroaWiFi",
+  "version": "0.2.0",
+  "description": "Wi-Fi provisioning, NVS and authenticated HTTP/WebSocket control",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "license": "MIT",
+  "dependencies": {
+    "bblanchon/ArduinoJson": "6.21.5",
+    "links2004/WebSockets": "2.7.1"
+  }
+}

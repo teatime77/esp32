@@ -1,0 +1,8 @@
+{
+  "name": "UroaPlot",
+  "version": "0.2.0",
+  "description": "Bounded six-channel plot telemetry for diagram over BLE",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "license": "MIT"
+}

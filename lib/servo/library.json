@@ -1,0 +1,12 @@
+{
+  "name": "UroaServo",
+  "version": "0.2.0",
+  "description": "PCA9685 servo state and interpolation for teaching apps",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "license": "MIT",
+  "dependencies": {
+    "adafruit/Adafruit PWM Servo Driver Library": "3.0.2",
+    "adafruit/Adafruit BusIO": "1.17.4"
+  }
+}

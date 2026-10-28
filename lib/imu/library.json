@@ -1,0 +1,8 @@
+{
+  "name": "UroaIMU",
+  "version": "0.2.0",
+  "description": "MPU-6050 initialization and raw readings",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "license": "MIT"
+}
