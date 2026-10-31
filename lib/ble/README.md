@@ -4,11 +4,16 @@
 
 `uroa_ble.h`の`uroa::BleTransport`はBLEサーバー、接続世代、指令の受信、Status/Telemetry通知と認証済みWi-Fi設定窓口を担当する。NimBLEは基板共通なので稼働するオブジェクトは1個とし、グローバルまたはstaticに置く。
 
-`begin(config, callbacks)`へ名前・6種のUUID・ペアリングコードを渡す。コールバックの責任と公開状態の読み方は[設計](../../docs/architecture.md)を参照する。
+`begin(config, callbacks)`へ名前・サービスと各CharacteristicのUUID・ペアリングコードを渡す。コールバックの責任と公開状態の読み方は[設計](../../docs/architecture.md)を参照する。
+
+`Config::telemetryMaxLength`はTelemetry Characteristicの最大長、`preferredMtu`は希望するATT MTUで、既定は20バイト／23。大きい通知を使う教材は両方を設定する。実際の合意値は公開atomicの`mtu.load()`で参照し、接続・MTU交渉で更新、切断・停止で23へ戻す。希望値の設定だけでは相手との合意を保証しない。`publishTelemetry()`は最大長と合意MTUから3バイトを引いた上限を超える通知を拒否する。分割通知は行わない。
+
+`Config::deviceInfoUuid`を指定すると、同じServiceへDeviceInfoのWrite用Characteristicを追加する。空なら追加しない。公開定数`DeviceInfoMaxLength`は1回の書込上限20バイトで、`start()`で登録し、`stop()`で参照を解除する。受信内容は専用の`Callbacks::deviceInfo`へ渡し、既存Commandのコールバックへは渡さない。分割転送とアプリ側の受付結果の通知は実装していない。
 
 | コールバック | 呼び出し元・責任 |
 |---|---|
 | `command(data, length, generation)` | BLEタスク。バッファは呼び出し中だけ有効。すぐコピーして指令キューへ送る |
+| `deviceInfo(data, length, generation)` | BLEタスク。バッファは呼出中だけ有効。教材側で長さを検査してキューへコピーし、接続世代を照合して制御ループで解析する。省略時は解釈しない |
 | `session(connected, generation)` | BLEタスク。通常の接続・切断で呼ばれる。停止要求を予約する |
 | `configure(json)` | 暗号化・MITM認証済みのBLEタスク。完成した設定JSONを渡し、結果JSONを受け取る。省略すると設定Characteristicを作らない |
 | `started()` | `start()`の呼び出し元。サービス公開前の初期Status設定に使う |

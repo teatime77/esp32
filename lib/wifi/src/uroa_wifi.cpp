@@ -450,7 +450,7 @@ namespace uroa {
         }
         xSemaphoreTake(stateLock, portMAX_DELAY);
         if (haveIMU) {
-            packets.add(packetHex(lastIMU, 20));
+            packets.add(packetHex(lastIMU, lastIMULength));
             haveIMU = false;
         }
         doc["session"] = controlSession;
@@ -759,7 +759,7 @@ namespace uroa {
                 for (int n = 0; n < 16 && xQueueReceive(outputQueue, &p, 0) == pdTRUE; ++n) {
                     if (p.generation_ == generation) {
                         xSemaphoreTake(stateLock, portMAX_DELAY);
-                        StaticJsonDocument<384> doc;
+                        StaticJsonDocument<2 * MaxPacketLength + 256> doc;
                         String data = packetHex(p.data, p.length);
                         uint32_t count = ++outputCounter;
                         doc["data"] = data;
@@ -901,12 +901,13 @@ namespace uroa {
      * @param length データ長（バイト）。
      */
     void WifiNetwork::publish(const uint8_t *data, size_t length) {
-        if (!connected || !ready || length > 20) {
+        if (!connected || !ready || length == 0 || length > MaxPacketLength) {
             return;
         }
-        if (length == 20) {
+        if (length != 12) {
             xSemaphoreTake(stateLock, portMAX_DELAY);
-            memcpy(lastIMU, data, 20);
+            memcpy(lastIMU, data, length);
+            lastIMULength = length;
             haveIMU = true;
             xSemaphoreGive(stateLock);
             if (owner < 0) {

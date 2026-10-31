@@ -1,6 +1,6 @@
 /**
  * @file uroa_servo.h
- * @brief PCA9685の角度サーボ出力、有効化、補間と停止を管理する。
+ * @brief PCA9685の角度・速度指令、有効化、補間と停止を管理する。
  */
 #pragma once
 #include <Adafruit_PWMServoDriver.h>
@@ -8,11 +8,24 @@
 
 namespace uroa {
     /**
-     * @brief 16CHの角度サーボ。I2Cは教材が開始し、同じ制御タスクから操作する。
+     * @brief 角度・連続回転サーボを同じPCA9685で制御する16CH。I2Cは教材が開始し、同じ制御タスクから操作する。
      * @details PCA9685の16CHを管理する。I2Cの開始・周期呼び出しは教材側が担当する。 BLE/HTTPコールバックからは呼ばず、同じ制御タスクから操作する。
      */
     class Pca9685Servos {
         public:
+        /** @brief 指令の種類。変更前にCHを無効化し、改めて有効化する。 */
+        enum class Mode {
+            Angle,
+            Speed
+        };
+
+        /** @brief 連続回転サーボの中立、変化幅（µs）と取り付け方向。 */
+        struct SpeedConfig {
+            uint16_t neutralUs = 1500;
+            uint16_t spanUs = 500;
+            int8_t direction = 1;
+        };
+
         bool available = false; ///< 初期化・直近のI2C処理の結果。アプリは参照だけを行う。
 
         /**
@@ -25,12 +38,15 @@ namespace uroa {
             uint16_t maxAngle = 12000; // 0.01度
             uint16_t minPulseUs = 1000;
             uint16_t maxPulseUs = 2000; // 公称0度／180度の幅
+            SpeedConfig speed[16]; ///< CHごとの校正値。コンストラクターへ渡す前に設定する。
         };
 
         /**
          * @brief 各CHの有効状態、角度指令と補間時間。角度は実測値ではない。
          */
         struct State {
+            Mode mode = Mode::Angle;
+            float speed = 0; ///< 方向付き速度指令（%、−100〜100）。実測値ではない。
             bool armed = false;
             bool moving = false;
             uint16_t current = 9000;
@@ -50,7 +66,8 @@ namespace uroa {
             Range,
             Unavailable,
             NotArmed,
-            IoError
+            IoError,
+            WrongMode
         };
         /**
          * @brief I2Cバスと教材のサーボ設定を保持する。
@@ -102,6 +119,15 @@ namespace uroa {
          * @return 範囲検査、有効状態と出力の結果。
          */
         Result move(uint8_t channel, uint16_t angle, uint16_t duration, uint32_t now);
+        /** @brief 度単位で角度CHを有効化する。@param channel CH0〜15。@param degrees 度。@return 検査・出力結果。 */
+        Result armAngle(uint8_t channel, float degrees = 90);
+        /** @brief 中立パルス（速度0%）で速度CHを有効化する。@param channel CH0〜15。@return 検査・出力結果。 */
+        Result armSpeed(uint8_t channel);
+        /** @brief 有効な角度CHを補間する。@param channel CH0〜15。@param degrees 度。@param duration 移動時間ms。@param now 現在時刻ms。@return 検査・出力結果。 */
+        Result moveAngle(uint8_t channel, float degrees, uint16_t duration, uint32_t now = millis());
+        /** @brief 有効な速度CHへ即時に指令する。@param channel CH0〜15。@param percent −100〜100%。0は中立。@return 検査・出力結果。 */
+        Result setSpeed(uint8_t channel, float percent);
+
         /**
          * @brief 指定CHの補間を止め、PWMを無効にする。
          * @param channel 出力CH番号。
@@ -136,6 +162,10 @@ namespace uroa {
          * @return PWMの書き込みに成功したらtrue。
          */
         bool output(uint8_t channel, uint16_t angle);
+        /** @brief パルス幅を出力し、失敗時は全CH停止を試みる。@param channel CH。@param microseconds µs。@return 成功ならtrue。 */
+        bool outputPulse(uint8_t channel, float microseconds);
+        /** @brief 中立・変化幅・方向を検査する。@param channel CH。@return 有効ならtrue。 */
+        bool validSpeedConfig(uint8_t channel) const;
         TwoWire &wire_;
         const Config config_;
         Adafruit_PWMServoDriver pwm_;

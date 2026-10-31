@@ -6,7 +6,10 @@
 #pragma once
 #include <stdint.h>
 
-#if defined(ARDUINO_XIAO_ESP32S3)
+#if defined(UROA_BOARD_SUPERMINI_ESP32S3)
+constexpr int SDA_PIN = 8; // ESP32-S3 SuperMini
+constexpr int SCL_PIN = 9;
+#elif defined(ARDUINO_XIAO_ESP32S3)
 constexpr int SDA_PIN = 5; // XIAO D4
 constexpr int SCL_PIN = 6; // XIAO D5
 #else
@@ -28,6 +31,7 @@ constexpr char TELEMETRY_UUID[] = "f3641402-00b0-4240-ba50-05ca45bf8abc";
 constexpr char STATUS_UUID[] = "f3641403-00b0-4240-ba50-05ca45bf8abc";
 constexpr char CONFIG_UUID[] = "f3641404-00b0-4240-ba50-05ca45bf8abc";
 constexpr char RESULT_UUID[] = "f3641405-00b0-4240-ba50-05ca45bf8abc";
+constexpr char DEVICE_INFO_UUID[] = "f3641406-00b0-4240-ba50-05ca45bf8abc"; ///< 機器情報の書込窓口。
 constexpr uint32_t PAIRING_CODE = 123456;
 // 公開の教材用共通値。robot-wifi.tsのteachingConnectionKeyと揃える。
 constexpr char TEACHING_CONNECTION_KEY[] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

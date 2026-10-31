@@ -6,7 +6,7 @@
 uroa::Mpu6050 imu(Wire);
 // setup(): Wire.begin(SDA_PIN, SCL_PIN); imu.begin();
 uint8_t raw[14];
-// 制御ループ内: if (imu.readRaw(raw)) { /* 利用またはProtocol::telemetryへ渡す */ }
+// 制御ループ内: if (imu.readRaw(raw)) { /* 利用またはProtocol::deviceTelemetryへ渡す */ }
 ```
 
 `readRaw(raw)`は加速度6・温度2・角速度6の14バイトをセンサーのbig endianのまま取得する。失敗すると`available`はfalseになり、自動再初期化しない。再試行は明示的に`begin()`を呼ぶ。取得周期・STREAM・通信応答は教材側が担当する。I²Cアクセスはサーボと同じ制御タスクで行う。

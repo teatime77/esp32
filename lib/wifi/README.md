@@ -10,7 +10,7 @@
 | `connected.load()` / `generation.load()` | 制御権と接続世代。connectedはWi-Fiルーターへの接続状態ではない |
 | `stopControl()` | 制御権を解除し、sessionコールバックで教材へ停止を要求する |
 | `tick()` | 制御ループで呼ぶ。readyの公開、BLEの遅延停止・再開を調停する |
-| `publish(data, length)` | 制御ループでStatus 12／Telemetry 20バイトを渡す |
+| `publish(data, length)` | 制御ループでStatus 12／可変長Telemetry（最大268バイト）を渡す |
 | `command(data, length, generation)` | HTTP／ネットワークタスクから呼ぶ。即座にコピーして制御キューへ送る |
 | `session(connected, generation)` | 複数タスクから呼ばれ得る。停止フラグの設定など短い処理だけにする |
 | `startBLE()` / `stopBLE()` | tickの呼び出し元で実行する。BLEライブラリーのstart/stopへ接続する |

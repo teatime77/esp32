@@ -1,6 +1,6 @@
 {
   "name": "UroaProtocol",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Uroa protocol v1 packet codec",
   "license": "MIT",
   "build": {

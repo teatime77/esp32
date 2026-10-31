@@ -41,6 +41,9 @@ namespace uroa {
         }
         stopping_ = false;
         NimBLEDevice::init(config_.name.c_str());
+        if (!NimBLEDevice::setMTU(config_.preferredMtu)) {
+            Serial.println("BLE preferred MTU setup FAILED");
+        }
         NimBLEDevice::setSecurityAuth(true, true, true);
         NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
         NimBLEDevice::setSecurityPasskey(config_.passkey);
@@ -51,7 +54,14 @@ namespace uroa {
         auto service = server->createService(config_.serviceUuid.c_str());
         auto command = service->createCharacteristic(config_.commandUuid.c_str(), NIMBLE_PROPERTY::WRITE, 10);
         command->setCallbacks(this);
-        telemetry_ = service->createCharacteristic(config_.telemetryUuid.c_str(), NIMBLE_PROPERTY::NOTIFY, 20);
+        if (config_.deviceInfoUuid.length() > 0) {
+            // 機器情報は専用コールバックへ渡し、Commandとして解釈しない。
+            deviceInfo_ = service->createCharacteristic(
+                config_.deviceInfoUuid.c_str(), NIMBLE_PROPERTY::WRITE, DeviceInfoMaxLength);
+            deviceInfo_->setCallbacks(this);
+        }
+        telemetry_ = service->createCharacteristic(
+            config_.telemetryUuid.c_str(), NIMBLE_PROPERTY::NOTIFY, config_.telemetryMaxLength);
         status_ = service->createCharacteristic(
             config_.statusUuid.c_str(), NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 12);
         if (callbacks_.configure) {
@@ -89,14 +99,17 @@ namespace uroa {
         stopping_ = true; // deinitによる切断では広告を再開しない。
         NimBLEDevice::deinit(true);
         connected = false;
+        mtu = DefaultAttMtu;
         telemetry_ = status_ = nullptr;
+        deviceInfo_ = nullptr;
         running_ = false;
     }
 
     /**
      * @brief 接続世代を更新して接続を通知する。
      */
-    void BleTransport::onConnect(NimBLEServer *, NimBLEConnInfo &) {
+    void BleTransport::onConnect(NimBLEServer *, NimBLEConnInfo &info) {
+        mtu = info.getMTU();
         ++generation;
         connected = true;
         if (callbacks_.session) {
@@ -112,6 +125,7 @@ namespace uroa {
      */
     void BleTransport::onDisconnect(NimBLEServer *, NimBLEConnInfo &, int reason) {
         connected = false;
+        mtu = DefaultAttMtu;
         if (stopping_) {
             return;
         }
@@ -124,6 +138,11 @@ namespace uroa {
             NimBLEDevice::startAdvertising() ? "BLE advertising restarted" : "BLE advertising restart FAILED");
     }
 
+    /** @brief ATT MTU交渉の結果を公開する。@param value 合意したMTU。 */
+    void BleTransport::onMTUChange(uint16_t value, NimBLEConnInfo &) {
+        mtu = value;
+    }
+
     /**
      * @brief BLE書き込みを受け、指令または認証済み設定転送を処理する。
      * @param characteristic 指令を受けたBLE Characteristic。
@@ -131,6 +150,12 @@ namespace uroa {
     void BleTransport::onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &) {
         auto value = characteristic->getValue();
         // バッファはコールバック中だけ有効。受け手は即座にキューへコピーする。
+        if (characteristic == deviceInfo_) {
+            if (callbacks_.deviceInfo) {
+                callbacks_.deviceInfo(reinterpret_cast<const uint8_t *>(value.data()), value.size(), generation.load());
+            }
+            return;
+        }
         if (callbacks_.command) {
             callbacks_.command(reinterpret_cast<const uint8_t *>(value.data()), value.size(), generation);
         }
@@ -160,7 +185,8 @@ namespace uroa {
      * @return 送信APIが受理したらtrue。未接続・通知不可・送信失敗はfalse。相手の受信は保証しない。
      */
     bool BleTransport::publishTelemetry(const uint8_t *data, size_t length) {
-        if (!connected || !running_ || stopping_ || !telemetry_) {
+        if (!connected || !running_ || stopping_ || !telemetry_ || length > config_.telemetryMaxLength ||
+            length + NotificationHeaderLength > mtu.load()) {
             return false;
         }
         telemetry_->setValue(data, length);

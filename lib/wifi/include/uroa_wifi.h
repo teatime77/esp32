@@ -17,6 +17,7 @@ namespace uroa {
      */
     class WifiNetwork {
         public:
+        static constexpr size_t MaxPacketLength = 268; ///< Statusと最大20個の6軸IMUレコードを収める上限。
         std::atomic<bool> connected{
             false}; ///< Wi-Fi制御権の有効状態。ルーターへの接続状態ではない。アプリはload()で参照する。
         std::atomic<uint32_t> generation{0}; ///< 制御権の取得・解除で更新する世代番号。アプリはload()で参照する。
@@ -114,11 +115,11 @@ namespace uroa {
         uint32_t shutdownAt = 0;
 
         /**
-         * @brief 20バイト以内の送信内容と接続世代。
+         * @brief 最大長以内の可変長送信内容と接続世代。
          */
         struct Packet {
-            uint8_t data[20];
-            uint8_t length;
+            uint8_t data[MaxPacketLength];
+            uint16_t length;
             uint32_t generation_;
         };
 
@@ -158,7 +159,8 @@ namespace uroa {
         bool persistPending = false;
         bool scanRunning = false;
         bool services = false;
-        uint8_t lastIMU[20]{};
+        uint8_t lastIMU[MaxPacketLength]{};
+        size_t lastIMULength = 0;
         bool haveIMU = false;
         String controlOrigin;
         /**

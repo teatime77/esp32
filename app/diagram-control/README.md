@@ -60,9 +60,11 @@ Wi-Fiで制御権を取得するとBLE指令を抑止し、BLEを遅延停止す
 - I2Cは初期化時のsetup()と制御ループだけで操作する。通信コールバックはコピーと停止要求を行う。
 - MOVEのACKと角度は受付結果・内部指令値であり、実角度や移動完了の測定結果ではない。
 
-バイナリ形式は[protocol v1](docs/protocol.md)を参照する。Commandは10byte、Statusは12byte、IMUは20byte。共通ライブラリーの範囲検査・補間・同期を利用する。
+バイナリ形式は[protocol.md](docs/protocol.md)を参照する。Commandは10byte、Statusは12byte、IMU通知はBLE・Wi-Fiとも後述のversion=3を使う。共通ライブラリーの範囲検査・補間・同期を利用する。
 
-DeviceInfo用のWrite Characteristic（`f3641406-00b0-4240-ba50-05ca45bf8abc`、最大20byte／書き込み）も同じServiceへ公開する。2026-10-31時点では窓口の追加のみで、受信後の解析・適用・応答は実装していない。diagram側も取得・保持までとし、機器情報の送信処理は作りかけのまま維持する。
+DeviceInfo用のWrite Characteristic（`f3641406-00b0-4240-ba50-05ca45bf8abc`、最大20byte／書き込み）も同じServiceへ公開する。diagramのBLE接続時にセンサーとアクチュエータの情報を送信し、ESP32は指令キューを経由して`loop()`で全件検証・保持する。`DeviceInfo accepted`と機器一覧、または`DeviceInfo rejected`をシリアルへ出力する。登録による機器初期化・サーボ有効化は行わない。形式は[protocol.md](docs/protocol.md)を参照する。分割転送・Wi-Fi転送・専用のアプリ側ACKは未実装で、GATT書込成功と内容の検証成功は区別する。
+
+IMU通知はversion=3で、8バイトのヘッダーに「種別・加速度3軸・角速度3軸」の13バイトレコードを登録IMU数だけ付ける。IMU1個は21バイトになり、BLEでは最低ATT MTU 24が必要。希望MTUは271だが相手との合意値を使い、不足するSTREAM要求はRANGEエラーとシリアルログで拒否する。現在のセンサー送信はIMU6Axisに限る。DeviceInfo未受信のSTREAM開始要求はFORMATエラーになる。Wi-Fiへ制御権を切り替える際は登録一覧を引き継ぎ、最大268バイトの同じ通知を送る。旧version=1のIMU通知は廃止した。
 
 ## 確認範囲
 

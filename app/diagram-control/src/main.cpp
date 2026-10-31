@@ -10,12 +10,39 @@
 #include <uroa_protocol.h>
 #include <uroa_servo.h>
 #include <atomic>
+#include <cstring>
+#include <math.h>
 #include "config.h"
 #include "network.h"
 
 namespace {
     using uroa::Pca9685Servos;
     using uroa::Protocol;
+
+    constexpr size_t DeviceInfoMaxLength = uroa::BleTransport::DeviceInfoMaxLength; ///< 機器情報の最大バイト数。
+    constexpr size_t DeviceTelemetryMaxLength = Protocol::DeviceTelemetryHeaderLength +
+        DeviceInfoMaxLength * Protocol::IMU6AxisRecordLength; ///< 最大20個のIMUレコードとヘッダー。
+    constexpr uint16_t NotificationHeaderLength = uroa::BleTransport::NotificationHeaderLength; ///< ATT通知のヘッダー長。
+
+    /** @brief diagramのDeviceTypeと共通の機器種別。宣言の受付はドライバーの実装・機器の存在を示さない。 */
+    enum class DeviceType : uint8_t {
+        IMU6Axis = 0,
+        IMU9Axis = 1,
+        UltrasonicDistanceSensor = 2,
+        Camera = 3,
+        ServoMotor = 128,
+    };
+
+    /** @brief 受信済み機器情報。channelとmodeはサーボの場合だけ使う。 */
+    struct DeviceInfoEntry {
+        DeviceType type;
+        uint8_t channel = 255;
+        uint8_t mode = 0;
+    };
+
+    DeviceInfoEntry deviceInfos[DeviceInfoMaxLength]; ///< loop()だけが更新する、受信順の機器一覧。
+    size_t deviceInfoCount = 0; ///< 一覧の有効件数。Wi-Fi切り替え時は維持し、終了・飽和時にloop()で消去する。
+    bool deviceInfoReceived = false; ///< STREAM開始前の機器登録状態。loop()だけが更新する。
 
     uroa::BleTransport bluetooth; ///< 稼働中保持するBLEサーバー。
     uroa::Mpu6050 imu(Wire); ///< loop()からだけI2C操作するIMU。
@@ -42,10 +69,14 @@ namespace {
         Protocol::Command command;
         uint32_t session;
         bool wifi = false;
+        bool isDeviceInfo = false;
+        uint8_t deviceInfoLength = 0;
+        uint8_t deviceInfoData[DeviceInfoMaxLength]{};
     };
 
     QueueHandle_t commands = nullptr; ///< 通信タスクからloop()へ渡す16件の指令キュー。
     std::atomic<bool> mustStop{false}; ///< 接続変更・キュー飽和時の出力とSTREAMの停止要求。
+    std::atomic<bool> resetDeviceInfo{false}; ///< 接続終了・新規BLE接続・キュー飽和時の機器一覧の消去要求。
     std::atomic<bool> urgentStop{false}; ///< 通常の指令キューを迂回するSTOP要求。
     std::atomic<uint16_t> urgentSeq{0}; ///< 優先STOPに応答するsequence。
     uint16_t streamHz = 0; ///< IMU通知周期。0は停止、5/10/20Hzを受け付ける。
@@ -70,8 +101,11 @@ namespace {
     void status(uint8_t code, uint16_t sequence, uint8_t channel = 255) {
         uint8_t packet[12];
         const auto *state = channel < 16 ? &servos.states[channel] : nullptr;
-        Protocol::status(packet, code, sequence, stateFlags(), channel, state ? state->current : 0,
-            state ? state->target : 0, servos.remaining(channel, millis()));
+        const bool speed = state && state->mode == Pca9685Servos::Mode::Speed;
+        const uint16_t current = speed ? uint16_t(int16_t(lroundf(state->speed * 100))) : state ? state->current : 0;
+        const uint16_t target = speed ? current : state ? state->target : 0;
+        Protocol::status(packet, code, sequence, stateFlags() | (speed ? Protocol::FLAG_SPEED : 0), channel, current,
+            target, servos.remaining(channel, millis()));
         if (!network.bleUnavailable()) {
             bluetooth.publishStatus(packet, sizeof packet);
         }
@@ -103,11 +137,108 @@ namespace {
         queued.session = generation;
         queued.wifi = wifi;
         if (xQueueSend(commands, &queued, 0) != pdTRUE) {
+            resetDeviceInfo.store(true);
             mustStop.store(true);
             if (wifi) {
                 network.stopControl();
             }
         }
+    }
+
+    /**
+     * @brief BLEタスクの機器情報を現在の接続世代とともにキューへコピーする。
+     * @param data コールバック中だけ有効な受信データ。
+     * @param length 受信バイト数。0は機器一覧の消去。
+     * @param generation 受信元のBLE接続世代。
+     * @details I2Cと機器情報の解釈は行わない。キュー飽和時は既存指令と同じ停止要求を出す。
+     */
+    void receiveDeviceInfo(const uint8_t *data, size_t length, uint32_t generation) {
+        if (network.connected.load() || !bluetooth.connected.load() || length > DeviceInfoMaxLength) {
+            return;
+        }
+        Queued queued{};
+        queued.session = generation;
+        queued.isDeviceInfo = true;
+        queued.deviceInfoLength = static_cast<uint8_t>(length);
+        if (length > 0) {
+            std::memcpy(queued.deviceInfoData, data, length);
+        }
+        if (xQueueSend(commands, &queued, 0) != pdTRUE) {
+            resetDeviceInfo.store(true);
+            mustStop.store(true);
+        }
+    }
+
+    /**
+     * @brief 機器情報を全件検証し、成功時だけ受信順の一覧を置き換える。
+     * @param data 種別1バイト、サーボの場合は続けてCH・モードを持つ受信データ。
+     * @param length 受信バイト数。0から20。
+     * @details loop()から呼ぶ。登録のみで機器初期化・サーボのARM・計測開始は行わない。
+     */
+    void handleDeviceInfo(const uint8_t *data, size_t length) {
+        if (length > DeviceInfoMaxLength) {
+            Serial.println("DeviceInfo rejected: payload too long");
+            return;
+        }
+        DeviceInfoEntry received[DeviceInfoMaxLength];
+        size_t count = 0;
+        size_t offset = 0;
+        while (offset < length) {
+            DeviceInfoEntry entry{};
+            entry.type = static_cast<DeviceType>(data[offset]);
+            switch (entry.type) {
+                case DeviceType::IMU6Axis:
+                case DeviceType::IMU9Axis:
+                case DeviceType::UltrasonicDistanceSensor:
+                case DeviceType::Camera:
+                    ++offset;
+                    break;
+                case DeviceType::ServoMotor:
+                    if (length - offset < 3 || data[offset + 1] >= 16 || data[offset + 2] > 1) {
+                        Serial.println("DeviceInfo rejected: invalid servo record");
+                        return;
+                    }
+                    entry.channel = data[offset + 1];
+                    entry.mode = data[offset + 2];
+                    offset += 3;
+                    break;
+                default:
+                    Serial.println("DeviceInfo rejected: unknown device type");
+                    return;
+            }
+            received[count] = entry;
+            ++count;
+        }
+        if (count > 0) {
+            std::memcpy(deviceInfos, received, count * sizeof(DeviceInfoEntry));
+        }
+        deviceInfoCount = count;
+        deviceInfoReceived = true;
+        Serial.printf("DeviceInfo accepted: bytes=%u devices=%u\n", static_cast<unsigned>(length),
+            static_cast<unsigned>(deviceInfoCount));
+        for (size_t index = 0; index < deviceInfoCount; ++index) {
+            const auto &entry = deviceInfos[index];
+            Serial.printf("DeviceInfo[%u]: type=%u channel=%u mode=%u\n", static_cast<unsigned>(index),
+                static_cast<unsigned>(entry.type), static_cast<unsigned>(entry.channel),
+                static_cast<unsigned>(entry.mode));
+        }
+    }
+
+    /**
+     * @brief 登録されたセンサーのTelemetryに必要な長さを求める。
+     * @return 必要なバイト数。未対応のセンサー種別を含む場合は0。
+     */
+    size_t deviceTelemetryLength() {
+        size_t length = Protocol::DeviceTelemetryHeaderLength;
+        for (size_t index = 0; index < deviceInfoCount; ++index) {
+            if (deviceInfos[index].type == DeviceType::IMU6Axis) {
+                length += Protocol::IMU6AxisRecordLength;
+            }
+            else if (deviceInfos[index].type != DeviceType::ServoMotor) {
+                return 0;
+            }
+        }
+        return length;
     }
 
     /**
@@ -125,6 +256,8 @@ namespace {
                 return Protocol::CODE_HARDWARE;
             case Pca9685Servos::Result::NotArmed:
                 return Protocol::CODE_NOT_ARMED;
+            case Pca9685Servos::Result::WrongMode:
+                return Protocol::CODE_MODE;
             default:
                 return Protocol::CODE_IO_ERROR;
         }
@@ -159,6 +292,26 @@ namespace {
                 status(Protocol::CODE_HARDWARE, sequence);
                 return;
             }
+            if (value) {
+                if (!deviceInfoReceived) {
+                    Serial.println("DeviceTelemetry requires DeviceInfo before STREAM");
+                    status(Protocol::CODE_FORMAT, sequence);
+                    return;
+                }
+                const size_t length = deviceTelemetryLength();
+                if (length == 0) {
+                    Serial.println("DeviceTelemetry unavailable: unsupported sensor type");
+                    status(Protocol::CODE_HARDWARE, sequence);
+                    return;
+                }
+                if (!network.connected.load() && length + NotificationHeaderLength > bluetooth.mtu.load()) {
+                    Serial.printf("DeviceTelemetry requires ATT MTU >= %u; current=%u\n",
+                        static_cast<unsigned>(length + NotificationHeaderLength),
+                        static_cast<unsigned>(bluetooth.mtu.load()));
+                    status(Protocol::CODE_RANGE, sequence);
+                    return;
+                }
+            }
             streamHz = value;
             lastSample = millis();
             status(Protocol::CODE_OK, sequence);
@@ -177,11 +330,18 @@ namespace {
         if (operation == Protocol::DISABLE) {
             result = servos.disable(channel);
         }
+        else if (operation == Protocol::ARM_SPEED) {
+            result = value == 0 && duration == 0 ? servos.armSpeed(channel) : Pca9685Servos::Result::Range;
+        }
+        else if (operation == Protocol::SET_SPEED) {
+            result = duration == 0 ? servos.setSpeed(channel, Protocol::readSigned16(bytes + 6) / 100.0f)
+                                   : Pca9685Servos::Result::Range;
+        }
         else if (operation == Protocol::ARM) {
-            result = servos.arm(channel, value, duration);
+            result = duration <= 10000 ? servos.armAngle(channel, value / 100.0f) : Pca9685Servos::Result::Range;
         }
         else {
-            result = servos.move(channel, value, duration, millis());
+            result = servos.moveAngle(channel, value / 100.0f, duration, millis());
         }
         // 出力失敗の自発通知と指令への受付結果を別々に返す。
         if (result == Pca9685Servos::Result::IoError && operation != Protocol::DISABLE) {
@@ -231,7 +391,11 @@ void setup() {
     wifiCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
         receive(data, length, generation, true);
     };
-    wifiCallbacks.session = [](bool, uint32_t) {
+    wifiCallbacks.session = [](bool connected, uint32_t) {
+        // BLEで受信した一覧をWi-Fi制御権の取得時だけ引き継ぐ。
+        if (!connected) {
+            resetDeviceInfo.store(true);
+        }
         mustStop.store(true);
     };
     wifiCallbacks.startBLE = [] {
@@ -250,12 +414,21 @@ void setup() {
     bleConfig.statusUuid = STATUS_UUID;
     bleConfig.configUuid = CONFIG_UUID;
     bleConfig.resultUuid = RESULT_UUID;
+    bleConfig.deviceInfoUuid = DEVICE_INFO_UUID;
+    bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
+    bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength;
     bleConfig.passkey = PAIRING_CODE;
     uroa::BleTransport::Callbacks bleCallbacks;
     bleCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
         receive(data, length, generation, false);
     };
+    bleCallbacks.deviceInfo = [](const uint8_t *data, size_t length, uint32_t generation) {
+        receiveDeviceInfo(data, length, generation);
+    };
     bleCallbacks.session = [](bool, uint32_t) {
+        if (!network.connected.load()) {
+            resetDeviceInfo.store(true);
+        }
         mustStop.store(true);
     };
     bleCallbacks.configure = [](const String &input) {
@@ -274,6 +447,10 @@ void loop() {
     if (mustStop.exchange(false)) {
         servos.allOff();
         streamHz = 0;
+        if (resetDeviceInfo.exchange(false)) {
+            deviceInfoCount = 0;
+            deviceInfoReceived = false;
+        }
         lastCommand = now;
         xQueueReset(commands);
         status(Protocol::CODE_OK, 0);
@@ -290,7 +467,12 @@ void loop() {
         if ((queued.wifi && network.connected.load() && queued.session == network.generation.load()) ||
             (!queued.wifi && !network.connected.load() && bluetooth.connected.load() &&
                 queued.session == bluetooth.generation.load())) {
-            handle(queued.command);
+            if (queued.isDeviceInfo) {
+                handleDeviceInfo(queued.deviceInfoData, queued.deviceInfoLength);
+            }
+            else {
+                handle(queued.command);
+            }
         }
     }
     now = millis();
@@ -315,12 +497,23 @@ void loop() {
             status(Protocol::CODE_IO_ERROR, 0);
         }
         else {
-            uint8_t packet[20];
-            Protocol::telemetry(packet, stateFlags(), ++sampleSeq, now, raw);
-            if (!network.bleUnavailable()) {
-                bluetooth.publishTelemetry(packet, sizeof packet);
+            const size_t length = deviceTelemetryLength();
+            if (length == 0 || (!network.connected.load() && length + NotificationHeaderLength > bluetooth.mtu.load())) {
+                streamHz = 0;
+                status(length == 0 ? Protocol::CODE_HARDWARE : Protocol::CODE_RANGE, 0);
             }
-            network.publish(packet, sizeof packet);
+            else {
+                uint8_t packet[DeviceTelemetryMaxLength];
+                const size_t imuCount = (length - Protocol::DeviceTelemetryHeaderLength) / Protocol::IMU6AxisRecordLength;
+                const size_t written = Protocol::deviceTelemetry(
+                    packet, sizeof packet, stateFlags(), ++sampleSeq, now, raw, imuCount);
+                if (written == length) {
+                    if (!network.bleUnavailable()) {
+                        bluetooth.publishTelemetry(packet, written);
+                    }
+                    network.publish(packet, written);
+                }
+            }
         }
     }
     network.tick();

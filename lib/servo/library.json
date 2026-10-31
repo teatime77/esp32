@@ -1,6 +1,6 @@
 {
   "name": "UroaServo",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "PCA9685 servo state and interpolation for teaching apps",
   "frameworks": "arduino",
   "platforms": "espressif32",

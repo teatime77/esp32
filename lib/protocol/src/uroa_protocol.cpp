@@ -1,11 +1,17 @@
 /**
  * @file uroa_protocol.cpp
- * @brief diagramと共有するprotocol v1のパケットを読み書きする。
+ * @brief diagramと共有するprotocol v1と機器種別付きTelemetryのパケットを読み書きする。
  */
 #include "uroa_protocol.h"
 #include <string.h>
 
 namespace uroa {
+    /** @brief 符号付き16bit値へ変換する。@param bytes 先頭バイト。@return 符号付き値。 */
+    int16_t Protocol::readSigned16(const uint8_t *bytes) {
+        const uint16_t value = read16(bytes);
+        return value >= 0x8000 ? int32_t(value) - 0x10000 : value;
+    }
+
     /**
      * @brief little endianの16bit値を読み取る。
      * @param b 変換する値の先頭バイト。
@@ -57,7 +63,7 @@ namespace uroa {
      */
     bool Protocol::valid(const Command &command) {
         const auto *b = command.bytes;
-        return b[0] == 1 && b[5] == 0 && b[1] >= ARM && b[1] <= DISABLE;
+        return b[0] == 1 && b[5] == 0 && b[1] >= ARM && b[1] <= SET_SPEED;
     }
 
     /**
@@ -97,24 +103,37 @@ namespace uroa {
     }
 
     /**
-     * @brief IMUの14バイトから温度を除いた6軸を20バイトのTelemetryへ詰める。
-     * @param out 出力先バッファーまたはJSONオブジェクト。
-     * @param flags 機器・制御・通知の状態フラグ。
-     * @param sequence 16bitで周回するsequence。
-     * @param now 呼出元の現在時刻（ms、周回あり）。
-     * @param raw 加速度・温度・角速度を含む14バイトの生データ。
+     * @brief version 3のヘッダーと、種別・加速度・角速度の順のIMUレコードを作る。
+     * @param out 出力バッファー。
+     * @param capacity 出力領域のバイト数。
+     * @param flags 機器・制御状態。
+     * @param sequence 通知のsequence。
+     * @param now 取得時刻millis。
+     * @param raw MPU-6050の14バイト。
+     * @param imuCount IMU6Axisレコードの数。
+     * @return 出力バイト数。容量不足なら0で、出力は変更しない。
      */
-    void Protocol::telemetry(uint8_t *out, uint8_t flags, uint16_t sequence, uint32_t now, const uint8_t *raw) {
-        out[0] = 1;
+    size_t Protocol::deviceTelemetry(uint8_t *out, size_t capacity, uint8_t flags, uint16_t sequence, uint32_t now,
+        const uint8_t *raw, size_t imuCount) {
+        if (capacity < DeviceTelemetryHeaderLength ||
+            imuCount > (capacity - DeviceTelemetryHeaderLength) / IMU6AxisRecordLength) {
+            return 0;
+        }
+        out[0] = DeviceTelemetryVersion;
         out[1] = flags;
         write16(out + 2, sequence);
         write32(out + 4, now);
-        // センサーはbig endian、通信はlittle endianなので軸ごとにバイトを交換する。
-        for (int i = 0; i < 3; ++i) {
-            out[8 + 2 * i] = raw[2 * i + 1];
-            out[9 + 2 * i] = raw[2 * i];
-            out[14 + 2 * i] = raw[9 + 2 * i];
-            out[15 + 2 * i] = raw[8 + 2 * i];
+        size_t offset = DeviceTelemetryHeaderLength;
+        for (size_t index = 0; index < imuCount; ++index) {
+            out[offset] = IMU6AxisDeviceType;
+            for (size_t axis = 0; axis < 3; ++axis) {
+                out[offset + 1 + 2 * axis] = raw[2 * axis + 1];
+                out[offset + 2 + 2 * axis] = raw[2 * axis];
+                out[offset + 7 + 2 * axis] = raw[9 + 2 * axis];
+                out[offset + 8 + 2 * axis] = raw[8 + 2 * axis];
+            }
+            offset += IMU6AxisRecordLength;
         }
+        return offset;
     }
 }
