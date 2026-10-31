@@ -1,6 +1,6 @@
 # diagram-control
 
-uroaのdiagramからESP32の角度サーボとIMUをBLEまたはWi-Fiで操作するアプリ。既存の`uroa/esp32-ble-lab/firmware`をもとに、新しい共通ライブラリーの公開状態APIへ移行した。ESP32 DevKit V1とXIAO ESP32-S3 Senseを対象とし、SenseではWi-Fi接続時にJPEGカメラも使える。
+uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはWi-Fiで操作するアプリ。既存の`uroa/esp32-ble-lab/firmware`をもとに、新しい共通ライブラリーの公開状態APIへ移行した。ESP32 DevKit V1、XIAO ESP32-S3 Sense、ESP32-S3 SuperMiniを対象とし、SenseではWi-Fi接続時にJPEGカメラも使える。
 
 ## 構成
 
@@ -16,11 +16,12 @@ uroaのdiagramからESP32の角度サーボとIMUをBLEまたはWi-Fiで操作�
 
 ## ビルドと書き込み
 
-VS Codeで`app/diagram-control/`を開き、PlatformIOの対象環境を選ぶ。既定はXIAO向けの`xiao_esp32s3`。DevKitでは`esp32dev`を指定する。以下はリポジトリールートから実行する。
+VS Codeで`app/diagram-control/`を開き、PlatformIOの対象環境を選ぶ。既定はXIAO向けの`xiao_esp32s3`。DevKitでは`esp32dev`、SuperMiniでは`supermini_esp32s3`を指定する。以下はリポジトリールートから実行する。
 
 ```powershell
 pio run --project-dir app/diagram-control -e esp32dev
 pio run --project-dir app/diagram-control -e xiao_esp32s3
+pio run --project-dir app/diagram-control -e supermini_esp32s3
 # 書き込み先のCOM番号と対象環境を実機に合わせて指定する。
 pio run --project-dir app/diagram-control -e xiao_esp32s3 -t upload --upload-port COM4
 pio device monitor --project-dir app/diagram-control -e xiao_esp32s3 --port COM4
@@ -30,15 +31,15 @@ pio device monitor --project-dir app/diagram-control -e xiao_esp32s3 --port COM4
 
 ## 配線
 
-[配線表](docs/wiring.md)を参照する。DevKitはSDA=GPIO21・SCL=GPIO22、XIAOはSDA=D4/GPIO5・SCL=D5/GPIO6。PCA9685（0x40）とGY-521（0x68/0x69）を共通の100kHz I2Cへ接続する。サーボ電源は外部5V、I2Cのロジックとプルアップは3.3V、GNDは共通とする。
+[配線表](docs/wiring.md)を参照する。DevKitはSDA=GPIO21・SCL=GPIO22、XIAOはSDA=D4/GPIO5・SCL=D5/GPIO6、SuperMiniはSDA=GPIO8・SCL=GPIO9。PCA9685（0x40）とGY-521（0x68/0x69）を共通の100kHz I2Cへ接続する。サーボ電源は外部5V、I2Cのロジックとプルアップは3.3V、GNDは共通とする。
 
-SenseのカメラにはPSRAMが必要。画像はJPEG、320×240、品質16、フレームバッファー1個。カメラなし・PSRAMなしでは利用不可として扱う。マイク・SDカードは使わない。DevKitのカメラ要求はHTTP 503となる。
+SenseのカメラにはPSRAMが必要。画像はJPEG、320×240、品質16、フレームバッファー1個。カメラなし・PSRAMなしでは利用不可として扱う。マイク・SDカードは使わない。DevKitとSuperMiniのカメラ要求はHTTP 503となる。
 
 ## diagramから使う
 
 1. uroa側で`npm.cmd run dev`を起動し、ChromeなどWeb Bluetooth対応ブラウザーでdiagramを開く。別端末から使う場合はHTTPSが必要。
 2. BLE接続ブロックで`ESP32-Diagram-Control`を選ぶ。サービスUUIDは既存BLE Labと同じで、diagram側の変更は不要。
-3. サーボはServoMotorBlockのCHを設定し、「90°で有効化」を明示してから角度を送る。初期範囲は60〜120度、移動時間は0〜10000ms、CHは0〜15。
+3. サーボはServoMotorBlockのCHと角度／速度モードを選ぶ。角度は「90°で有効化」の後に60〜120度を指定し、移動時間は0〜10000ms。速度は「0%で有効化」の後に−100〜100%を指定し、時間補間はしない。CHは0〜15。モード変更はCHを無効化し、再有効化を必要とする。
 4. IMUBlockを置くとdiagramがSTREAMを要求する。gyro・accを先頭のIMU出力からPlotBlockへ渡せる。このアプリは倒立用Balance通知を送らない。
 5. 「全サーボ停止」またはdiagramのStopで全PWMと待機指令を止める。IMU通知は継続し、STREAM=0で通知を停止する。
 
@@ -61,8 +62,41 @@ Wi-Fiで制御権を取得するとBLE指令を抑止し、BLEを遅延停止す
 
 バイナリ形式は[protocol v1](docs/protocol.md)を参照する。Commandは10byte、Statusは12byte、IMUは20byte。共通ライブラリーの範囲検査・補間・同期を利用する。
 
+DeviceInfo用のWrite Characteristic（`f3641406-00b0-4240-ba50-05ca45bf8abc`、最大20byte／書き込み）も同じServiceへ公開する。2026-10-31時点では窓口の追加のみで、受信後の解析・適用・応答は実装していない。diagram側も取得・保持までとし、機器情報の送信処理は作りかけのまま維持する。
+
 ## 確認範囲
 
 検証結果は[ビルドと検証](../../docs/build-and-test.md)へ記録する。ビルドと実機の動作確認を区別し、Upload・実BLE/Wi-Fi・カメラ・サーボ・IMUの確認は実施後に記録する。
 
 元のMITライセンス表記は[LICENSE](LICENSE)に保持する。
+
+## 連続回転サーボ
+
+FS90Rでは速度0%が中立パルス、正負が回転方向を表す。実測速度ではない。「速度0で停止」は有効状態を保ち、「このCHを無効化」と全体STOPはPWMを無効化する。中立や回転方向は個体・取り付けに合わせて確認する。
+
+CHごとの中立と反転は、`src/main.cpp`の`servoConfig()`で返す前に設定できる。
+
+```cpp
+config.speed[0].neutralUs = 1500;
+config.speed[0].spanUs = 500;
+config.speed[0].direction = 1;
+config.speed[1].direction = -1;
+```
+
+新しい速度操作にはこのアプリの更新後のファームウェアが必要。旧BLE Labでは角度操作を引き続き利用できるが、速度操作は拒否される。通信形式は[Protocol拡張](docs/protocol.md)を参照する。
+
+## ESP32-S3 SuperMini
+
+VS CodeのPlatformIO Project Tasksで`supermini_esp32s3`を選び、Build・Upload・Monitorを実行する。既定環境はXIAOのままなので、環境を明示する。以下はリポジトリールートからの例。COM5は実際の接続ポートへ合わせる。
+
+```powershell
+pio run --project-dir app/diagram-control -e supermini_esp32s3
+pio run --project-dir app/diagram-control -e supermini_esp32s3 -t upload --upload-port COM5
+pio device monitor --project-dir app/diagram-control -e supermini_esp32s3 --port COM5
+```
+
+既存のSuperMini教材と同じGPIO8/9と4MB Flashの構成を引き継ぐ。PlatformIOの汎用S3ボード定義を基に、Flash 4MB・DIO・4MB用パーティション・USB CDCを指定し、PSRAMを前提としない。SuperMiniの製品名だけで全基板のFlash容量や配線を自動判別するものではない。
+
+BLE表示名は`ESP32-Diagram-Control`。ServoMotorBlockの角度／速度指定、IMUBlock、BLEによるWi-Fi設定とWi-Fi制御は共通。カメラは搭載しない構成で、CameraBlockのXIAO画像取得は利用しない。起動時の期待ログは`I2C config: SDA=GPIO8 SCL=GPIO9 ...`。PWMの自動有効化は行わず、SG90は90度、FS90Rは速度0%で明示的に有効化する。
+
+新しい環境のビルド結果と実機確認の範囲は[検証記録](../../docs/build-and-test.md)を参照する。

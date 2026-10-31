@@ -24,7 +24,7 @@ esp32/
 | [ble](lib/ble/README.md) | BLE指令受信、接続世代、Status/Telemetry通知、認証済み設定窓口 |
 | [wifi](lib/wifi/README.md) | Wi-Fi設定、NVS、mDNS、認証付きHTTP/WebSocket |
 | [protocol](lib/protocol/README.md) | 指令・Status・IMUのバイナリ形式 |
-| [servo](lib/servo/README.md) | PCA9685の角度サーボ16CH、明示ARM、補間、停止 |
+| [servo](lib/servo/README.md) | PCA9685の角度／連続回転サーボ16CH、明示ARM、角度補間、速度指令、停止 |
 | [imu](lib/imu/README.md) | MPU-6050の探索・初期化・14バイト取得 |
 | [plot](lib/plot/README.md) | 6系列を20バイトのプロット通知へ変換 |
 

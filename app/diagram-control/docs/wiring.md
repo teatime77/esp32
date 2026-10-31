@@ -1,6 +1,6 @@
 # 配線表
 
-diagram-control用のDevKit V1とXIAO ESP32S3／Senseの配線表です。2026-10-20、XIAOのSDA=D4（GPIO5）、SCL=D5（GPIO6）の設定をソースで再確認しました。PCA9685とMPU6050／GY-521は同じI²Cバスへ並列に接続します。
+以下はdiagram-control用のDevKit V1とXIAO ESP32S3／Senseの配線表です。SuperMiniは後述の専用配線を参照します。2026-10-20、XIAOのSDA=D4（GPIO5）、SCL=D5（GPIO6）の設定をソースで再確認しました。PCA9685とMPU6050／GY-521は同じI²Cバスへ並列に接続します。
 
 | DevKit V1の接続元 | XIAO ESP32S3／Senseの接続元 | 接続先 | 備考 |
 |---|---|---|---|
@@ -45,3 +45,17 @@ PCA9685=OK MPU6050=OK (0x68)
 MPU6050のアドレスが`0x69`の基板では末尾も`0x69`となる。`MISSING`の場合は電源・GND・SDA/SCL・アドレスを確認してから再起動する。diagramではDevKitと同じServoMotorBlock・IMUBlock・PlotBlockを使い、サーボは接続後に「90°で有効化」を明示する。起動・再接続だけでは動かさない。
 
 BLE利用時は付属アンテナをXIAOのWiFi/BTアンテナ端子へ取り付ける。[Seeed公式の取り付け説明](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/#installation-of-antenna)を参照する。
+
+## ESP32-S3 SuperMiniで使う場合
+
+`supermini_esp32s3`環境を選ぶと、共通のPCA9685・GY-521のSDAをGPIO8、SCLをGPIO9へ接続する。DevKit用のGPIO21/22、XIAO用のGPIO5/6とは配線が異なる。
+
+| SuperMiniの接続元 | 接続先 |
+|---|---|
+| GPIO8 | PCA9685 SDA・GY-521 SDA |
+| GPIO9 | PCA9685 SCL・GY-521 SCL |
+| 3V3 | PCA9685 VCC・3.3V入力に対応するGY-521 VCC |
+| GND | PCA9685・GY-521・サーボ外部電源の共通GND |
+| 外部5V | PCA9685のサーボ電源V+ |
+
+角度サーボSG90と連続回転サーボFS90RをPCA9685の任意のCHへ接続し、diagram側でCHと角度／速度モードを合わせる。I2Cのプルアップは3.3V、サーボは外部電源を使う。SuperMini環境はカメラ・PSRAMを使わない。USB接続・書き込み方法は[アプリREADME](../README.md)を参照する。実機の中立パルスと回転方向は別途確認する。

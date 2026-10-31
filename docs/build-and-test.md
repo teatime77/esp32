@@ -67,3 +67,67 @@ pio run --project-dir app/diagram-control -e xiao_esp32s3
 - 指令はloop()で処理し、STOPを優先すること、現在の通信経路・接続世代を照合すること、サーボ自動ARMを行わないことをソースで確認した。
 
 起動、サーボの移動・停止、IMU通知、BLE/Wi-Fi切り替え、NVSの引継ぎ、カメラJPEG、Android・ブラウザーとの実通信は未確認。ハードウェアを模擬して実行する試験も行っていない。今回、実機への書き込みは実施していない。
+
+
+## 角度／速度モード（2026-10-28）
+
+Servo・Protocolを0.3.0へ更新し、diagram-controlでmoveAngle()とsetSpeed()を使い分ける。角度用opcode 1/2を維持して速度用opcode 8/9を追加し、Status bit4とcode=7でモードを区別する。旧C++のarm()/move()は互換窓口として残す。
+
+| 環境 | 結果 | RAM | Flash |
+|---|---|---|---|
+| esp32dev | SUCCESS | 59,192 / 327,680 bytes | 1,155,997 / 1,310,720 bytes |
+| xiao_esp32s3 | SUCCESS | 59,528 / 327,680 bytes | 1,055,593 / 3,342,336 bytes |
+
+同じ相対配置の検証用プロジェクトでespressif32@6.10.0を使い、コンパイル・リンク・バイナリー生成を確認した。既存ビルドキャッシュと短いパッケージ参照を利用した。コード書式・ヘッダーの分離とプロトコルの定義を静的確認した。
+
+uroa側はnpm.cmd run verifyと模擬BLEのサーボテスト12件が成功。新しい速度操作・切り替え・取消・旧JSONと既存角度操作を確認した。実機のI2Cを模擬実行した試験、書き込み、実BLE/Wi-Fi・サーボの中立/方向/実速度/停止は未確認。
+
+## diagram-controlのSuperMini対応（2026-10-28）
+
+`supermini_esp32s3`環境を追加した。SDA=GPIO8・SCL=GPIO9、Flash 4MB・DIO・USB CDC、PSRAM未使用。既定環境のXIAOは変更せず、SuperMiniを使う場合は環境を明示する。配線とBuild・Upload・Monitor手順は[アプリREADME](../app/diagram-control/README.md)を参照する。
+
+同じ相対配置の一時作業フォルダーでビルドし、3環境ともコンパイル・リンク・サイズ確認・バイナリー生成に成功した。
+
+| 環境 | 結果 | 時間 | RAM | Flash |
+|---|---|---|---|---|
+| esp32dev | SUCCESS | 220.13秒 | 59,192 / 327,680 bytes | 1,155,997 / 1,310,720 bytes |
+| xiao_esp32s3 | SUCCESS | 222.83秒 | 59,528 / 327,680 bytes | 1,055,593 / 3,342,336 bytes |
+| supermini_esp32s3 | SUCCESS | 238.67秒 | 55,452 / 327,680 bytes | 1,012,721 / 1,310,720 bytes |
+
+SuperMiniは4MB Flash用のパーティションでアプリ領域1,310,720 bytesに収まった。3基板のSDA/SCL分岐も静的アサートを使ってコンパイル確認した。今回、外部依存を含む3環境の再ビルドで合計11分21秒かかった。コード書式・文書リンクを確認し、共通ライブラリーとアプリの制御処理は変更していない。
+
+実機への書き込み・起動・USB CDC・BLE/Wi-Fi・サーボ・IMUは未確認。ビルド成功から実機の動作確認済みとは扱わない。
+
+
+## カレントフォルダーからビルド・Upload
+
+[bin/build.ps1](../bin/build.ps1)は、実行時のカレントフォルダーの`platformio.ini`を使う。`pio run --target upload`を1回実行し、ビルドに成功すると書き込む。失敗時はPlatformIOの終了コードを返す。
+
+```powershell
+cd D:\usr\prj\esp32\app\diagram-control
+D:\usr\prj\esp32\bin\build.ps1
+# 環境とポートを明示する場合
+D:\usr\prj\esp32\bin\build.ps1 -Environment supermini_esp32s3 -Port COM5
+```
+
+引数を省略すると環境は`default_envs`に従う。`default_envs`がない場合はPlatformIOの標準動作で全環境が対象になる。ポートは`upload_port`などのPlatformIO設定に従い、未指定なら自動検出する。COM5は例であり、実際の接続先に合わせる。このスクリプトはMonitorを起動しない。
+
+PATH上の`pio`または`platformio`を探し、見つからなければ`%USERPROFILE%\.platformio\penv\Scripts\platformio.exe`を使う。
+
+
+## カレントフォルダーからシリアルモニターを開く
+
+[bin/serial.ps1](../bin/serial.ps1)は、カレントフォルダーで`pio device monitor --project-dir <カレントフォルダー>`を実行する。
+
+```powershell
+cd D:\usr\prj\esp32\app\diagram-control
+D:\usr\prj\esp32\bin\serial.ps1
+# 必要に応じて環境とポートを指定する
+D:\usr\prj\esp32\bin\serial.ps1 -Environment supermini_esp32s3 -Port COM5
+```
+
+ポート引数を省略すると`monitor_port`の設定を使い、その設定もなければPlatformIOが自動検出する。複数のボードを接続して目的のポートが選ばれない場合は`-Port`を指定する。通信速度、DTR、RTSなどは選択された環境の`platformio.ini`設定を使う。環境を省略した場合もPlatformIOの既定環境選択に従う。
+
+終了は`Ctrl+C`。Uploadする前にモニターを終了してポートを解放する。PlatformIOの探索方法は`build.ps1`と共通で、実行ファイルの配置場所がPATHになくても標準の仮想環境から起動できる。
+
+参照: [PlatformIOのシリアルモニター](https://docs.platformio.org/en/latest/core/userguide/device/cmd_monitor.html)。
