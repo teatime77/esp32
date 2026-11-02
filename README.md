@@ -1,6 +1,6 @@
 # ESP32教材と共有ライブラリー
 
-VS CodeとPlatformIOで開発するESP32向けの教材アプリと共通C++ライブラリー。共有部分はuroaの`esp32/lib/`をもとに、ヘッダーと実装を分離し、単純なアクセサを公開メンバーへ変更した。6ライブラリーと、diagramから指示して動かす[diagram-control](app/diagram-control/README.md)を配置する。倒立ロボットのアプリは含めない。
+VS CodeとPlatformIOで開発するESP32向けの教材アプリと共通C++ライブラリー。共有部分はuroaの`esp32/lib/`をもとに、ヘッダーと実装を分離し、単純なアクセサを公開メンバーへ変更した。7ライブラリーと、diagramから指示して動かす[diagram-control](app/diagram-control/README.md)を配置する。倒立ロボットのアプリは含めない。
 
 ```text
 esp32/
@@ -14,7 +14,8 @@ esp32/
    ├─ protocol/  # Protocol
    ├─ servo/     # Pca9685Servos
    ├─ imu/       # Mpu6050
-   └─ plot/      # PlotTelemetry
+   ├─ plot/      # PlotTelemetry
+   └─ ultrasonic/ # HcSr04
 ```
 
 各ライブラリーは`library.json`、`README.md`、`include/uroa_*.h`、`src/uroa_*.cpp`を持つ。PlatformIOの既定値で`include/`と`src/`を利用できる。各ライブラリーのREADMEに呼び出し例と制約を記載する。
@@ -27,6 +28,7 @@ esp32/
 | [servo](lib/servo/README.md) | PCA9685の角度／連続回転サーボ16CH、明示ARM、角度補間、速度指令、停止 |
 | [imu](lib/imu/README.md) | MPU-6050の探索・初期化・14バイト取得 |
 | [plot](lib/plot/README.md) | 6系列を20バイトのプロット通知へ変換 |
+| [ultrasonic](lib/ultrasonic/README.md) | HC-SR04のGPIO初期化・同期距離測定（cm） |
 
 開発は[コーディング規約](docs/coding-style.md)、構成とAPI変更は[設計](docs/architecture.md)、ビルド方法と検証範囲は[検証記録](docs/build-and-test.md)を参照する。
 

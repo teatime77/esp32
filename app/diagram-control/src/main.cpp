@@ -1,7 +1,8 @@
 /**
  * @file main.cpp
- * @brief diagramのBLE/Wi-Fi指令でサーボを操作し、IMUの生データを返す。
- * @details 通信タスクは指令をキューへコピーし、I2C・応答・停止・周期処理はloop()に集約する。
+ * @brief diagramのBLE/Wi-Fi指令でサーボを操作し、登録されたIMU・距離の測定値を返す。
+ * @details 通信タスクは指令をキューへコピーし、I2C・応答・停止・送信はloop()で行う。
+ * HC-SR04のGPIOと同期測定は専用タスクだけが操作し、測定結果をキューでloop()へ渡す。
  */
 #include <Arduino.h>
 #include <Wire.h>
@@ -9,6 +10,7 @@
 #include <uroa_imu.h>
 #include <uroa_protocol.h>
 #include <uroa_servo.h>
+#include <uroa_ultrasonic.h>
 #include <atomic>
 #include <cstring>
 #include <math.h>
@@ -22,7 +24,8 @@ namespace {
     constexpr size_t DeviceInfoMaxLength = uroa::BleTransport::DeviceInfoMaxLength; ///< 機器情報の最大バイト数。
     constexpr size_t DeviceTelemetryMaxLength = Protocol::DeviceTelemetryHeaderLength +
         DeviceInfoMaxLength * Protocol::IMU6AxisRecordLength; ///< 最大20個のIMUレコードとヘッダー。
-    constexpr uint16_t NotificationHeaderLength = uroa::BleTransport::NotificationHeaderLength; ///< ATT通知のヘッダー長。
+    constexpr uint16_t NotificationHeaderLength =
+        uroa::BleTransport::NotificationHeaderLength; ///< ATT通知のヘッダー長。
 
     /** @brief diagramのDeviceTypeと共通の機器種別。宣言の受付はドライバーの実装・機器の存在を示さない。 */
     enum class DeviceType : uint8_t {
@@ -46,6 +49,29 @@ namespace {
 
     uroa::BleTransport bluetooth; ///< 稼働中保持するBLEサーバー。
     uroa::Mpu6050 imu(Wire); ///< loop()からだけI2C操作するIMU。
+
+    /**
+     * @brief config.hのGPIO割り当てを超音波センサーの設定へ渡す。
+     * @return 教材側が指定したTRIGとECHOのGPIO設定。
+     */
+    uroa::HcSr04::Config ultrasonicConfig() {
+        uroa::HcSr04::Config config;
+        config.triggerPin = ULTRASONIC_TRIGGER_PIN;
+        config.echoPin = ULTRASONIC_ECHO_PIN;
+        return config;
+    }
+
+    uroa::HcSr04 ultrasonic(ultrasonicConfig()); ///< 初期化・測定・公開値の参照はultrasonicTask()だけが行う。
+
+    /** @brief 超音波測定タスクからloop()へ渡す、測定要求の世代と距離。 */
+    struct UltrasonicSample {
+        uint32_t request = 0;
+        uint16_t distanceMm = Protocol::InvalidDistanceMm;
+    };
+
+    QueueHandle_t ultrasonicSamples = nullptr; ///< setup()が確保する最新1件の測定結果キュー。稼働中は破棄しない。
+    std::atomic<bool> ultrasonicReady{false}; ///< 超音波タスクが更新するGPIO設定の結果。センサー検出ではない。
+    std::atomic<uint32_t> ultrasonicRequest{0}; ///< loop()が更新する要求。bit0は測定有効、残りは要求の世代。
 
     /**
      * @brief 教材の設定から角度サーボの設定を組み立てる。
@@ -79,10 +105,75 @@ namespace {
     std::atomic<bool> resetDeviceInfo{false}; ///< 接続終了・新規BLE接続・キュー飽和時の機器一覧の消去要求。
     std::atomic<bool> urgentStop{false}; ///< 通常の指令キューを迂回するSTOP要求。
     std::atomic<uint16_t> urgentSeq{0}; ///< 優先STOPに応答するsequence。
-    uint16_t streamHz = 0; ///< IMU通知周期。0は停止、5/10/20Hzを受け付ける。
-    uint16_t sampleSeq = 0; ///< IMU通知sequence。16bitで周回する。
+    uint16_t streamHz = 0; ///< 登録センサーの通知周期。0は停止、5/10/20Hzを受け付ける。
+    uint16_t sampleSeq = 0; ///< センサー通知sequence。16bitで周回する。
     uint32_t lastCommand = 0; ///< 最後に有効形式の指令を受け付けた時刻（ms）。
-    uint32_t lastSample = 0; ///< 最後にIMUを読み取った時刻（ms）。
+    uint32_t lastSample = 0; ///< 最後にセンサー通知を組み立てた時刻（ms）。
+
+    /**
+     * @brief 測定要求の世代を進め、過去の超音波サンプルを無効化する。
+     * @param enabled 登録済み距離センサーのSTREAMが有効ならtrue。
+     * @details loop()だけが呼ぶ。測定途中の旧世代の結果は送信側で破棄する。
+     */
+    void setUltrasonicSampling(bool enabled) {
+        const uint32_t next = (ultrasonicRequest.load() + 2U) & ~uint32_t(1);
+        ultrasonicRequest.store(next | (enabled ? 1U : 0U));
+    }
+
+    /** @brief loop()から通知と超音波測定要求を停止し、旧サンプルを無効化する。 */
+    void stopTelemetry() {
+        streamHz = 0;
+        setUltrasonicSampling(false);
+    }
+
+    /**
+     * @brief HC-SR04を初期化し、有効な要求について100ms以上あけて同期測定する。
+     * @param unused FreeRTOSのタスク引数。このタスクでは使用しない。
+     * @details GPIOとHcSr04の状態はこのタスクだけで扱い、loop()のSTOP・サーボ処理を待たせない。
+     */
+    void ultrasonicTask(void *unused) {
+        (void)unused;
+        const bool initialized = ultrasonic.begin();
+        Serial.printf("HC-SR04 config: TRIG=GPIO%d ECHO=GPIO%d GPIO init=%s\n", ULTRASONIC_TRIGGER_PIN,
+            ULTRASONIC_ECHO_PIN, initialized ? "OK" : "FAILED");
+        ultrasonicReady.store(initialized);
+        if (!initialized) {
+            vTaskDelete(nullptr);
+            return;
+        }
+        while (true) {
+            const uint32_t request = ultrasonicRequest.load();
+            if ((request & 1U) != 0) {
+                const uroa::HcSr04::Result result = ultrasonic.read();
+                if (result != uroa::HcSr04::Result::TooSoon) {
+                    UltrasonicSample sample;
+                    sample.request = request;
+                    if (result == uroa::HcSr04::Result::Ok) {
+                        sample.distanceMm = static_cast<uint16_t>(lroundf(ultrasonic.distanceCm * 10.0f));
+                    }
+                    if (ultrasonicRequest.load() == request) {
+                        xQueueOverwrite(ultrasonicSamples, &sample);
+                    }
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(ULTRASONIC_SAMPLE_INTERVAL_MS));
+        }
+    }
+
+    /**
+     * @brief 現在の測定要求と世代が一致する最新の距離だけをキューから読む。
+     * @return 距離mm。未測定・失敗・旧世代・測定停止中ではInvalidDistanceMm。
+     * @details loop()からだけ呼ぶ。20Hz送信では同じ測定値を複数回使うことがある。
+     */
+    uint16_t currentDistanceMm() {
+        const uint32_t request = ultrasonicRequest.load();
+        UltrasonicSample sample;
+        if ((request & 1U) == 0 || ultrasonicSamples == nullptr ||
+            xQueuePeek(ultrasonicSamples, &sample, 0) != pdTRUE || sample.request != request) {
+            return Protocol::InvalidDistanceMm;
+        }
+        return sample.distanceMm;
+    }
 
     /**
      * @brief StatusとTelemetryへ含める機器・制御状態を組み立てる。
@@ -214,6 +305,8 @@ namespace {
         }
         deviceInfoCount = count;
         deviceInfoReceived = true;
+        // 一覧の置換では旧測定を持ち越さず、新しいSTREAM指令を待つ。
+        stopTelemetry();
         Serial.printf("DeviceInfo accepted: bytes=%u devices=%u\n", static_cast<unsigned>(length),
             static_cast<unsigned>(deviceInfoCount));
         for (size_t index = 0; index < deviceInfoCount; ++index) {
@@ -225,20 +318,81 @@ namespace {
     }
 
     /**
-     * @brief 登録されたセンサーのTelemetryに必要な長さを求める。
-     * @return 必要なバイト数。未対応のセンサー種別を含む場合は0。
+     * @brief 指定種別のセンサーが現在のDeviceInfoにあるか調べる。
+     * @param type 探すセンサー種別。
+     * @return 1件でも登録されていればtrue。
      */
-    size_t deviceTelemetryLength() {
-        size_t length = Protocol::DeviceTelemetryHeaderLength;
+    bool hasSensor(DeviceType type) {
         for (size_t index = 0; index < deviceInfoCount; ++index) {
-            if (deviceInfos[index].type == DeviceType::IMU6Axis) {
-                length += Protocol::IMU6AxisRecordLength;
-            }
-            else if (deviceInfos[index].type != DeviceType::ServoMotor) {
-                return 0;
+            if (deviceInfos[index].type == type) {
+                return true;
             }
         }
-        return length;
+        return false;
+    }
+
+    /**
+     * @brief DeviceInfoからサーボを除いたセンサー種別を受信順に取り出す。
+     * @param sensorTypes 最大20件の種別を受け取る配列。
+     * @return 配列へ格納したセンサー件数。未対応種別も長さ検査用に残す。
+     */
+    size_t copySensorTypes(uint8_t (&sensorTypes)[DeviceInfoMaxLength]) {
+        size_t count = 0;
+        for (size_t index = 0; index < deviceInfoCount; ++index) {
+            if (deviceInfos[index].type != DeviceType::ServoMotor) {
+                sensorTypes[count] = static_cast<uint8_t>(deviceInfos[index].type);
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * @brief 登録センサーの可変長通知に必要な容量を求める。
+     * @return 通知長。未対応のセンサー種別を含む場合は0。
+     */
+    size_t deviceTelemetryLength() {
+        uint8_t sensorTypes[DeviceInfoMaxLength];
+        const size_t count = copySensorTypes(sensorTypes);
+        return Protocol::deviceTelemetryLength(sensorTypes, count);
+    }
+
+    /**
+     * @brief 登録された機器だけを読み、同じTelemetryをBLEとWi-Fiへ渡す。
+     * @param now 通知を組み立てる時刻millis。距離は専用タスクの最新結果を使う。
+     * @details loop()からだけ呼ぶ。IMUを含まなければI2C読み取りは行わない。
+     */
+    void publishDeviceTelemetry(uint32_t now) {
+        uint8_t sensorTypes[DeviceInfoMaxLength];
+        const size_t count = copySensorTypes(sensorTypes);
+        const size_t length = Protocol::deviceTelemetryLength(sensorTypes, count);
+        if (length == 0 || (!network.connected.load() && length + NotificationHeaderLength > bluetooth.mtu.load())) {
+            stopTelemetry();
+            status(length == 0 ? Protocol::CODE_HARDWARE : Protocol::CODE_RANGE, 0);
+            return;
+        }
+        uint8_t raw[14];
+        const bool needsIMU = hasSensor(DeviceType::IMU6Axis);
+        if (needsIMU && (!imu.available || !imu.readRaw(raw))) {
+            stopTelemetry();
+            status(Protocol::CODE_IO_ERROR, 0);
+            return;
+        }
+        if (mustStop.load() || urgentStop.load()) {
+            return;
+        }
+        uint8_t packet[DeviceTelemetryMaxLength];
+        const size_t written = Protocol::deviceTelemetry(packet, sizeof packet, stateFlags(), ++sampleSeq, now,
+            sensorTypes, count, needsIMU ? raw : nullptr, currentDistanceMm());
+        if (written != length) {
+            stopTelemetry();
+            status(Protocol::CODE_FORMAT, 0);
+            return;
+        }
+        if (!network.bleUnavailable()) {
+            bluetooth.publishTelemetry(packet, written);
+        }
+        network.publish(packet, written);
     }
 
     /**
@@ -288,10 +442,6 @@ namespace {
                 status(Protocol::CODE_RANGE, sequence);
                 return;
             }
-            if (value && !imu.available) {
-                status(Protocol::CODE_HARDWARE, sequence);
-                return;
-            }
             if (value) {
                 if (!deviceInfoReceived) {
                     Serial.println("DeviceTelemetry requires DeviceInfo before STREAM");
@@ -304,6 +454,11 @@ namespace {
                     status(Protocol::CODE_HARDWARE, sequence);
                     return;
                 }
+                if ((hasSensor(DeviceType::IMU6Axis) && !imu.available) ||
+                    (hasSensor(DeviceType::UltrasonicDistanceSensor) && !ultrasonicReady.load())) {
+                    status(Protocol::CODE_HARDWARE, sequence);
+                    return;
+                }
                 if (!network.connected.load() && length + NotificationHeaderLength > bluetooth.mtu.load()) {
                     Serial.printf("DeviceTelemetry requires ATT MTU >= %u; current=%u\n",
                         static_cast<unsigned>(length + NotificationHeaderLength),
@@ -313,6 +468,7 @@ namespace {
                 }
             }
             streamHz = value;
+            setUltrasonicSampling(value != 0 && hasSensor(DeviceType::UltrasonicDistanceSensor));
             lastSample = millis();
             status(Protocol::CODE_OK, sequence);
             return;
@@ -352,7 +508,7 @@ namespace {
 }
 
 /**
- * @brief I2C機器を初期化して指令キュー、Wi-FiとBLEを開始する。
+ * @brief I2C機器、超音波測定タスク、指令キュー、Wi-FiとBLEを開始する。
  * @details 起動時にサーボを自動ARMしない。接続変更時も停止を予約する。
  */
 void setup() {
@@ -384,6 +540,18 @@ void setup() {
         Serial.println("Queue allocation failed");
         while (true) {
             delay(1000);
+        }
+    }
+
+    if (ULTRASONIC_TRIGGER_PIN >= 0 && ULTRASONIC_ECHO_PIN >= 0) {
+        ultrasonicSamples = xQueueCreate(1, sizeof(UltrasonicSample));
+        if (ultrasonicSamples == nullptr) {
+            Serial.println("HC-SR04 sample queue allocation failed");
+        }
+        else if (xTaskCreate(ultrasonicTask, "hc-sr04", 3072, nullptr, 1, nullptr) != pdPASS) {
+            vQueueDelete(ultrasonicSamples);
+            ultrasonicSamples = nullptr;
+            Serial.println("HC-SR04 task allocation failed");
         }
     }
 
@@ -441,12 +609,12 @@ void setup() {
     Serial.printf("BLE address: %s\n", NimBLEDevice::getAddress().toString().c_str());
 }
 
-/** @brief 停止を優先し、現接続の指令、サーボ補間、期限監視とIMU通知を進める。 */
+/** @brief 停止を優先し、現接続の指令、サーボ補間、期限監視と登録センサーの通知を進める。 */
 void loop() {
     uint32_t now = millis();
     if (mustStop.exchange(false)) {
         servos.allOff();
-        streamHz = 0;
+        stopTelemetry();
         if (resetDeviceInfo.exchange(false)) {
             deviceInfoCount = 0;
             deviceInfoReceived = false;
@@ -479,7 +647,7 @@ void loop() {
     if ((bluetooth.connected.load() || network.connected.load()) && now - lastCommand > HEARTBEAT_TIMEOUT_MS) {
         if (servos.anyArmed() || streamHz) {
             servos.allOff();
-            streamHz = 0;
+            stopTelemetry();
             status(Protocol::CODE_NOT_ARMED, 0);
         }
         network.stopControl();
@@ -488,33 +656,9 @@ void loop() {
     if (failedChannel >= 0) {
         status(Protocol::CODE_IO_ERROR, 0, failedChannel);
     }
-    if ((bluetooth.connected.load() || network.connected.load()) && imu.available && streamHz &&
-        now - lastSample >= 1000 / streamHz) {
+    if ((bluetooth.connected.load() || network.connected.load()) && streamHz && now - lastSample >= 1000 / streamHz) {
         lastSample = now;
-        uint8_t raw[14];
-        if (!imu.readRaw(raw)) {
-            streamHz = 0;
-            status(Protocol::CODE_IO_ERROR, 0);
-        }
-        else {
-            const size_t length = deviceTelemetryLength();
-            if (length == 0 || (!network.connected.load() && length + NotificationHeaderLength > bluetooth.mtu.load())) {
-                streamHz = 0;
-                status(length == 0 ? Protocol::CODE_HARDWARE : Protocol::CODE_RANGE, 0);
-            }
-            else {
-                uint8_t packet[DeviceTelemetryMaxLength];
-                const size_t imuCount = (length - Protocol::DeviceTelemetryHeaderLength) / Protocol::IMU6AxisRecordLength;
-                const size_t written = Protocol::deviceTelemetry(
-                    packet, sizeof packet, stateFlags(), ++sampleSeq, now, raw, imuCount);
-                if (written == length) {
-                    if (!network.bleUnavailable()) {
-                        bluetooth.publishTelemetry(packet, written);
-                    }
-                    network.publish(packet, written);
-                }
-            }
-        }
+        publishDeviceTelemetry(now);
     }
     network.tick();
     delay(2);

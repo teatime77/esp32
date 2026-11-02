@@ -17,6 +17,12 @@ namespace uroa {
         static constexpr size_t DeviceTelemetryHeaderLength = 8; ///< version・flags・sequence・millisの長さ。
         static constexpr size_t IMU6AxisRecordLength = 13; ///< 種別1バイトと加速度・角速度の6軸。
         static constexpr uint8_t IMU6AxisDeviceType = 0; ///< diagramのDeviceType::IMU6Axisと共通。
+        static constexpr size_t UltrasonicRecordLength = 3; ///< 種別1バイトと距離mmのuint16。
+        static constexpr uint8_t UltrasonicDeviceType = 2; ///< diagramのDeviceType::UltrasonicDistanceSensorと共通。
+        static constexpr uint16_t InvalidDistanceMm = 0xFFFF; ///< 距離の未測定・測定失敗を表す予約値。
+        static constexpr uint16_t MinDistanceMm = 20; ///< 有効距離の下限（mm）。
+        static constexpr uint16_t MaxDistanceMm = 4000; ///< 有効距離の上限（mm）。
+
         /**
          * @brief protocol v1の指令操作番号。
          */
@@ -111,17 +117,26 @@ namespace uroa {
         static void status(uint8_t *out, uint8_t code, uint16_t sequence, uint8_t flags, uint8_t channel = 255,
             uint16_t current = 0, uint16_t target = 0, uint16_t remaining = 0);
         /**
-         * @brief 登録された6軸IMUの数だけ種別付きレコードを連結する。
-         * @param out 出力バッファー。容量不足なら変更しない。
+         * @brief センサー種別の並びからversion 3の通知長を計算する。
+         * @param sensorTypes DeviceInfo順のセンサー種別。サーボは含めない。件数0ならnullptrも可。
+         * @param sensorCount センサーの件数。0ならヘッダー長だけを返す。
+         * @return 必要なバイト数。不正な配列・未対応種別・サイズのオーバーフローでは0。
+         */
+        static size_t deviceTelemetryLength(const uint8_t *sensorTypes, size_t sensorCount);
+        /**
+         * @brief DeviceInfo順のIMU・超音波距離レコードを連結する。測定・通信は行わない。
+         * @param out 出力バッファー。引数不正・容量不足なら変更しない。
          * @param capacity 出力領域のバイト数。
          * @param flags 機器・制御・通知の状態フラグ。
          * @param sequence 通知のsequence。
-         * @param now 取得時刻millis。
-         * @param raw MPU-6050の14バイト。加速度・温度・角速度の順。
-         * @param imuCount 受信順に並べるIMU6Axisレコードの数。同じ物理IMUの値を共有する。
-         * @return 出力バイト数。容量不足なら0。
+         * @param now 通知を組み立てるサンプル時刻millis。距離は直近の別周期の測定値。
+         * @param sensorTypes DeviceInfo順のセンサー種別。サーボは含めない。
+         * @param sensorCount センサーの件数。
+         * @param imuRaw MPU-6050の14バイト。同種別のレコードへ共有する。IMUがなければnullptrも可。
+         * @param distanceMm 20〜4000mm、またはInvalidDistanceMm。同種別のレコードへ共有する。
+         * @return 出力バイト数。引数不正・未対応種別・容量不足なら0。
          */
         static size_t deviceTelemetry(uint8_t *out, size_t capacity, uint8_t flags, uint16_t sequence, uint32_t now,
-            const uint8_t *raw, size_t imuCount);
+            const uint8_t *sensorTypes, size_t sensorCount, const uint8_t *imuRaw, uint16_t distanceMm);
     };
 }

@@ -59,3 +59,20 @@ BLE利用時は付属アンテナをXIAOのWiFi/BTアンテナ端子へ取り付
 | 外部5V | PCA9685のサーボ電源V+ |
 
 角度サーボSG90と連続回転サーボFS90RをPCA9685の任意のCHへ接続し、diagram側でCHと角度／速度モードを合わせる。I2Cのプルアップは3.3V、サーボは外部電源を使う。SuperMini環境はカメラ・PSRAMを使わない。USB接続・書き込み方法は[アプリREADME](../README.md)を参照する。実機の中立パルスと回転方向は別途確認する。
+
+## HC-SR04（DOIT ESP32 DEVKIT V1）
+
+`esp32dev`環境は`board = esp32doit-devkit-v1`を使う。`include/config.h`の`ULTRASONIC_TRIGGER_PIN`を25、`ULTRASONIC_ECHO_PIN`を26へ設定し、`HcSr04`の初期化へ渡す。
+
+| HC-SR04 | DOIT ESP32 DEVKIT V1側の接続 |
+|---|---|
+| VCC | 5V電源 |
+| GND | ESP32と共通のGND |
+| TRIG | GPIO25 |
+| ECHO | 分圧またはレベル変換を通してGPIO26 |
+
+GPIO25/26は現在のI2C（GPIO21/22）と競合せず、UART0・Flash用・起動設定用のピンも避けられるため選んだ。[EspressifのGPIO仕様](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/gpio.html#gpio-summary)を参照する。GPIO25/26は今回はデジタル入出力として使い、ADC/DACは使わない。
+
+通常の5V版HC-SR04のECHOを直結しない。分圧例は`ECHO → 10kΩ → GPIO26 → 15kΩ → GND`で、5Vを約3.0Vへ下げる。TRIGはGPIO25から接続する。電源・GNDを含む配線は電源を切って行う。
+
+DeviceInfoへ距離センサーを登録してSTREAMを開始すると、専用タスクが測定し、mm単位のuint16でBLE/Wi-Fiへ通知する。未測定・失敗は0xFFFF。diagram側の距離受信対応は別作業。XIAOとSuperMiniでは超音波ピンを未割り当て（`-1`）とし、GPIOを操作しない。

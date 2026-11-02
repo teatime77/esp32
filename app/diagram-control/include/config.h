@@ -9,13 +9,21 @@
 #if defined(UROA_BOARD_SUPERMINI_ESP32S3)
 constexpr int SDA_PIN = 8; // ESP32-S3 SuperMini
 constexpr int SCL_PIN = 9;
+constexpr int ULTRASONIC_TRIGGER_PIN = -1; ///< この基板ではHC-SR04のピンを未割り当てとする。
+constexpr int ULTRASONIC_ECHO_PIN = -1;
 #elif defined(ARDUINO_XIAO_ESP32S3)
 constexpr int SDA_PIN = 5; // XIAO D4
 constexpr int SCL_PIN = 6; // XIAO D5
+constexpr int ULTRASONIC_TRIGGER_PIN = -1; ///< この基板ではHC-SR04のピンを未割り当てとする。
+constexpr int ULTRASONIC_ECHO_PIN = -1;
 #else
 constexpr int SDA_PIN = 21; // ESP32 DevKit V1
 constexpr int SCL_PIN = 22;
+// DOIT ESP32 DEVKIT V1: I2C、UART0、Flash、起動設定ピンとの重複を避ける。
+constexpr int ULTRASONIC_TRIGGER_PIN = 25; ///< HC-SR04のTRIGへ接続するGPIO出力。
+constexpr int ULTRASONIC_ECHO_PIN = 26; ///< 分圧またはレベル変換したECHOを受けるGPIO入力。
 #endif
+constexpr uint32_t ULTRASONIC_SAMPLE_INTERVAL_MS = 100; ///< 超音波測定タスクが各処理後に待つ時間（ms）。
 constexpr uint8_t PCA_ADDRESS = 0x40;
 constexpr float SERVO_FREQUENCY = 50.0f;
 // 角度サーボの初期範囲。機構と個体を確認してから調整する。

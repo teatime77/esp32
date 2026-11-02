@@ -32,7 +32,7 @@
 
 ## 通信と依存関係
 
-BLE・Wi-FiのTelemetryはversion=3とし、8バイトヘッダーの後へ登録センサー順に13バイトのIMU6Axisレコードを並べる。Protocolの`deviceTelemetry()`が種別・加速度・角速度の順で変換する。同じMPU-6050の読み取りを複数ブロックへ共有する。DeviceInfo未受信のSTREAM開始要求はFORMAT、IMU6Axis以外のセンサーを含むSTREAMはHARDWAREとして拒否する。BLE側はCharacteristic容量を268バイト、希望MTUを271に設定し、公開atomicの合意`mtu`を確認する。通知長＋3がMTUを超えるSTREAMは拒否し、送信時も上限を検査する。Wi-Fiは最大268バイトの可変長通知を扱い、BLEからの制御権取得時には機器一覧を引き継ぐ。旧20バイトTelemetryのAPI・実装は削除済み。
+BLE・Wi-FiのTelemetryはversion=3とし、8バイトヘッダーの後へ登録センサー順のIMU6Axis（種別0・13バイト）／超音波距離（種別2・3バイト）を連結する。距離はmm単位のuint16 little endian、20〜4000mmが有効、未測定・失敗は0xFFFF。同種別の複数ブロックは同じ物理センサーの値を共有する。Protocol 0.4.0の`deviceTelemetryLength()`で通知長を計算し、`deviceTelemetry()`はセンサー種別配列・IMU生データ・距離mmを受け取って変換する。全件検査後に出力し、機器の測定や通信は担当しない。DeviceInfo未受信のSTREAMはFORMAT、IMU9Axis・Cameraを含む一覧はHARDWAREとして拒否する。利用可否は登録機器ごとに調べ、距離だけの構成ではIMUを要求しない。BLEは最大268バイト・希望MTU 271を維持し、通知長＋3が合意MTUを超えれば拒否する。Wi-Fiも最大268バイトの同じ形式を使う。
 
 2026-10-31に、既存ServiceへDeviceInfoのWrite用Characteristic（`f3641406-00b0-4240-ba50-05ca45bf8abc`、最大20バイト／書き込み）を追加した。教材から`BleTransport::Config::deviceInfoUuid`を渡し、空なら登録しない。専用の`Callbacks::deviceInfo`へ渡し、教材が通常指令と同じキューへ内容と接続世代をコピーする。`loop()`は種別・レコード長・サーボCH／モードを全件検証し、成功時だけ受信順の一覧を置き換える。接続・制御権変更とキュー飽和では一覧を消去する。既存Commandとして解釈せず、機器初期化・ARM・STREAM開始も行わない。検証結果はシリアルへ表示し、専用ACK・分割転送・Wi-Fi転送は未実装。BLEの停止・再開でCharacteristicの参照を解除・再登録する。形式は[protocol.md](../app/diagram-control/docs/protocol.md)を参照する。
 
@@ -65,13 +65,13 @@ const uint32_t generation = bluetooth.generation.load();
 `app/diagram-control/`は既存のuroa BLE Labを基に、公開メンバーAPIへ移行したアプリ。ESP32 DevKit、XIAO ESP32-S3 Sense、ESP32-S3 SuperMiniを対象とする。新しいBLE表示名は`ESP32-Diagram-Control`で、UUID、バイナリ形式、Wi-Fiの教材設定・NVS形式は維持する。
 
 - `include/config.h`: ピン、サーボ範囲、UUID、期限、公開の教材設定。
-- `src/main.cpp`: 初期化、16件の指令キュー、接続世代、優先STOP、5秒期限監視、サーボ補間、IMU通知。
+- `src/main.cpp`: 初期化、16件の指令キュー、接続世代、優先STOP、5秒期限監視、サーボ補間、登録センサー通知、超音波測定タスク。
 - `include/network.h`・`src/network.cpp`: 共通WifiNetworkへの設定とコールバックの受け渡し。
 - `include/camera.h`・`src/camera.cpp`: Senseカメラと公開の`cameraReady` atomic。カメラ処理も宣言と実装を分離する。
 
-起動と接続変更で出力・STREAMを停止し、ARMは明示操作とする。STOPはキューを迂回し、IMU通知を継続する。キューからは1周最大4件を処理し、現在の通信経路と接続世代を検査する。I2Cはsetup()とloop()に集約する。I2C開始失敗時は機器の初期化を行わず、キュー確保失敗時は出力停止を試みて通信を開始しない。
+起動と接続変更で出力・STREAMを停止し、ARMは明示操作とする。STOPはキューを迂回し、センサー通知と超音波測定を継続する。キューからは1周最大4件を処理し、現在の通信経路と接続世代を検査する。I2Cはsetup()とloop()に集約する。I2C開始失敗時はI2C機器の初期化を行わず、指令キュー確保失敗時は出力停止を試みて通信を開始しない。
 
-カメラはWi-Fiのサービス開始時に初期化する。開始済みなら再初期化せず、非対応基板・PSRAMなし・初期化失敗では利用不可とする。画像の認証・CORSはWifiNetworkが担当する。アプリはProtocol・Servo・IMU・BLE・Wi-Fiを使い、倒立用のPlot通知は送らない。
+カメラはWi-Fiのサービス開始時に初期化する。開始済みなら再初期化せず、非対応基板・PSRAMなし・初期化失敗では利用不可とする。画像の認証・CORSはWifiNetworkが担当する。アプリはProtocol・Servo・IMU・Ultrasonic・BLE・Wi-Fiを使い、倒立用のPlot通知は送らない。
 
 ## 角度と速度のサーボ制御（0.3.0）
 
@@ -84,3 +84,16 @@ Protocolはversion=1へopcode 8/9とStatus bit4、code=7を追加する。角度
 ## SuperMini用環境
 
 diagram-controlの`supermini_esp32s3`は汎用S3定義を基にFlash 4MB・DIO・USB CDCを指定する。専用マクロ`UROA_BOARD_SUPERMINI_ESP32S3`でI2CをGPIO8/9へ切り替え、既存のXIAOのGPIO5/6とDevKitのGPIO21/22を維持する。PSRAMを要求せず、XIAO専用のカメラ初期化はコンパイル対象にしない。BLE・Wi-Fi・角度／速度制御・Protocolは共通である。
+
+
+## HC-SR04の超音波距離測定（UroaUltrasonic 0.1.0）
+
+[ultrasonic](../lib/ultrasonic/README.md)の`HcSr04`は、教材が指定したTRIG/ECHOのGPIOを使う。`begin()`でGPIOを検査・初期化し、`read()`で10usのトリガーを生成してECHO幅からcm単位の距離を求める。2〜400cmを有効とし、未初期化・測定間隔不足・ECHO事前HIGH・タイムアウト・範囲外を戻り値で区別する。`distanceCm`・`echoDurationUs`・`initialized`はライブラリーが更新し、呼出側は参照だけを行う。`end()`でTRIGをLOWにして入力へ戻す。
+
+測定開始は65ms以上の間隔を確保し、さらに遅い周期・複数センサーの順序・送信は教材が管理する。ECHO待機は30000usで打ち切る同期処理であり、同じタスクから呼び出す。割り込みや通信コールバックでは測定しない。通常の5V版HC-SR04のECHOは分圧またはレベル変換を通して接続する。追加の外部ライブラリー依存はない。
+
+diagram-controlの`esp32dev`環境は`board = esp32doit-devkit-v1`を指定し、`config.h`のTRIG=GPIO25・ECHO=GPIO26を`HcSr04::Config`へ渡す。`setup()`は最新1件のキューと専用タスクを確保し、タスクだけがGPIO初期化・測定・公開値の参照を行う。XIAO・SuperMiniでは両ピンを`-1`とし、タスクを開始しない。距離を登録してSTREAMを開始すると、タスクが同期測定し、各処理後に既定100ms待つ。`loop()`のSTOP・サーボ補間にはECHO待機を追加しない。
+
+loop()はatomicで測定有効ビットと要求世代を渡す。測定タスクは「要求世代・距離mm」の構造体をキューへコピーし、loop()は現在の世代と一致する最新結果だけを送る。開始・停止、DeviceInfo置換、接続変更・切断、キュー飽和、期限超過では世代を進め、未測定値0xFFFFから再開する。DeviceInfoの置換はSTREAMを停止する。明示STOPは従来どおりSTREAMを継続する。20Hz送信では距離を再利用するため、ヘッダー時刻は距離の測定時刻そのものではない。
+
+diagram側は今回変更していない。ブラウザーの距離レコード受信とSTREAM要求は後続作業であり、IMUだけの通知のバイト形式は維持する。2026-11-01はユーザー指定によりテストを実行しない。ビルドと実機・通信の確認範囲は[検証記録](build-and-test.md)を参照する。

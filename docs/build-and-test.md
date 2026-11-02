@@ -131,3 +131,18 @@ D:\usr\prj\esp32\bin\serial.ps1 -Environment supermini_esp32s3 -Port COM5
 終了は`Ctrl+C`。Uploadする前にモニターを終了してポートを解放する。PlatformIOの探索方法は`build.ps1`と共通で、実行ファイルの配置場所がPATHになくても標準の仮想環境から起動できる。
 
 参照: [PlatformIOのシリアルモニター](https://docs.platformio.org/en/latest/core/userguide/device/cmd_monitor.html)。
+
+## 超音波距離の混在Telemetry（2026-11-01）
+
+DeviceInfo順にIMU（13バイト）と距離（種別2・mm単位uint16・3バイト）を連結する送信処理を追加した。未測定・失敗は0xFFFF。距離だけのSTREAMではIMUを要求しない。HC-SR04の同期測定は専用タスクで行い、各処理後に既定100ms待機して、要求世代付きの最新1件キューでloop()へ結果を渡す。diagram側は変更していない。
+
+リポジトリールートから`pio run --project-dir app/diagram-control -e esp32dev -j 2`でコンパイル・リンク・firmware.bin生成を確認した。実行には既存PlatformIOキャッシュとリポジトリーへの書き込み権限を使用した。
+
+| 対象 | 結果 |
+|---|---|
+| `esp32dev` / `board = esp32doit-devkit-v1` / `espressif32@6.10.0` | SUCCESS、197.42秒 |
+| 静的RAM | 59,592 / 327,680 bytes |
+| アプリFlash | 1,161,253 / 1,310,720 bytes |
+| ソース書式・差分・Protocol JSON・変更文書のローカルリンク | 確認済み |
+
+ユーザー指定によりテストは作成・実行していない。Upload、GPIO配線、実距離測定、測定タスクの実行タイミング、STOPの応答時間、BLE/Wi-Fiの実通信、合意MTU、diagramでの受信は未確認。今回XIAO・SuperMini向けの再ビルドは実施していない。ビルド成功はこれらの実動作を示すものではない。

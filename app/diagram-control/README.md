@@ -7,7 +7,7 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 | ファイル | 役割 |
 |---|---|
 | [include/config.h](include/config.h) | ピン、角度・パルス範囲、UUID、期限、教材用の公開設定 |
-| [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU通知とBLE/Wi-Fi連携 |
+| [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU・距離通知、超音波測定タスクとBLE/Wi-Fi連携 |
 | [include/network.h](include/network.h)・[src/network.cpp](src/network.cpp) | WifiNetworkへ設定・カメラ処理を渡す |
 | [include/camera.h](include/camera.h)・[src/camera.cpp](src/camera.cpp) | Senseのカメラ初期化・公開atomic・JPEG応答 |
 | [platformio.ini](platformio.ini) | 対象基板と共通ライブラリーの相対参照 |
@@ -16,7 +16,7 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 
 ## ビルドと書き込み
 
-VS Codeで`app/diagram-control/`を開き、PlatformIOの対象環境を選ぶ。既定はXIAO向けの`xiao_esp32s3`。DevKitでは`esp32dev`、SuperMiniでは`supermini_esp32s3`を指定する。以下はリポジトリールートから実行する。
+VS Codeで`app/diagram-control/`を開き、PlatformIOの対象環境を選ぶ。既定は`supermini_esp32s3`。DOIT ESP32 DEVKIT V1では`esp32dev`（`board = esp32doit-devkit-v1`）、XIAOでは`xiao_esp32s3`を指定する。以下はリポジトリールートから実行する。
 
 ```powershell
 pio run --project-dir app/diagram-control -e esp32dev
@@ -33,6 +33,8 @@ pio device monitor --project-dir app/diagram-control -e xiao_esp32s3 --port COM4
 
 [配線表](docs/wiring.md)を参照する。DevKitはSDA=GPIO21・SCL=GPIO22、XIAOはSDA=D4/GPIO5・SCL=D5/GPIO6、SuperMiniはSDA=GPIO8・SCL=GPIO9。PCA9685（0x40）とGY-521（0x68/0x69）を共通の100kHz I2Cへ接続する。サーボ電源は外部5V、I2Cのロジックとプルアップは3.3V、GNDは共通とする。
 
+DOIT ESP32 DEVKIT V1のHC-SR04はTRIG=GPIO25、ECHO=GPIO26とし、`include/config.h`で指定する。`src/main.cpp`がこの値を`HcSr04::Config`へ渡し、`setup()`が開始する専用タスクでGPIOを初期化・測定する。ECHOは分圧またはレベル変換して入力する。起動ログの`GPIO init=OK`はGPIO設定の成功であり、センサー検出・測定成功を示さない。DeviceInfoへの距離センサー登録とSTREAM開始後に測定し、mm単位のuint16として送る。XIAOとSuperMiniは両ピンを`-1`として測定タスクを開始しない。[配線表](docs/wiring.md#hc-sr04doit-esp32-devkit-v1)を参照する。
+
 SenseのカメラにはPSRAMが必要。画像はJPEG、320×240、品質16、フレームバッファー1個。カメラなし・PSRAMなしでは利用不可として扱う。マイク・SDカードは使わない。DevKitとSuperMiniのカメラ要求はHTTP 503となる。
 
 ## diagramから使う
@@ -41,7 +43,7 @@ SenseのカメラにはPSRAMが必要。画像はJPEG、320×240、品質16、�
 2. BLE接続ブロックで`ESP32-Diagram-Control`を選ぶ。サービスUUIDは既存BLE Labと同じで、diagram側の変更は不要。
 3. サーボはServoMotorBlockのCHと角度／速度モードを選ぶ。角度は「90°で有効化」の後に60〜120度を指定し、移動時間は0〜10000ms。速度は「0%で有効化」の後に−100〜100%を指定し、時間補間はしない。CHは0〜15。モード変更はCHを無効化し、再有効化を必要とする。
 4. IMUBlockを置くとdiagramがSTREAMを要求する。gyro・accを先頭のIMU出力からPlotBlockへ渡せる。このアプリは倒立用Balance通知を送らない。
-5. 「全サーボ停止」またはdiagramのStopで全PWMと待機指令を止める。IMU通知は継続し、STREAM=0で通知を停止する。
+5. 「全サーボ停止」またはdiagramのStopで全PWMと待機指令を止める。センサー通知は継続し、STREAM=0で通知を停止する。
 
 ## Wi-Fi接続とカメラ
 
@@ -53,18 +55,24 @@ Wi-Fiで制御権を取得するとBLE指令を抑止し、BLEを遅延停止す
 
 ## 停止と通信仕様
 
-- 起動時、接続・切断時、制御権変更時、キュー飽和時は全PWMとIMU通知を停止する。再接続で自動ARMしない。
-- STOPは通常の16件の指令キューを迂回する。全PWMと待機指令を停止し、IMU通知は継続する。
+- 起動時、接続・切断時、制御権変更時、キュー飽和時は全PWMとセンサー通知を停止する。再接続で自動ARMしない。
+- STOPは通常の16件の指令キューを迂回する。全PWMと待機指令を停止し、センサー通知は継続する。
 - 1周に通常指令を最大4件処理し、受信元と接続世代が一致するものだけ実行する。
-- 有効形式の指令が5秒間ない場合、全PWMとIMU通知を停止する。diagramは通常1.5秒周期でPINGを送る。
+- 有効形式の指令が5秒間ない場合、全PWMとセンサー通知を停止する。diagramは通常1.5秒周期でPINGを送る。
 - I2Cは初期化時のsetup()と制御ループだけで操作する。通信コールバックはコピーと停止要求を行う。
 - MOVEのACKと角度は受付結果・内部指令値であり、実角度や移動完了の測定結果ではない。
 
-バイナリ形式は[protocol.md](docs/protocol.md)を参照する。Commandは10byte、Statusは12byte、IMU通知はBLE・Wi-Fiとも後述のversion=3を使う。共通ライブラリーの範囲検査・補間・同期を利用する。
+バイナリ形式は[protocol.md](docs/protocol.md)を参照する。Commandは10byte、Statusは12byte、センサー通知はBLE・Wi-Fiとも後述のversion=3を使う。共通ライブラリーの範囲検査・補間・同期を利用する。
 
 DeviceInfo用のWrite Characteristic（`f3641406-00b0-4240-ba50-05ca45bf8abc`、最大20byte／書き込み）も同じServiceへ公開する。diagramのBLE接続時にセンサーとアクチュエータの情報を送信し、ESP32は指令キューを経由して`loop()`で全件検証・保持する。`DeviceInfo accepted`と機器一覧、または`DeviceInfo rejected`をシリアルへ出力する。登録による機器初期化・サーボ有効化は行わない。形式は[protocol.md](docs/protocol.md)を参照する。分割転送・Wi-Fi転送・専用のアプリ側ACKは未実装で、GATT書込成功と内容の検証成功は区別する。
 
-IMU通知はversion=3で、8バイトのヘッダーに「種別・加速度3軸・角速度3軸」の13バイトレコードを登録IMU数だけ付ける。IMU1個は21バイトになり、BLEでは最低ATT MTU 24が必要。希望MTUは271だが相手との合意値を使い、不足するSTREAM要求はRANGEエラーとシリアルログで拒否する。現在のセンサー送信はIMU6Axisに限る。DeviceInfo未受信のSTREAM開始要求はFORMATエラーになる。Wi-Fiへ制御権を切り替える際は登録一覧を引き継ぎ、最大268バイトの同じ通知を送る。旧version=1のIMU通知は廃止した。
+センサー通知はversion=3の8バイトヘッダーに、DeviceInfo順でIMU（種別0・13バイト）と超音波距離（種別2・3バイト）を連結する。距離は20〜4000mmのuint16 little endian、未測定・失敗は`0xFFFF`。同種別の複数ブロックは同じ物理センサーの値を共有する。サーボは通知に含めず、IMU9AxisとCameraを含むSTREAMは未対応。距離だけならIMUは不要。距離のGPIO未割り当てや測定タスク確保失敗はHARDWAREエラー。DeviceInfo未受信はFORMATエラーになる。
+
+超音波測定は専用タスクで行い、各処理後に`ULTRASONIC_SAMPLE_INTERVAL_MS`（既定100ms）待機する。`loop()`は最新1件をキューから取得し、20Hz通知では結果を再利用する。同期測定の待機をサーボ・STOP処理へ追加しない。STREAM開始・停止、機器一覧の置換、接続・制御権の変更では測定要求の世代を切り替え、旧世代の結果を送らない。DeviceInfoを置き換えるとSTREAMを停止するので再要求が必要。明示STOPは全PWMを停止するがSTREAMと測定は継続する。
+
+通知長は`8 + 13 × IMU数 + 3 × 距離数`。距離1個は11バイト、IMU1個と距離1個は24バイト（BLEでは最低MTU 27）。最大長268バイト・希望MTU 271を維持し、合意MTUが不足するSTREAMはRANGEエラーで拒否する。Wi-Fiでも同じ形式を使う。旧version=1のIMU通知は廃止済み。
+
+diagram側は今回変更していない。既存のIMUだけの通知は同じバイト形式だが、距離レコードの受信と距離用のSTREAM要求はブラウザー側の後続作業。ファームウェアの送信対応とブラウザーでの距離利用は区別する。
 
 ## 確認範囲
 
@@ -89,7 +97,7 @@ config.speed[1].direction = -1;
 
 ## ESP32-S3 SuperMini
 
-VS CodeのPlatformIO Project Tasksで`supermini_esp32s3`を選び、Build・Upload・Monitorを実行する。既定環境はXIAOのままなので、環境を明示する。以下はリポジトリールートからの例。COM5は実際の接続ポートへ合わせる。
+VS CodeのPlatformIO Project Tasksで`supermini_esp32s3`を選び、Build・Upload・Monitorを実行する。既定環境も`supermini_esp32s3`になっている。以下はリポジトリールートからの例。COM5は実際の接続ポートへ合わせる。
 
 ```powershell
 pio run --project-dir app/diagram-control -e supermini_esp32s3
