@@ -16,6 +16,8 @@
 #include <math.h>
 #include "config.h"
 #include "network.h"
+#include "bytecode_receiver.h"
+#include "bytecode_vm.h"
 
 namespace {
     using uroa::Pca9685Servos;
@@ -48,6 +50,11 @@ namespace {
     bool deviceInfoReceived = false; ///< STREAM開始前の機器登録状態。loop()だけが更新する。
 
     uroa::BleTransport bluetooth; ///< 稼働中保持するBLEサーバー。
+    BytecodeReceiver bytecodeReceiver; ///< loop()で分割受信を検証し、確定後にVMへ渡す。
+    BytecodeVM bytecodeVm; ///< loop()だけが操作するVM。受信器の確定バッファを借用する。
+    uint32_t vmRevision = 0; ///< VMへ渡したプログラムの世代。
+    BytecodeVM::State reportedVmState = BytecodeVM::State::Idle; ///< シリアルへ報告済みの状態。
+
     uroa::Mpu6050 imu(Wire); ///< loop()からだけI2C操作するIMU。
 
     /**
@@ -109,6 +116,76 @@ namespace {
     uint16_t sampleSeq = 0; ///< センサー通知sequence。16bitで周回する。
     uint32_t lastCommand = 0; ///< 最後に有効形式の指令を受け付けた時刻（ms）。
     uint32_t lastSample = 0; ///< 最後にセンサー通知を組み立てた時刻（ms）。
+
+    /**
+     * @brief 新しい受信済みコードを開始し、最大128命令ずつ実行する。
+     * @param stopped このloop()でSTOP・接続変更・通信期限切れを処理した場合true。
+     * @details 受信器のバッファ置換後は、旧バッファを使うtick()より前にstart()またはstop()する。
+     *
+     * 正常COMMITで受信器の`programRevision`が進むと、loop()が新しいプログラムを開始する。1周最大128命令を実行し、通常の指令・サーボ・通信・停止処理へ制御を返す。無限whileも1回のloop()を占有しない。STOP、切断、Wi-Fi切替、接続変更、通信キュー飽和、5秒の通信期限切れではVMを停止する。再接続やPINGで自動再開しない。もう一度実行するにはバイトコードを再送する。
+     *
+     * 受信ACKはCRC・形式検証・RAM保持の完了を表し、VMの開始・正常終了を保証しない。開始時のメモリ確保失敗や実行エラーはシリアルで確認する。
+     *
+     * ## 所有権と確認範囲
+     *
+     * VMは受信器の確定バッファを借用し、コピーしない。受信器の置換後は、loop()がVMを進める前に世代を照合し、新しいstart()かstop()を呼ぶ。BLEコールバックからVMを操作しない。未完了・不正な転送は確定済みバッファを置き換えず、以前のVMの実行を直接開始し直さない。
+     *
+     * 通常指令と同様、loop()は停止要求を先に処理してから受信処理を進める。
+     *
+     * STOPはサーボとVMの実行を停止する。確定データは消去しない。VMは切断・通信期限切れでも停止し、再実行は再送で行う。
+     *
+     * VMは1周128命令まで進め、実行中のスタック・型・未初期化値を検査する。機器操作命令はない。
+     */
+    void runBytecode(bool stopped) {
+        const bool connected = bluetooth.connected.load() && !network.connected.load() && !network.bleUnavailable();
+        const bool cancelled = stopped || mustStop.load() || urgentStop.load() || !connected;
+        if (vmRevision != bytecodeReceiver.programRevision) {
+            vmRevision = bytecodeReceiver.programRevision;
+            bytecodeVm.stop();
+            reportedVmState = BytecodeVM::State::Idle;
+            if (!cancelled) {
+                bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
+            }
+        }
+        if (cancelled) {
+            bytecodeVm.stop();
+        }
+        bytecodeVm.tick(128);
+        if (reportedVmState == bytecodeVm.state) {
+            return;
+        }
+        reportedVmState = bytecodeVm.state;
+        Serial.printf("VM state=%u instructions=%lu\n", unsigned(bytecodeVm.state),
+            static_cast<unsigned long>(bytecodeVm.instructions));
+        /**
+         * @details
+         * エラー時は`VM error=番号 pc=位置`を出す。
+         */
+        if (bytecodeVm.state == BytecodeVM::State::Error) {
+            Serial.printf("VM error=%u pc=%lu\n", unsigned(bytecodeVm.error),
+                static_cast<unsigned long>(bytecodeVm.errorPc));
+        }
+        /**
+         * @details
+         * HALT時には先頭16個までを`VM g[番号]=値`としてシリアルへ出す。番号は生成器が代入先の初出順に割り当てた大域変数スロット。
+         */
+        if (bytecodeVm.state == BytecodeVM::State::Halted) {
+            const uint32_t count = bytecodeVm.globalCount < 16 ? bytecodeVm.globalCount : 16;
+            for (uint32_t index = 0; index < count; ++index) {
+                const BytecodeVM::Value &value = bytecodeVm.globals[index];
+                Serial.printf("VM g[%lu]=", static_cast<unsigned long>(index));
+                if (value.type == BytecodeVM::Type::Integer) {
+                    Serial.println(value.integer);
+                }
+                else if (value.type == BytecodeVM::Type::Float) {
+                    Serial.printf("%.9g\n", double(value.real));
+                }
+                else {
+                    Serial.println(value.type == BytecodeVM::Type::None ? "None" : "uninitialized");
+                }
+            }
+        }
+    }
 
     /**
      * @brief 測定要求の世代を進め、過去の超音波サンプルを無効化する。
@@ -583,15 +660,26 @@ void setup() {
     bleConfig.configUuid = CONFIG_UUID;
     bleConfig.resultUuid = RESULT_UUID;
     bleConfig.deviceInfoUuid = DEVICE_INFO_UUID;
+    bleConfig.bytecodeUuid = BYTECODE_UUID;
+    bleConfig.bytecodeResultUuid = BYTECODE_RESULT_UUID;
     bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
     bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength;
     bleConfig.passkey = PAIRING_CODE;
+    bytecodeReceiver.begin([](const uint8_t *data, size_t length) {
+        bluetooth.publishBytecodeResult(data, length);
+    }, [](uint32_t generation) {
+        return bluetooth.connected.load() && bluetooth.generation.load() == generation && !network.connected.load() &&
+            !network.bleUnavailable();
+    });
     uroa::BleTransport::Callbacks bleCallbacks;
     bleCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
         receive(data, length, generation, false);
     };
     bleCallbacks.deviceInfo = [](const uint8_t *data, size_t length, uint32_t generation) {
         receiveDeviceInfo(data, length, generation);
+    };
+    bleCallbacks.bytecode = [](const uint8_t *data, size_t length, uint32_t generation) {
+        bytecodeReceiver.enqueue(data, length, generation);
     };
     bleCallbacks.session = [](bool, uint32_t) {
         if (!network.connected.load()) {
@@ -604,6 +692,7 @@ void setup() {
     };
     bleCallbacks.started = [] {
         status(Protocol::CODE_OK, 0);
+        bytecodeReceiver.publishResult();
     };
     bluetooth.begin(bleConfig, bleCallbacks);
     Serial.printf("BLE address: %s\n", NimBLEDevice::getAddress().toString().c_str());
@@ -612,7 +701,9 @@ void setup() {
 /** @brief 停止を優先し、現接続の指令、サーボ補間、期限監視と登録センサーの通知を進める。 */
 void loop() {
     uint32_t now = millis();
+    bool vmStopRequested = false;
     if (mustStop.exchange(false)) {
+        vmStopRequested = true;
         servos.allOff();
         stopTelemetry();
         if (resetDeviceInfo.exchange(false)) {
@@ -624,11 +715,14 @@ void loop() {
         status(Protocol::CODE_OK, 0);
     }
     if (urgentStop.exchange(false)) {
+        vmStopRequested = true;
         servos.allOff();
         xQueueReset(commands);
         lastCommand = now;
         status(Protocol::CODE_OK, urgentSeq.load());
     }
+    bytecodeReceiver.process(bluetooth.connected.load() && !network.connected.load() && !network.bleUnavailable(),
+        bluetooth.generation.load());
     Queued queued;
     // 1周4件までに制限し、補間と期限監視の処理時間を残す。
     for (int count = 0; count < 4 && xQueueReceive(commands, &queued, 0) == pdTRUE; ++count) {
@@ -645,6 +739,7 @@ void loop() {
     }
     now = millis();
     if ((bluetooth.connected.load() || network.connected.load()) && now - lastCommand > HEARTBEAT_TIMEOUT_MS) {
+        vmStopRequested = true;
         if (servos.anyArmed() || streamHz) {
             servos.allOff();
             stopTelemetry();
@@ -661,5 +756,6 @@ void loop() {
         publishDeviceTelemetry(now);
     }
     network.tick();
+    runBytecode(vmStopRequested);
     delay(2);
 }

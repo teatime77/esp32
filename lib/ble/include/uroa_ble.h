@@ -33,6 +33,8 @@ namespace uroa {
             String configUuid;
             String resultUuid;
             String deviceInfoUuid; ///< 機器情報の書込先UUID。空ならCharacteristicを公開しない。
+            String bytecodeUuid; ///< バイトコード転送の書込先。結果UUIDと両方指定した場合に公開する。
+            String bytecodeResultUuid; ///< バイトコード受付結果の読出先。
             uint32_t passkey = 123456;
             uint16_t preferredMtu = DefaultAttMtu; ///< 希望するATT MTU。実際の値は接続相手との交渉で決まる。
             uint16_t telemetryMaxLength = 20; ///< Telemetry Characteristicの値の最大長。
@@ -45,6 +47,8 @@ namespace uroa {
             std::function<void(const uint8_t *, size_t, uint32_t)> command;
             /** @brief BLEタスクから機器情報を渡す。データは呼出中にコピーし、解釈は制御ループで行う。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> deviceInfo;
+            /** @brief BLEタスクから20バイト以内の転送フレームを渡す。呼出中にキューへコピーする。 */
+            std::function<void(const uint8_t *, size_t, uint32_t)> bytecode;
             std::function<void(bool, uint32_t)> session;
             // Wi-Fi設定JSONの解釈は外部へ委譲する。BLEは認証と分割転送だけを扱う。
             std::function<String(const String &)> configure;
@@ -84,6 +88,12 @@ namespace uroa {
          * @param length データ長（バイト）。
          */
         void publishStatus(const uint8_t *data, size_t length);
+        /**
+         * @brief バイトコードの受付結果20バイトをRead値へ反映する。通知は行わない。
+         * @param data loop()で組み立てた専用の受付結果。
+         * @param length 20バイト以外は更新しない。
+         */
+        void publishBytecodeResult(const uint8_t *data, size_t length);
         /**
          * @brief 接続中のクライアントへTelemetryを通知する。
          * @param data 入力または出力のバイト配列。
@@ -141,6 +151,8 @@ namespace uroa {
         Config config_;
         Callbacks callbacks_;
         NimBLECharacteristic *deviceInfo_ = nullptr; ///< 機器情報の書込窓口。専用コールバックへ渡す。
+        NimBLECharacteristic *bytecode_ = nullptr; ///< バイトコード分割転送の書込窓口。
+        NimBLECharacteristic *bytecodeResult_ = nullptr; ///< loop()で更新する受付結果のRead窓口。
         NimBLECharacteristic *telemetry_ = nullptr;
         NimBLECharacteristic *status_ = nullptr;
         std::atomic<bool> stopping_{false};

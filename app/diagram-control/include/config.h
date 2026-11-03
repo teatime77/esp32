@@ -40,6 +40,8 @@ constexpr char STATUS_UUID[] = "f3641403-00b0-4240-ba50-05ca45bf8abc";
 constexpr char CONFIG_UUID[] = "f3641404-00b0-4240-ba50-05ca45bf8abc";
 constexpr char RESULT_UUID[] = "f3641405-00b0-4240-ba50-05ca45bf8abc";
 constexpr char DEVICE_INFO_UUID[] = "f3641406-00b0-4240-ba50-05ca45bf8abc"; ///< 機器情報の書込窓口。
+constexpr char BYTECODE_UUID[] = "f3641407-00b0-4240-ba50-05ca45bf8abc"; ///< バイトコードの分割受信窓口。
+constexpr char BYTECODE_RESULT_UUID[] = "f3641408-00b0-4240-ba50-05ca45bf8abc"; ///< バイトコード受付結果のRead窓口。
 constexpr uint32_t PAIRING_CODE = 123456;
 // 公開の教材用共通値。robot-wifi.tsのteachingConnectionKeyと揃える。
 constexpr char TEACHING_CONNECTION_KEY[] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

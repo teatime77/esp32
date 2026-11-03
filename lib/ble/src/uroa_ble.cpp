@@ -64,6 +64,14 @@ namespace uroa {
             config_.telemetryUuid.c_str(), NIMBLE_PROPERTY::NOTIFY, config_.telemetryMaxLength);
         status_ = service->createCharacteristic(
             config_.statusUuid.c_str(), NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 12);
+        if (config_.bytecodeUuid.length() > 0 && config_.bytecodeResultUuid.length() > 0) {
+            bytecode_ = service->createCharacteristic(config_.bytecodeUuid.c_str(), NIMBLE_PROPERTY::WRITE, 20);
+            bytecode_->setCallbacks(this);
+            bytecodeResult_ = service->createCharacteristic(config_.bytecodeResultUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
+            uint8_t initial[20]{};
+            initial[0] = 1;
+            bytecodeResult_->setValue(initial, sizeof initial);
+        }
         if (callbacks_.configure) {
             configuration_.reset();
             auto config = service->createCharacteristic(config_.configUuid.c_str(),
@@ -102,6 +110,8 @@ namespace uroa {
         mtu = DefaultAttMtu;
         telemetry_ = status_ = nullptr;
         deviceInfo_ = nullptr;
+        bytecode_ = nullptr;
+        bytecodeResult_ = nullptr;
         running_ = false;
     }
 
@@ -150,6 +160,12 @@ namespace uroa {
     void BleTransport::onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &) {
         auto value = characteristic->getValue();
         // バッファはコールバック中だけ有効。受け手は即座にキューへコピーする。
+        if (characteristic == bytecode_) {
+            if (callbacks_.bytecode) {
+                callbacks_.bytecode(reinterpret_cast<const uint8_t *>(value.data()), value.size(), generation.load());
+            }
+            return;
+        }
         if (characteristic == deviceInfo_) {
             if (callbacks_.deviceInfo) {
                 callbacks_.deviceInfo(reinterpret_cast<const uint8_t *>(value.data()), value.size(), generation.load());
@@ -174,6 +190,17 @@ namespace uroa {
         status_->setValue(data, length);
         if (connected) {
             status_->notify(data, length);
+        }
+    }
+
+    /**
+     * @brief バイトコード受付結果を専用Read値へコピーする。
+     * @param data loop()で組み立てた20バイトの受付結果。
+     * @param length バイト数。20以外は更新しない。
+     */
+    void BleTransport::publishBytecodeResult(const uint8_t *data, size_t length) {
+        if (running_ && !stopping_ && bytecodeResult_ && length == 20) {
+            bytecodeResult_->setValue(data, length);
         }
     }
 

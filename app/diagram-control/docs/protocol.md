@@ -17,6 +17,12 @@ MOVEの受付成功は動作完了を意味しません。INFOにチャンネル
 
 Wi-Fi設定のJSON操作、分割送信、Wi-Fi上の指令・署名・セッション・ポート・停止は [アプリのWi-Fi接続手順](../README.md) を参照する。下記Command／Status／Telemetryのバイナリ形式はBLE・Wi-Fiで共通。
 
+## バイトコードとVM
+
+Bytecode（f3641407、Write最大20バイト）とBytecode Result（f3641408、Read20バイト）で分割転送する。転送フレームとCRC32は[uroaの転送仕様](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。正常COMMITのACKは形式検証・RAM保持の成功を表し、VMの正常終了を意味しない。
+
+loop()は確定世代の更新でVMを開始し、1周128命令まで実行する。STOPは既存のサーボ停止に加えVMを停止する。切断・制御権変更・通信期限切れでも停止し、再開は再送で行う。VMの上限・エラーとシリアル出力は[VM仕様](../src/bytecode_vm.cpp)を参照する。VMの実行結果をBLEへ返す拡張パケットは今回は追加しない。
+
 ## DeviceInfo
 
 DeviceInfoはdiagram上の機器情報を送る独立したCharacteristicで、Commandの10バイト形式やopcodeは使わない。1回の書き込み全体を機器一覧とし、先頭のversion・件数・終端・未使用領域の0埋めは付けない。各値はu8。diagramはセンサー、アクチュエータの順で`writeDeviceInfo()`の出力を連結し、使用したバイト数だけを送る。種別0はIMU6Axisなので、0埋めを機器一覧の末尾へ加えない。

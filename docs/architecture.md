@@ -40,6 +40,18 @@ Protocolのcommand/statusは既存version=1、IMUはversion=3、Plotはversion=2
 
 BLEはNimBLE-Arduino、Wi-FiはArduinoJsonとWebSockets、ServoはAdafruit PWM Servo DriverとBusIOに依存する。バージョンは各`library.json`を参照する。IMU、Protocol、Plotには追加の外部ライブラリー依存はない。
 
+## バイトコードの受信とRAM保持
+
+2026-11-03にBleTransportへ`Config::bytecodeUuid`・`bytecodeResultUuid`と`Callbacks::bytecode`を追加した。両UUIDを指定した教材だけが20バイトのWrite／Read窓口を公開し、結果は`publishBytecodeResult()`で設定する。BLEタスクは受信内容を教材へ渡すだけで、バイトコードの解析・動的確保・実行を行わない。
+
+diagram-controlの`BytecodeReceiver`は4件の専用キューと受信途中の動的バッファを持つ。loop()が接続世代・連続位置・CRC・バイナリの構造を検証し、正常COMMIT時だけ公開の`program`・`programLength`・`programCrc32`を置き換える。新旧プログラムを同時に保持できるRAMがなければ更新を拒否する。切断・Wi-Fi切替・期限超過・不正フレームでは未完了分だけを破棄する。確定済みデータはRAMに残すが、VM・Flash保存・実行開始は実装しない。詳細は[protocol.md](../app/diagram-control/docs/protocol.md)を参照する。
+
+## PythonサブセットVM
+
+diagram-controlのBytecodeReceiverは、正常COMMITで公開の`programRevision`を更新する。loop()はこの世代をVM実行前に照合し、BytecodeVMへ確定バッファを渡して開始する。VMはバッファを借用するため、置換後は旧バッファを使ってtick()せず、必ずstart()かstop()する。VMの操作と受信器の確定はloop()だけが行う。
+
+VMは24命令、int32・float32・None、未初期化検査、関数フレームと再帰に対応する。1周128命令までとして通信・停止処理へ制御を返す。STOP・接続変更・通信期限切れで停止し、再接続では再開しない。公開のglobalsに結果を保持し、機器ドライバーは呼ばない。上限・エラー・シリアル出力は[VM仕様](../app/diagram-control/src/bytecode_vm.cpp)を参照する。
+
 ## 呼び出し例
 
 以下は参照方法を示す断片で、完全な教材アプリではない。実際のピン設定とI2Cの初期化は呼出元で行う。
@@ -66,6 +78,7 @@ const uint32_t generation = bluetooth.generation.load();
 
 - `include/config.h`: ピン、サーボ範囲、UUID、期限、公開の教材設定。
 - `src/main.cpp`: 初期化、16件の指令キュー、接続世代、優先STOP、5秒期限監視、サーボ補間、登録センサー通知、超音波測定タスク。
+- `include/bytecode_receiver.h`・`src/bytecode_receiver.cpp`: 分割バイトコード専用の4件キュー、CRC・形式の検証、正常なCOMMITだけをRAMへ確定する処理。
 - `include/network.h`・`src/network.cpp`: 共通WifiNetworkへの設定とコールバックの受け渡し。
 - `include/camera.h`・`src/camera.cpp`: Senseカメラと公開の`cameraReady` atomic。カメラ処理も宣言と実装を分離する。
 

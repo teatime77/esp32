@@ -8,11 +8,17 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 |---|---|
 | [include/config.h](include/config.h) | ピン、角度・パルス範囲、UUID、期限、教材用の公開設定 |
 | [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU・距離通知、超音波測定タスクとBLE/Wi-Fi連携 |
+| [include/bytecode_receiver.h](include/bytecode_receiver.h)・[src/bytecode_receiver.cpp](src/bytecode_receiver.cpp) | 分割バイトコードの検証・RAM保持・確定世代の更新 |
+| [include/bytecode_vm.h](include/bytecode_vm.h)・[src/bytecode_vm.cpp](src/bytecode_vm.cpp) | 数値・分岐・関数呼出しのVM。loop()から最大128命令ずつ実行 |
 | [include/network.h](include/network.h)・[src/network.cpp](src/network.cpp) | WifiNetworkへ設定・カメラ処理を渡す |
 | [include/camera.h](include/camera.h)・[src/camera.cpp](src/camera.cpp) | Senseのカメラ初期化・公開atomic・JPEG応答 |
 | [platformio.ini](platformio.ini) | 対象基板と共通ライブラリーの相対参照 |
 
 `.h`に宣言、`.cpp`に実装を置く。`imu.available`や`servos.states[ch]`を直接参照し、通信状態は`connected.load()`・`generation.load()`で読む。カメラも`cameraReady.load()`で参照し、値を返すだけの`cameraAvailable()`は作らない。
+
+## Pythonバイトコードの実行
+
+uroaのBLE接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMIT後にVMを開始する。STOP・切断・通信期限切れで停止し、再接続やPINGで再開しない。再実行は再送する。HALT時に大域変数の先頭16個まで、エラー時にエラー番号とPCをシリアルへ出力する。機器API・Flash保存は実装しない。値・関数フレーム・上限・状態番号は[VM仕様](src/bytecode_vm.cpp)を参照する。
 
 ## ビルドと書き込み
 
