@@ -1,12 +1,79 @@
 /**
  * @file bytecode_receiver.cpp
  * @brief 分割受信・CRC・バイナリの構造を検証し、正常なプログラムだけをRAMへ確定する。
+ * @details
+ * 転送version=1の20バイトフレームで、バイナリversion=1・2を受信する。
+ * 形式の共通仕様はuroa/diagram/ts/python/bytecode.ts先頭、送信側の仕様は
+ * uroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭を参照する。
+ * version=1は16バイトヘッダー・関数表・命令列、version=2は24バイトヘッダー・
+ * 関数表・命令列・文字列表・UTF-8データ。文字列表のレコードはoffset:uint32と
+ * length:uint32で、データ先頭からの位置とバイト長を持つ。全数値はlittle endian。
+ * 全体は128KiB以内、命令列は1〜65536バイト。version=2の予約位置18も0を必須とする。
+ * 文字列はID順の連続配置を検証し、過長表現・サロゲート・範囲外を含む不正UTF-8を拒否する。
+ * 空文字列と埋め込みNULは許可し、DATAの途中では文字列を解釈しない。
+ * PUSH_STRING(0x19)はversion=2だけで許可する3バイト命令で、uint16のIDが文字列数未満か検査する。
+ * 文字列表・データは命令走査と分岐先の範囲に含めない。既存命令と関数フレームの検証は維持する。
+ * CRC・順序・接続世代・期限・確定前の全件検証に成功した場合だけRAMの確定バッファを置換する。
+ * readyは保持完了を表す。main.cppはVMの開始を試みるが、現行bytecode_vm.cppはversion=1のみ
+ * 対応するためversion=2は形式エラーになる。文字列のVM実行とその参照寿命管理は後続の範囲。
  */
 #include "bytecode_receiver.h"
 #include <cstring>
 #include <new>
 
 namespace {
+    /**
+     * @brief 長さ付きバイト列がUnicodeスカラー値のUTF-8表現か検証する。
+     * @param data 文字列の先頭。NUL終端は要求しない。
+     * @param length バイト長。0も許可する。
+     * @return 過長表現・不正継続・サロゲート・範囲外がなければtrue。
+     */
+    bool validUtf8(const uint8_t *data, size_t length) {
+        size_t position = 0;
+        while (position < length) {
+            const uint8_t first = data[position++];
+            if (first <= 0x7F) {
+                continue;
+            }
+            size_t continuation = 0;
+            uint32_t codePoint = 0;
+            uint32_t minimum = 0;
+            if (first >= 0xC2 && first <= 0xDF) {
+                continuation = 1;
+                codePoint = first & 0x1F;
+                minimum = 0x80;
+            }
+            else if (first >= 0xE0 && first <= 0xEF) {
+                continuation = 2;
+                codePoint = first & 0x0F;
+                minimum = 0x800;
+            }
+            else if (first >= 0xF0 && first <= 0xF4) {
+                continuation = 3;
+                codePoint = first & 0x07;
+                minimum = 0x10000;
+            }
+            else {
+                return false;
+            }
+            if (continuation > length - position) {
+                return false;
+            }
+            for (size_t index = 0; index < continuation; ++index) {
+                const uint8_t next = data[position++];
+                if ((next & 0xC0) != 0x80) {
+                    return false;
+                }
+                codePoint = (codePoint << 6) | (next & 0x3F);
+            }
+            if (codePoint < minimum || codePoint > 0x10FFFF ||
+                (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** @brief 非整列のlittle endian値を読む。@param p 2バイトの先頭。@return uint16値。 */
     uint16_t read16(const uint8_t *p) {
         return uint16_t(p[0]) | (uint16_t(p[1]) << 8);
@@ -259,19 +326,51 @@ void BytecodeReceiver::handle(const Frame &frame) {
  * - float32リテラルが有限であること。
  */
 BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t length) {
-    if (length < 16 || read16(data) != 0xB1C0 || read16(data + 2) != 1 || read16(data + 12) != 0 ||
+    if (length < 16 || length > MaxLength || read16(data) != 0xB1C0 || read16(data + 12) != 0 ||
         read16(data + 14) != 0) {
+        return Invalid;
+    }
+    const uint16_t version = read16(data + 2);
+    if (version != 1 && version != 2) {
+        return Invalid;
+    }
+    const size_t headerLength = version == 1 ? 16 : 24;
+    if (length < headerLength || (version == 2 && read16(data + 18) != 0)) {
         return Invalid;
     }
     const uint16_t globals = read16(data + 4);
     const uint16_t functions = read16(data + 6);
     const uint32_t codeLength = read32(data + 8);
-    const size_t codeOffset = 16 + size_t(functions) * 8;
-    if (codeLength < 1 || codeLength > 65536 || codeOffset + codeLength != length) {
+    const uint16_t strings = version == 1 ? 0 : read16(data + 16);
+    const uint32_t dataLength = version == 1 ? 0 : read32(data + 20);
+    const size_t codeOffset = headerLength + size_t(functions) * 8;
+    if (codeOffset > length || codeLength < 1 || codeLength > 65536 || codeLength > length - codeOffset) {
+        return Invalid;
+    }
+    const size_t stringTableOffset = codeOffset + codeLength;
+    if (size_t(strings) > (length - stringTableOffset) / 8) {
+        return Invalid;
+    }
+    const size_t stringDataOffset = stringTableOffset + size_t(strings) * 8;
+    if (dataLength != length - stringDataOffset) {
+        return Invalid;
+    }
+    uint32_t expectedOffset = 0;
+    for (size_t index = 0; index < strings; ++index) {
+        const uint8_t *record = data + stringTableOffset + index * 8;
+        const uint32_t offset = read32(record);
+        const uint32_t size = read32(record + 4);
+        if (offset != expectedOffset || offset > dataLength || size > dataLength - offset ||
+            !validUtf8(data + stringDataOffset + offset, size)) {
+            return Invalid;
+        }
+        expectedOffset += size;
+    }
+    if (expectedOffset != dataLength) {
         return Invalid;
     }
     auto function = [&](size_t index) {
-        return data + 16 + index * 8;
+        return data + headerLength + index * 8;
     };
     uint32_t previousEnd = 0;
     for (size_t index = 0; index < functions; ++index) {
@@ -304,16 +403,19 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
             const uint32_t end = owner < 0 ? (functions > 0 ? read16(function(0)) : codeLength)
                                          : base + read16(function(owner) + 2);
             const uint8_t opcode = code[pc];
-            if (opcode < 0x01 || opcode > 0x18) {
+            if (opcode < 0x01 || opcode > (version == 1 ? 0x18 : 0x19)) {
                 return Invalid;
             }
-            const bool operand = opcode <= 0x09 || opcode == 0x14;
+            const bool operand = opcode <= 0x09 || opcode == 0x14 || opcode == 0x19;
             const uint32_t size = opcode == 0x03 || opcode == 0x04 ? 5 : operand ? 3 : 1;
             if (pc + size > end || (pc + size == end && opcode != (owner < 0 ? 0x18 : 0x15))) {
                 return Invalid;
             }
             boundaries[pc / 8] |= uint8_t(1U << (pc % 8));
             const uint16_t value = operand ? read16(code + pc + 1) : 0;
+            if (opcode == 0x19 && value >= strings) {
+                return Invalid;
+            }
             if ((opcode == 0x02 || opcode == 0x06) && value >= globals) {
                 return Invalid;
             }
