@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## Pythonバイナリversion=3のBLE受信（2026-11-04）
+
+diagram側の生成・送信に合わせ、[受信器](../app/diagram-control/src/bytecode_receiver.cpp)の形式検証を更新した。VM本体は変更していない。対応範囲と実行前に必要な照合は受信器先頭コメントを参照する。
+
+`app/diagram-control`から`platformio.exe run -e supermini_esp32s3 -e esp32dev -e xiao_esp32s3`でビルドする。ユーザー指定によりテストは作成・実行せず、Upload・実BLE通信・実機確認も行わない。uroa側のビルドは別途実施する。
+
+3環境ともビルド成功。初回のユーザーキャッシュへの書込み制限は、権限を付けた再実行で解消した。uroaの`npm.cmd run verify`も成功した。VM本体とmain.cppの実行処理は変更していない。受信ACK・ABI互換性・VM実行をそれぞれ区別し、ビルドだけで動作確認済みとは扱わない。
+
 ## PythonサブセットVM（2026-11-03）
 
 BytecodeVMを追加し、受信器の正常COMMIT後にloop()から開始する。24命令、int32・float32・None、四則・比較・分岐・関数フレーム・再帰を実装した。未初期化、型、スタック、深さ、0除算、整数オーバーフロー、非有限floatを実行時に検査する。1周128命令までとし、STOP・切断・通信期限切れで停止する。VMの結果・上限・状態は[仕様](../app/diagram-control/src/bytecode_vm.cpp)を参照する。

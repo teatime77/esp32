@@ -70,7 +70,7 @@ class BytecodeReceiver {
     void cancel();
     /** @brief 結果を更新する。@param code 受付結果。@param frame 応答対象。nullなら直前の番号を使う。 */
     void reply(Code code, const Frame *frame = nullptr);
-    /** @brief バイナリ形式を検証する。@param data 全データ。@param length 長さ。@return 結果コード。 */
+    /** @brief version=1・2・3のバイナリ形式を検証する。@param data 全データ。@param length 長さ。@return 結果コード。 */
     Code validate(const uint8_t *data, size_t length);
 
     QueueHandle_t frames_ = nullptr; ///< setup()で確保し、稼働中は保持する。

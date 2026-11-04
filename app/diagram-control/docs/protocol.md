@@ -21,6 +21,8 @@ Wi-Fi設定のJSON操作、分割送信、Wi-Fi上の指令・署名・セッシ
 
 Bytecode（f3641407、Write最大20バイト）とBytecode Result（f3641408、Read20バイト）で分割転送する。転送フレームとCRC32は[uroaの転送仕様](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。正常COMMITのACKは形式検証・RAM保持の成功を表し、VMの正常終了を意味しない。
 
+受信器はバイナリversion=1・2・3に対応する。形式検証の範囲、ABI・ネイティブIDの照合が未実装であること、現行VMがversion=1のみを実行する境界は[受信器の仕様コメント](../src/bytecode_receiver.cpp)を参照する。
+
 loop()は確定世代の更新でVMを開始し、1周128命令まで実行する。STOPは既存のサーボ停止に加えVMを停止する。切断・制御権変更・通信期限切れでも停止し、再開は再送で行う。VMの上限・エラーとシリアル出力は[VM仕様](../src/bytecode_vm.cpp)を参照する。VMの実行結果をBLEへ返す拡張パケットは今回は追加しない。
 
 ## DeviceInfo
