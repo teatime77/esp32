@@ -9,7 +9,7 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 | [include/config.h](include/config.h) | ピン、角度・パルス範囲、UUID、期限、教材用の公開設定 |
 | [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU・距離通知、超音波測定タスクとBLE/Wi-Fi連携 |
 | [include/bytecode_receiver.h](include/bytecode_receiver.h)・[src/bytecode_receiver.cpp](src/bytecode_receiver.cpp) | 分割バイトコードの検証・RAM保持・確定世代の更新 |
-| [include/bytecode_vm.h](include/bytecode_vm.h)・[src/bytecode_vm.cpp](src/bytecode_vm.cpp) | 数値・分岐・関数呼出しのVM。loop()から最大128命令ずつ実行 |
+| [include/bytecode_vm.h](include/bytecode_vm.h)・[src/bytecode_vm.cpp](src/bytecode_vm.cpp) | 値スロットVMとネイティブ呼出しの登録API。loop()から最大128命令ずつ実行 |
 | [include/network.h](include/network.h)・[src/network.cpp](src/network.cpp) | WifiNetworkへ設定・カメラ処理を渡す |
 | [include/camera.h](include/camera.h)・[src/camera.cpp](src/camera.cpp) | Senseのカメラ初期化・公開atomic・JPEG応答 |
 | [platformio.ini](platformio.ini) | 対象基板と共通ライブラリーの相対参照 |
@@ -18,9 +18,9 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 
 ## Pythonバイトコードの実行
 
-uroaのBLE接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMITでRAMへ保持する。受信器はバイナリversion=1・2・3に対応するが、現行VMはversion=1だけを実行できる。COMMIT後のVM開始処理は残っているため、version=2・3は受信完了後にVMの形式エラーとなる。受信ACKはVM実行や、ABI・ネイティブIDとスタブ表の互換性確認の成功を表さない。受信範囲と未対応部分は[受信器の仕様コメント](src/bytecode_receiver.cpp)を参照する。
+uroaのBLE接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMITでRAMへ保持する。VMはバイナリversion=1・2・3に対応する。受信ACKはVM実行や、ABI・ネイティブIDとスタブ表の互換性確認の成功を表さない。受信範囲は[受信器の仕様コメント](src/bytecode_receiver.cpp)、呼出し・値コピー・スタブの登録APIは[VM仕様](src/bytecode_vm.cpp)を参照する。
 
-version=1のVM実行はSTOP・切断・通信期限切れで停止し、再接続やPINGで再開しない。再実行は再送する。HALT時に大域変数の先頭16個まで、エラー時にエラー番号とPCをシリアルへ出力する。機器API・新形式の実行・Flash保存は未実装。値・関数フレーム・上限・状態番号は[VM仕様](src/bytecode_vm.cpp)を参照する。
+VM実行はSTOP・切断・通信期限切れで停止し、再接続やPINGで再開しない。再実行は再送する。HALT時に大域変数の先頭16スロットまで、エラー時にエラー番号とPCをシリアルへ出力する。機器のスタブ本体・生成登録表・Flash保存は未実装。現行構成の機器API呼出しはエラー14（スタブ未登録）となる。
 
 ## ビルドと書き込み
 

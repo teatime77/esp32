@@ -1,29 +1,20 @@
 /** @file bytecode_vm.h
- * @brief 受信・検証済みのPythonバイトコードversion=1を協調実行するVM。
+ * @brief Pythonの値スロットVM。呼出し・所有権の規約はbytecode_vm.cpp先頭を参照。
  */
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
 #include <memory>
 
-/** @brief loop()だけが開始・停止・実行する数値スタックVM。機器APIは呼ばない。 */
+/** @brief loop()だけが操作するVM。機器の実装は外部のNativeApiから接続する。 */
 class BytecodeVM {
     public:
-    /**
-     * @details
-     * ## 上限と公開状態
-     *
-     * 大域変数は最大1024個、スタックは管理領域・引数・局所変数を含め1024スロット、同時関数呼出しは64段。超過や動的確保の失敗は実行エラーとする。これらはバイナリ形式のuint16上限とは別の、現在のVMの実行上限。
-     */
-    static constexpr uint32_t MaxStack = 1024; ///< 引数・管理領域・局所変数・一時値の合計上限。
-    static constexpr uint32_t MaxGlobals = 1024; ///< 大域変数の上限。
-    static constexpr uint32_t MaxFrames = 64; ///< 同時に呼出せる関数の深さ。
-
-    /** @brief VMの実行状態。更新はVMに任せる。
-     *
-     * @details
-     * stateは0=Idle、1=Running、2=Halted、3=Stopped、4=Error。
-     */
+    static constexpr uint32_t MaxStack = 1024; ///< 管理領域・引数・局所・一時値の上限。
+    static constexpr uint32_t MaxGlobals = 1024; ///< 展開後の大域スロット上限。
+    static constexpr uint32_t MaxFrames = 64; ///< 同時ユーザー関数呼出し上限。
+    static constexpr uint32_t MaxStrings = 64; ///< 動的文字列の同時保持上限。
+    static constexpr uint32_t MaxStringLength = 1024; ///< 整形・連結結果の最大UTF-8バイト長。
+    /** @brief 実行状態。従来の番号0〜4を維持する。 */
     enum class State : uint8_t {
         Idle,
         Running,
@@ -31,26 +22,7 @@ class BytecodeVM {
         Stopped,
         Error
     };
-    /** @brief 実行時エラー。errorPcは失敗した命令の先頭を指す。
-     *
-     * @details
-     * | error | 意味 |
-     * |---|---|
-     * | 0 | エラーなし |
-     * | 1 | ヘッダー・命令形式不正 |
-     * | 2 | メモリ確保失敗 |
-     * | 3 | 大域変数数の上限超過 |
-     * | 4 | 一時スタック不足 |
-     * | 5 | スタック上限超過 |
-     * | 6 | 関数呼出し深さの上限超過 |
-     * | 7 | 変数位置・PC等の不正 |
-     * | 8 | 未初期化変数の読出し |
-     * | 9 | 型エラー |
-     * | 10 | 0除算 |
-     * | 11 | 整数オーバーフロー |
-     * | 12 | 非有限float |
-     * | 13 | RETまたは保存済み戻り先の不正 |
-     */
+    /** @brief 実行エラー。0〜13は従来通り。errorPcが失敗命令を示す。 */
     enum class Error : uint8_t {
         None,
         Format,
@@ -65,98 +37,141 @@ class BytecodeVM {
         DivisionByZero,
         IntegerOverflow,
         NonFinite,
-        Return
+        Return,
+        NativeUnavailable, ///< 14: スタブ未登録、またはIDがない。
+        AbiMismatch, ///< 15: バイトコードと登録表のAPIハッシュが違う。
+        NativeFailure, ///< 16: スタブが報告する機器エラー等。
+        StringLimit, ///< 17: 動的文字列数・長さの上限。
+        StringFormat ///< 18: 未対応・不正な数値書式。
     };
-    /** @brief 値の種別。末尾2種は関数フレームの管理用で、Pythonから読み書きできない。
-     *
-     * @details
-     * ## 値と演算
-     *
-     * 値はint32、float32、None、未初期化を区別する。
-     *
-     * True／False・比較結果は整数1／0。
-     */
+    /** @brief スロット型。管理用のReturnPc/SavedBpはPythonに公開しない。 */
     enum class Type : uint8_t {
         Uninitialized,
         Integer,
         Float,
         None,
         ReturnPc,
-        SavedBp
+        SavedBp,
+        String,
+        Object
     };
-    /** @brief VMの1スロット。数値・None・未初期化・管理情報を区別する。 */
+    /** @brief 1個の値。構造体は宣言順に複数スロットを並べる。 */
     struct Value {
         Type type = Type::Uninitialized;
+        uint16_t classId = 0; ///< ObjectのクラスID。ほかの型では使用しない。
         union {
             int32_t integer = 0;
             float real;
-            uint32_t address;
+            uint32_t address; ///< 管理値・文字列ID・機器ハンドル。C++ポインターではない。
         };
     };
+    /** @brief スタブ呼出し領域。arguments/resultsは同期コールバック中だけ有効。 */
+    struct NativeCall {
+        BytecodeVM &vm; ///< stringBytes()による文字列参照に使用。再入・VM操作は禁止。
+        const Value *arguments; ///< self、明示引数の順。構造体は展開済み。
+        Value *results; ///< 必ずresultSlots個すべてを設定する。Noneも1個返す。
+        uint16_t argumentSlots;
+        uint16_t resultSlots;
+        void *context; ///< 登録元が所有する機器管理状態。
+    };
+    /** @brief 単一nativeIdとスタブ・入出力スロット幅の対応。 */
+    struct NativeEntry {
+        uint16_t id;
+        uint16_t argumentSlots;
+        uint16_t resultSlots;
+        Error (*invoke)(NativeCall &call); ///< 同期実行。成功時Error::None。
+    };
+    /** @brief 将来自動生成する登録表。表・ハッシュ・contextは登録中ずっと有効に保つ。 */
+    struct NativeApi {
+        const uint8_t *abiHash; ///< JSONのabiHashを復号した32バイト。
+        const NativeEntry *entries; ///< 非0のID昇順、重複なし。
+        size_t count;
+        void *context;
+        void (*reset)(void *context); ///< 任意。stop/再開始/登録変更時に機器ハンドルを解放する。
+    };
 
-    /**
-     * @details
-     * `state`、`error`、`errorPc`、`pc`、`sp`、`bp`、`instructions`、`globals`、`globalCount`は外部から参照だけを行う。大域変数は正常終了・エラー・停止後も保持し、次のstart()で初期化する。
-     */
-    State state = State::Idle; ///< 外部は参照のみ。loop()からのVM操作で更新する。
-    Error error = Error::None; ///< 最後のエラー。start()で消去する。
-    uint32_t errorPc = 0; ///< エラー命令のPC。
-    uint32_t pc = 0; ///< 命令列先頭からのバイト位置。
-    uint32_t sp = 0; ///< 次にpushするスタックスロット。
-    uint32_t bp = 0; ///< 現関数の管理領域の先頭。
-    uint32_t instructions = 0; ///< 今回の実行で処理した命令数。
-    std::unique_ptr<Value[]> globals; ///< 実行結果。HALT・エラー・停止後も保持する。外部は参照のみ。
-    uint32_t globalCount = 0; ///< globalsの有効要素数。
+    State state = State::Idle; ///< 外部は参照のみ。以下の診断情報はVMが更新する。
+    Error error = Error::None;
+    uint32_t errorPc = 0;
+    uint32_t pc = 0;
+    uint32_t sp = 0;
+    uint32_t bp = 0;
+    uint32_t instructions = 0;
+    std::unique_ptr<Value[]> globals; ///< stopではString/Objectを無効化し、数値は保持する。
+    uint32_t globalCount = 0;
 
-    /**
-     * @brief 受信器で構造検証済みのイメージを借用して実行を開始する。
-     * @param image バイナリ全体。tick()中は不変とし、置換後はtick()前にstart()かstop()を呼ぶ。
-     * @param length 全体長。グローバル変数と実行スタックは新規初期化する。
-     * @return 実行を開始できたらtrue。
-     *
-     * @details
-     * start()の入力は受信器で命令境界・分岐先等を全件検証した不変バッファに限る。VMはさらに実行時の命令範囲・変数位置・スタック・型を検査する。検証前の任意のデータをstart()へ直接渡さない。
-     */
+    /** @brief 停止中にスタブ表を検証・登録する。@param api nullで解除。@return 登録できればtrue。 */
+    bool bindNativeApi(const NativeApi *api);
+    /** @brief 構造検証済みイメージを借用して開始する。@param image 不変バッファ。@param length 全長。@return 成功時true。 */
     bool start(const uint8_t *image, size_t length);
-    /** @brief 最大budget命令を進める。@param budget 1回のloop()に割り当てる命令数。 */
+    /** @brief 最大budget命令を実行する。@param budget loop()1回の割当量。 */
     void tick(uint32_t budget = 128);
-    /** @brief 実行を停止してイメージの参照を解除する。大域変数と診断情報は保持する。 */
+    /** @brief 借用参照・動的文字列・機器ハンドルを解放する。数値と診断情報は保持する。 */
     void stop();
+    /** @brief Stringを検査して長さ付きUTF-8を借用する。@param value 対象。@param data 出力先。@param length バイト長。@return 有効ならtrue。 */
+    bool stringBytes(const Value &value, const char *&data, size_t &length) const;
 
     private:
-    /** @brief 呼出元の命令範囲と一時スタックの下限。戻り先PC・旧BPは値スタックに置く。 */
+    /** @brief 呼出し元の命令範囲・一時値下限・戻り値幅。 */
     struct Frame {
         uint32_t base;
         uint32_t end;
         uint32_t floor;
+        uint32_t results;
     };
-    /** @brief エラー状態へ移る。@param code 失敗理由。@return 常にfalse。 */
+    /** @brief プール内の文字列。Valueは添字だけを保持する。 */
+    struct Text {
+        std::unique_ptr<char[]> bytes;
+        size_t length = 0;
+    };
+    /** @brief エラー状態へ移る。@param code 理由。@return false。 */
     bool fail(Error code);
     /** @brief 1命令を実行する。 */
     void step();
-    /** @brief 値を積む。@param value Pythonの値。@return 成功時true。 */
+    /** @brief 値を積む。@param value 値。@return 成功時true。 */
     bool push(const Value &value);
-    /** @brief 値を取り出す。@param value 出力先。@return 成功時true。 */
+    /** @brief 固定領域を侵さず値を取り出す。@param value 出力先。@return 成功時true。 */
     bool pop(Value &value);
-    /** @brief 数値型を調べる。@param value 対象。@return intまたはfloatならtrue。 */
+    /** @brief 数値型か検査する。@param value 値。@return 数値ならtrue。 */
     static bool numeric(const Value &value);
-    /** @brief 条件値を変換する。@param value 対象。@param result 真偽。@return 有効な値ならtrue。 */
+    /** @brief 外部から返せるスロットか検査する。@param value 値。@return 有効ならtrue。 */
+    bool validValue(const Value &value) const;
+    /** @brief 条件値を変換する。@param value 値。@param result 真偽。@return 成功時true。 */
     bool truth(const Value &value, bool &result);
-    /** @brief 四則・比較を計算する。@param opcode 命令番号。 */
+    /** @brief 四則・比較を行う。@param opcode 命令番号。 */
     void calculate(uint8_t opcode);
-    /** @brief 関数フレームを作る。@param entry 関数入口PC。 */
+    /** @brief ユーザー関数フレームを作る。@param entry 入口PC。 */
     void call(uint16_t entry);
-    /** @brief フレームを解放し、呼出元へ戻り値を1個積む。 */
+    /** @brief 宣言された幅の戻り値を呼出し元へコピーする。 */
     void ret();
+    /** @brief 登録表のスタブを同期実行する。@param id 単一ネイティブID。 */
+    void callNative(uint16_t id);
+    /** @brief 到達不能文字列を回収して結果領域を確保する。@param length バイト長。@param value 出力値。@param bytes 書込先。@return 成功時true。 */
+    bool allocateText(size_t length, Value &value, char *&bytes);
+    /** @brief 数値を整形する。@param format 定数文字列ID。 */
+    void formatValue(uint16_t format);
+    /** @brief スタック上の断片を連結する。@param count 断片数。 */
+    void buildString(uint16_t count);
 
+    const NativeApi *nativeApi_ = nullptr;
+    bool nativeActive_ = false;
+    uint8_t abiHash_[32]{};
+    uint16_t version_ = 0;
+    size_t recordLength_ = 8;
     const uint8_t *table_ = nullptr;
     const uint8_t *code_ = nullptr;
+    const uint8_t *strings_ = nullptr;
+    const uint8_t *stringData_ = nullptr;
+    uint16_t stringCount_ = 0;
+    uint32_t stringDataLength_ = 0;
     uint32_t codeLength_ = 0;
     uint16_t functionCount_ = 0;
     std::unique_ptr<Value[]> stack_;
+    Text texts_[MaxStrings];
     Frame frames_[MaxFrames]{};
     uint32_t depth_ = 0;
     uint32_t base_ = 0;
     uint32_t end_ = 0;
     uint32_t floor_ = 0;
+    uint32_t resultSlots_ = 1;
 };

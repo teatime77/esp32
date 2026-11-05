@@ -134,7 +134,8 @@ namespace {
      *
      * STOPはサーボとVMの実行を停止する。確定データは消去しない。VMは切断・通信期限切れでも停止し、再実行は再送で行う。
      *
-     * VMは1周128命令まで進め、実行中のスタック・型・未初期化値を検査する。機器操作命令はない。
+     * VMは1周128命令まで進め、展開した構造体とネイティブ呼出しに対応する。VMの規約は
+     * bytecode_vm.cpp先頭を参照。機器スタブは未登録なので機器API呼出しはエラー14となる。
      */
     void runBytecode(bool stopped) {
         const bool connected = bluetooth.connected.load() && !network.connected.load() && !network.bleUnavailable();
@@ -167,7 +168,8 @@ namespace {
         }
         /**
          * @details
-         * HALT時には先頭16個までを`VM g[番号]=値`としてシリアルへ出す。番号は生成器が代入先の初出順に割り当てた大域変数スロット。
+         * HALT時には先頭16個までを`VM g[番号]=値`としてシリアルへ出す。
+         * 番号は構造体の葉を展開した大域スロット。ObjectはクラスIDと不透明ハンドルを表示する。
          */
         if (bytecodeVm.state == BytecodeVM::State::Halted) {
             const uint32_t count = bytecodeVm.globalCount < 16 ? bytecodeVm.globalCount : 16;
@@ -179,6 +181,21 @@ namespace {
                 }
                 else if (value.type == BytecodeVM::Type::Float) {
                     Serial.printf("%.9g\n", double(value.real));
+                }
+                else if (value.type == BytecodeVM::Type::Object) {
+                    Serial.printf("Object(class=%u, handle=%lu)\n", unsigned(value.classId),
+                        static_cast<unsigned long>(value.address));
+                }
+                else if (value.type == BytecodeVM::Type::String) {
+                    const char *bytes = nullptr;
+                    size_t length = 0;
+                    if (bytecodeVm.stringBytes(value, bytes, length)) {
+                        Serial.write(reinterpret_cast<const uint8_t *>(bytes), length);
+                        Serial.println();
+                    }
+                    else {
+                        Serial.println("invalid string");
+                    }
                 }
                 else {
                     Serial.println(value.type == BytecodeVM::Type::None ? "None" : "uninitialized");

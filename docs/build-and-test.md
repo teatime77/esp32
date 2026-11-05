@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## Python VMの構造体・ネイティブ呼出し（2026-11-04）
+
+[VM](../app/diagram-control/src/bytecode_vm.cpp)へversion=3の値スロット・呼出し規約とネイティブ登録APIを実装した。実行範囲・所有権・スタブの接続方法と未実装部分は同ファイル先頭コメントを参照する。
+
+`app/diagram-control`から`platformio.exe run -e supermini_esp32s3 -e esp32dev -e xiao_esp32s3`でビルドする。ユーザー指定によりテストは作成・実行しない。Upload・実BLE・VMの実機実行は行わない。機器スタブ本体と生成登録表は今回の対象外。
+
+最終ソースで3環境ともビルド成功。静的RAM/FlashはDevKitが61448/1174785バイト、XIAOが61784/1071981バイト、SuperMiniが57708/1028993バイト。動的スタック・大域変数・文字列・受信バッファの確保量は静的RAMに含まれない。差分の空白検査も成功した。uroa側は仕様コメントだけの変更で、npmビルドは実行していない。
+
 ## Pythonバイナリversion=3のBLE受信（2026-11-04）
 
 diagram側の生成・送信に合わせ、[受信器](../app/diagram-control/src/bytecode_receiver.cpp)の形式検証を更新した。VM本体は変更していない。対応範囲と実行前に必要な照合は受信器先頭コメントを参照する。
