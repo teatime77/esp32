@@ -72,6 +72,19 @@ namespace uroa {
             initial[0] = 1;
             bytecodeResult_->setValue(initial, sizeof initial);
         }
+        if (config_.debugControlUuid.length() && config_.debugResultUuid.length() &&
+            config_.debugEventUuid.length() && config_.debugDataUuid.length()) {
+            debugControl_ = service->createCharacteristic(config_.debugControlUuid.c_str(), NIMBLE_PROPERTY::WRITE, 20);
+            debugControl_->setCallbacks(this);
+            debugResult_ = service->createCharacteristic(config_.debugResultUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
+            debugEvent_ = service->createCharacteristic(config_.debugEventUuid.c_str(),
+                NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 20);
+            debugData_ = service->createCharacteristic(config_.debugDataUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
+            uint8_t initial[20]{};
+            initial[0] = 1;
+            debugResult_->setValue(initial, sizeof initial);
+            debugEvent_->setValue(initial, sizeof initial);
+        }
         if (callbacks_.configure) {
             configuration_.reset();
             auto config = service->createCharacteristic(config_.configUuid.c_str(),
@@ -112,6 +125,10 @@ namespace uroa {
         deviceInfo_ = nullptr;
         bytecode_ = nullptr;
         bytecodeResult_ = nullptr;
+        debugControl_ = nullptr;
+        debugResult_ = nullptr;
+        debugEvent_ = nullptr;
+        debugData_ = nullptr;
         running_ = false;
     }
 
@@ -160,6 +177,12 @@ namespace uroa {
     void BleTransport::onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &) {
         auto value = characteristic->getValue();
         // バッファはコールバック中だけ有効。受け手は即座にキューへコピーする。
+        if (characteristic == debugControl_) {
+            if (callbacks_.debug) {
+                callbacks_.debug(reinterpret_cast<const uint8_t *>(value.data()), value.size(), generation.load());
+            }
+            return;
+        }
         if (characteristic == bytecode_) {
             if (callbacks_.bytecode) {
                 callbacks_.bytecode(reinterpret_cast<const uint8_t *>(value.data()), value.size(), generation.load());
@@ -201,6 +224,30 @@ namespace uroa {
     void BleTransport::publishBytecodeResult(const uint8_t *data, size_t length) {
         if (running_ && !stopping_ && bytecodeResult_ && length == 20) {
             bytecodeResult_->setValue(data, length);
+        }
+    }
+
+    /** @brief loop()で検証したデバッグACKを公開する。@param data 結果。@param length 20。 */
+    void BleTransport::publishDebugResult(const uint8_t *data, size_t length) {
+        if (running_ && !stopping_ && debugResult_ && length == 20) {
+            debugResult_->setValue(data, length);
+        }
+    }
+
+    /** @brief 状態をReadへ保持し、接続中は通知する。@param data 状態。@param length 20。 */
+    void BleTransport::publishDebugEvent(const uint8_t *data, size_t length) {
+        if (running_ && !stopping_ && debugEvent_ && length == 20) {
+            debugEvent_->setValue(data, length);
+            if (connected) {
+                debugEvent_->notify(data, length);
+            }
+        }
+    }
+
+    /** @brief 選択したチャンクをRead値へコピーする。@param data 内容。@param length 1〜20。 */
+    void BleTransport::publishDebugData(const uint8_t *data, size_t length) {
+        if (running_ && !stopping_ && debugData_ && length > 0 && length <= 20) {
+            debugData_->setValue(data, length);
         }
     }
 

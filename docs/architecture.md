@@ -2,6 +2,8 @@
 
 共通ライブラリーは`lib/`に置き、各ライブラリーの宣言を`include/`、実装を`src/`に分離する。教材アプリは`app/`に独立したPlatformIOプロジェクトとして置く。現在のアプリは[diagram-control](../app/diagram-control/README.md)。教材アプリのピン、周期、キュー、停止方針、認証設定は共通ライブラリーへ固定しない。
 
+PythonデバッグのBLE窓口は[uroa_ble.h](../lib/ble/include/uroa_ble.h)、教材側の要求処理・命令フラグ・停止値は[bytecode_debugger.cpp](../app/diagram-control/src/bytecode_debugger.cpp)を参照する。通信の完全な形式はuroaの[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を正本とし、ライブラリーはVMを直接操作しない。ビルド・実機確認の境界は[検証記録](build-and-test.md)に記載する。
+
 ## 公開状態への移行
 
 バージョン0.2.0では、元の0.1.0の呼出元に対して以下のAPI変更がある。元のuroaリポジトリーは変更しない。

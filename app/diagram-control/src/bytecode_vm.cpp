@@ -73,7 +73,7 @@ void BytecodeVM::stop() {
  * @details 停止中だけ許可する。登録表は非0 IDの昇順、入出力は展開後の幅。
  */
 bool BytecodeVM::bindNativeApi(const NativeApi *api) {
-    if (state == State::Running) {
+    if (state == State::Running || state == State::Paused) {
         return false;
     }
     if (api) {
@@ -820,12 +820,19 @@ void BytecodeVM::step() {
         fail(Error::Operand);
         return;
     }
-    const uint8_t opcode = code_[pc];
+    // bit7はbytecode_debugger.cppだけが検証済み命令先頭へ設定する。オペランドには適用しない。
+    // PC・命令数・スタックを更新する前に停止し、通常Stopとは別に値と所有機器を保持する。
+    const uint8_t instruction = code_[pc];
+    const uint8_t opcode = instruction & 0x7F;
     const uint32_t size = opcode == 0x03 || opcode == 0x04 ? 5 :
         opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ? 3 : 1;
     const uint8_t maximum = version_ == 3 ? 0x1D : version_ == 2 ? 0x19 : 0x18;
     if (opcode < 0x01 || opcode > maximum || pc + size > end_) {
         fail(Error::Format);
+        return;
+    }
+    if ((instruction & 0x80) != 0) {
+        state = State::Paused;
         return;
     }
     const uint16_t operand = size == 3 ? read16(code_ + pc + 1) : 0;
@@ -969,4 +976,70 @@ void BytecodeVM::tick(uint32_t budget) {
     for (uint32_t count = 0; count < budget && state == State::Running && !yielded_; ++count) {
         step();
     }
+}
+
+/** @brief Pausedの全使用スロットをパディングなしで直列化する。
+ * @param data 出力領域。@param length 正確な必要長。@return Pausedで正常にコピーしたらtrue。
+ * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.ts。文字列はIDだけを送り、
+ * 動的一時文字列の実体は送らない。公開する管理値はPC/スタック添字であり、C++ポインターではない。
+ */
+bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
+    if (state != State::Paused || !data || sp > MaxStack || globalCount > MaxGlobals ||
+        length != 24 + 8 * (globalCount + sp) || (sp && !stack_) || (globalCount && !globals)) {
+        return false;
+    }
+    std::memset(data, 0, length);
+    data[0] = 1;
+    data[1] = 1;
+    data[2] = 8;
+    const uint32_t header[] = {pc, bp, sp, globalCount, sp};
+    for (size_t index = 0; index < 5; ++index) {
+        for (size_t byte = 0; byte < 4; ++byte) {
+            data[4 + index * 4 + byte] = uint8_t(header[index] >> (byte * 8));
+        }
+    }
+    for (uint32_t index = 0; index < globalCount + sp; ++index) {
+        const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
+        uint8_t *record = data + 24 + index * 8;
+        uint32_t payload = 0;
+        switch (value.type) {
+            case Type::Uninitialized:
+                record[0] = 0;
+                break;
+            case Type::Integer:
+                record[0] = 1;
+                payload = uint32_t(value.integer);
+                break;
+            case Type::Float:
+                record[0] = 2;
+                static_assert(sizeof(float) == 4, "Debug float must be binary32");
+                std::memcpy(&payload, &value.real, sizeof payload);
+                break;
+            case Type::None:
+                record[0] = 3;
+                break;
+            case Type::ReturnPc:
+                record[0] = 4;
+                payload = value.address;
+                break;
+            case Type::SavedBp:
+                record[0] = 5;
+                payload = value.address;
+                break;
+            case Type::String:
+                record[0] = 6;
+                payload = value.address;
+                break;
+            case Type::Object:
+                record[0] = 7;
+                record[2] = uint8_t(value.classId);
+                record[3] = uint8_t(value.classId >> 8);
+                payload = value.address;
+                break;
+        }
+        for (size_t byte = 0; byte < 4; ++byte) {
+            record[4 + byte] = uint8_t(payload >> (byte * 8));
+        }
+    }
+    return true;
 }

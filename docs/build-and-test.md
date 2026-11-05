@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## PythonデバッガのBLE通信（2026-11-05）
+
+要求処理は[bytecode_debugger.cpp](../app/diagram-control/src/bytecode_debugger.cpp)、停止・値の直列化は[bytecode_vm.cpp](../app/diagram-control/src/bytecode_vm.cpp)、ワイヤー形式の正本とdiagram側の復号は[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を参照する。
+
+ユーザー指定に従い、テストは作成・実行せず、`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`でビルドする。初回は既存PlatformIOキャッシュの書込み制限で停止し、同じコマンドにキャッシュの書込み権限を付けて再実行した。実BLE、通知欠落時の回復、最大件数・Snapshotでの通信時間と空きRAM、VM停止と機器出力、Upload、XIAO・SuperMiniのビルドは未確認。静的RAMの報告値には一覧・Snapshot等の動的確保は含まれない。
+
+esp32devのコンパイル・リンク・`firmware.bin`生成は成功した。静的RAMは62208/327680バイト、Flashは1200889/1310720バイト。uroaの`npm.cmd run verify`、両リポジトリーの`git -c core.whitespace=cr-at-eol diff --check`、更新文書のローカルリンク確認も成功した。
+
 ## Pythonのsleep（2026-11-05）
 
 待機APIとVMの接続は[function_sleepの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。uroa側の[device.pyi](../../uroa/diagram/python/device.pyi)からJSON・C++スタブ・ABI指紋を再生成する。uroaルートで`python diagram/python/generate-device-api.py --check`を実行し、生成物が一致することを静的確認する。

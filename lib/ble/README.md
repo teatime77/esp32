@@ -10,6 +10,8 @@
 
 `Config::deviceInfoUuid`を指定すると、同じServiceへDeviceInfoのWrite用Characteristicを追加する。空なら追加しない。公開定数`DeviceInfoMaxLength`は1回の書込上限20バイトで、`start()`で登録し、`stop()`で参照を解除する。受信内容は専用の`Callbacks::deviceInfo`へ渡し、既存Commandのコールバックへは渡さない。分割転送とアプリ側の受付結果の通知は実装していない。
 
+デバッグ用の設定・コールバック・公開APIは[uroa_ble.h](include/uroa_ble.h)の`debugControlUuid`・`Callbacks::debug`・`publishDebugResult/Event/Data()`を参照する。BLEライブラリーは要求の配送とRead/Notify値の保持を担当し、VMへ直接アクセスしない。教材側の処理は[bytecode_debugger.cpp](../../app/diagram-control/src/bytecode_debugger.cpp)、通信形式の正本はuroaの[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)に置く。
+
 | コールバック | 呼び出し元・責任 |
 |---|---|
 | `command(data, length, generation)` | BLEタスク。バッファは呼び出し中だけ有効。すぐコピーして指令キューへ送る |

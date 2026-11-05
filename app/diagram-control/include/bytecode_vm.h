@@ -20,7 +20,8 @@ class BytecodeVM {
         Running,
         Halted,
         Stopped,
-        Error
+        Error,
+        Paused ///< 5: ブレークポイントの命令を未実行のまま値と機器ハンドルを保持する。
     };
     /** @brief 実行エラー。0〜13は従来通り。errorPcが失敗命令を示す。 */
     enum class Error : uint8_t {
@@ -103,7 +104,10 @@ class BytecodeVM {
 
     /** @brief 停止中にスタブ表を検証・登録する。@param api nullで解除。@return 登録できればtrue。 */
     bool bindNativeApi(const NativeApi *api);
-    /** @brief 構造検証済みイメージを借用して開始する。@param image 不変バッファ。@param length 全長。@return 成功時true。 */
+    /** @brief 構造検証済みイメージを借用して開始する。
+     * @param image BytecodeDebuggerによる命令先頭bit7以外は不変のバッファ。
+     * @param length 全長。@return 成功時true。
+     */
     bool start(const uint8_t *image, size_t length);
     /** @brief 最大budget命令を実行する。@param budget loop()1回の割当量。 */
     void tick(uint32_t budget = 128);
@@ -111,6 +115,8 @@ class BytecodeVM {
     void stop();
     /** @brief Stringを検査して長さ付きUTF-8を借用する。@param value 対象。@param data 出力先。@param length バイト長。@return 有効ならtrue。 */
     bool stringBytes(const Value &value, const char *&data, size_t &length) const;
+    /** @brief 一時停止中の値を通信形式へコピーする。@param data 出力。@param length 24+8*(globalCount+sp)。@return 成功時true。 */
+    bool copyDebugSnapshot(uint8_t *data, size_t length) const;
 
     private:
     /** @brief 呼出し元の命令範囲・一時値下限・戻り値幅。 */

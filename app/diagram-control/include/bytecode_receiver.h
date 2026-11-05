@@ -21,9 +21,9 @@ class BytecodeReceiver {
      * 転送全体の上限は128KiB（131072バイト）。生成器の「命令列のみ65536バイト」の上限とは別に、ヘッダー・関数表・文字列表・UTF-8データも含めて制限する。128KiB以内でも空きRAM不足なら受信を拒否する。上限内ではフレーム数が65535未満なので、sequenceは転送中に周回しない。版別の形式と検証仕様はbytecode_receiver.cpp先頭を参照する。
      */
     static constexpr size_t MaxLength = 128 * 1024; ///< ヘッダー・関数表・文字列領域を含む転送全体の最大バイト数。
-    std::unique_ptr<uint8_t[]> program; ///< loop()だけが正常COMMIT時に置換する。外部は参照だけ行う。
+    std::unique_ptr<uint8_t[]> program; ///< loop()の正常COMMITで置換。BytecodeDebuggerだけが命令先頭のbit7を変更できる。
     size_t programLength = 0; ///< 確定済みプログラム長。切断で消去せず、再起動で失われる。
-    uint32_t programCrc32 = 0; ///< 確定済みプログラム全体のCRC-32。
+    uint32_t programCrc32 = 0; ///< ブレークポイントフラグを設定する前の確定イメージ全体のCRC-32。
     uint32_t programRevision = 0; ///< 正常COMMITで更新する世代。loop()はVM実行前に照合する。
 
     /**

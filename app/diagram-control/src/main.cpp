@@ -18,6 +18,7 @@
 #include "network.h"
 #include "bytecode_receiver.h"
 #include "bytecode_vm.h"
+#include "bytecode_debugger.h"
 #include "device_native.h"
 
 namespace {
@@ -53,6 +54,7 @@ namespace {
     uroa::BleTransport bluetooth; ///< 稼働中保持するBLEサーバー。
     BytecodeReceiver bytecodeReceiver; ///< loop()で分割受信を検証し、確定後にVMへ渡す。
     BytecodeVM bytecodeVm; ///< loop()だけが操作するVM。受信器の確定バッファを借用する。
+    BytecodeDebugger bytecodeDebugger(bytecodeReceiver, bytecodeVm, bluetooth); ///< デバッグ通信・命令フラグ・停止値の所有者。
     uint32_t vmRevision = 0; ///< VMが照合した確定プログラムの世代。更新だけでは開始しない。
     BytecodeVM::State reportedVmState = BytecodeVM::State::Idle; ///< シリアルへ報告済みの状態。
 
@@ -151,6 +153,7 @@ namespace {
      * ## 所有権と確認範囲
      *
      * VMは受信器の確定バッファを借用し、コピーしない。受信器の置換後は、loop()がVMを進める前に世代を照合し、新しいstart()かstop()を呼ぶ。BLEコールバックからVMを操作しない。未完了・不正な転送は確定済みバッファを置き換えず、以前のVMの実行を直接開始し直さない。
+     * デバッグ用bit7の書換え・Paused通知・停止Snapshotはbytecode_debugger.cppを参照する。
      *
      * 通常指令と同様、loop()は停止要求を先に処理してから受信処理を進める。
      *
@@ -602,6 +605,7 @@ namespace {
                 status(Protocol::CODE_BUSY, sequence);
                 return;
             }
+            bytecodeDebugger.invalidateSnapshot();
             bytecodeVm.stop();
             vmRevision = bytecodeReceiver.programRevision;
             reportedVmState = BytecodeVM::State::Stopped;
@@ -773,6 +777,10 @@ void setup() {
     bleConfig.deviceInfoUuid = DEVICE_INFO_UUID;
     bleConfig.bytecodeUuid = BYTECODE_UUID;
     bleConfig.bytecodeResultUuid = BYTECODE_RESULT_UUID;
+    bleConfig.debugControlUuid = DEBUG_CONTROL_UUID;
+    bleConfig.debugResultUuid = DEBUG_RESULT_UUID;
+    bleConfig.debugEventUuid = DEBUG_EVENT_UUID;
+    bleConfig.debugDataUuid = DEBUG_DATA_UUID;
     bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
     bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength;
     bleConfig.passkey = PAIRING_CODE;
@@ -782,6 +790,7 @@ void setup() {
         return bluetooth.connected.load() && bluetooth.generation.load() == generation && !network.connected.load() &&
             !network.bleUnavailable();
     });
+    bytecodeDebugger.begin();
     uroa::BleTransport::Callbacks bleCallbacks;
     bleCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
         receive(data, length, generation, false);
@@ -791,6 +800,9 @@ void setup() {
     };
     bleCallbacks.bytecode = [](const uint8_t *data, size_t length, uint32_t generation) {
         bytecodeReceiver.enqueue(data, length, generation);
+    };
+    bleCallbacks.debug = [](const uint8_t *data, size_t length, uint32_t generation) {
+        bytecodeDebugger.enqueue(data, length, generation);
     };
     bleCallbacks.session = [](bool, uint32_t) {
         if (!network.connected.load()) {
@@ -867,6 +879,11 @@ void loop() {
         publishDeviceTelemetry(now);
     }
     network.tick();
+    // デバッグ要求もloop()で処理し、Stopがある周回では設定・値取得を受け付けない。
+    // PausedではVMだけを止める。機器出力・補間は維持し、既存のStop・切断・通信期限が停止させる。
+    bytecodeDebugger.process(!vmStopRequested && bluetooth.connected.load() && !network.connected.load() &&
+        !network.bleUnavailable(), bluetooth.generation.load());
     runBytecode(vmStopRequested);
+    bytecodeDebugger.publishState();
     delay(2);
 }
