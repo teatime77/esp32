@@ -88,10 +88,18 @@ namespace uroa {
      * @param data 入力または出力のバイト配列。
      * @param length データ長（バイト）。
      * @return 長さと各値を変換できたらtrue。
+     * @details 0〜9・a〜f・A〜Fだけを許可し、空白や符号をバイト値へ変換しない。
      */
     bool WifiNetwork::unhex(const String &value, uint8_t *data, size_t length) {
         if (value.length() != length * 2) {
             return false;
+        }
+        for (size_t index = 0; index < value.length(); ++index) {
+            const char digit = value[index];
+            if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') ||
+                    (digit >= 'A' && digit <= 'F'))) {
+                return false;
+            }
         }
         for (size_t i = 0; i < length; ++i) {
             char pair[] = {value[i * 2], value[i * 2 + 1], 0};
@@ -224,9 +232,14 @@ namespace uroa {
      * @brief 512バイト未満のHTTP本文を最後まで読み取る。
      * @param req HTTP要求。
      * @param text 取得したHTTP本文の出力先。
+     * @param allowEmpty 空の機器一覧を許可する場合true。
      * @return 本文を取得できたらtrue。
      */
-    bool WifiNetwork::body(httpd_req_t *req, String &text) {
+    bool WifiNetwork::body(httpd_req_t *req, String &text, bool allowEmpty) {
+        if (allowEmpty && req->content_len == 0) {
+            text = "";
+            return true;
+        }
         if (req->content_len <= 0 || req->content_len >= 512) {
             return false;
         }
@@ -292,12 +305,16 @@ namespace uroa {
      * @brief HTTP制御要求を認証し、失敗時は401を返す。
      * @param req HTTP要求。
      * @param payload 本文またはWebSocket受信データ。
+     * @param sessionGeneration 認証時の世代の出力先。省略できる。
      * @return 要求を認証できたらtrue。
      */
-    bool WifiNetwork::authorizeHTTP(httpd_req_t *req, const String &payload) {
+    bool WifiNetwork::authorizeHTTP(httpd_req_t *req, const String &payload, uint32_t *sessionGeneration) {
         xSemaphoreTake(stateLock, portMAX_DELAY);
         bool ok = authorize(header(req, "X-Uroa-Session"), header(req, "X-Uroa-Counter").toInt(), req->uri, payload,
             header(req, "X-Uroa-Mac"));
+        if (ok && sessionGeneration) {
+            *sessionGeneration = generation.load();
+        }
         xSemaphoreGive(stateLock);
         if (!ok) {
             const CorsHeaders headers(req);
@@ -411,23 +428,59 @@ namespace uroa {
     }
 
     /**
-     * @brief 認証済みHTTP指令を検査して指令コールバックへ渡す。
+     * @brief 認証した通常指令・機器一覧を両通信方式から同じコールバックへ配送する。
+     * @param path 署名で検証したパス。
+     * @param payload 16進文字列。
+     * @param sessionGeneration 認証時にコピーした接続世代。
+     * @return 配送できたらtrue。制御ループでの内容検証完了は表さない。
+     * @details /commandは既存の10バイト、/device-infoは0〜20バイトの生一覧。
+     * 機器一覧の形式・配送契約はuroa/diagram/ts/ble-wifi/control-connection.tsのsendDeviceInfo()を参照する。
+     * 機器レコードは解釈せず、任意のdeviceInfoコールバックへ呼出中だけ有効なバッファーを渡す。
+     */
+    bool WifiNetwork::dispatchControl(const String &path, const String &payload, uint32_t sessionGeneration) {
+        if (!connected.load() || sessionGeneration != generation.load()) {
+            return false;
+        }
+        if (path == "/command") {
+            uint8_t data[10];
+            if (!unhex(payload, data, sizeof data)) {
+                return false;
+            }
+            callbacks_.command(data, sizeof data, sessionGeneration);
+            return true;
+        }
+        if (path != "/device-info" || !callbacks_.deviceInfo || payload.length() > 2 * DeviceInfoMaxLength ||
+            payload.length() % 2 != 0) {
+            return false;
+        }
+        const size_t length = payload.length() / 2;
+        uint8_t data[DeviceInfoMaxLength]{};
+        if (!unhex(payload, data, length)) {
+            return false;
+        }
+        callbacks_.deviceInfo(data, length, sessionGeneration);
+        return true;
+    }
+
+    /**
+     * @brief 認証済みHTTPの通常指令・機器一覧を検査してコールバックへ渡す。
      * @param req HTTP要求。
      * @return HTTP応答処理の結果。
+     * @details 機器一覧だけは空本文を許可する。HMACは実際のパス・本文・要求番号を対象にする。
+     * accepted:trueはコールバックへの配送までで、一覧の検証完了ACKではない。
      */
-    esp_err_t WifiNetwork::commandHTTP(httpd_req_t *req) {
+    esp_err_t WifiNetwork::controlHTTP(httpd_req_t *req) {
         String payload;
-        if (!body(req, payload)) {
+        if (!body(req, payload, String(req->uri) == "/device-info")) {
             return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid request");
         }
-        if (!authorizeHTTP(req, payload)) {
+        uint32_t sessionGeneration = 0;
+        if (!authorizeHTTP(req, payload, &sessionGeneration)) {
             return ESP_OK;
         }
-        uint8_t data[10];
-        if (!unhex(payload, data, sizeof data)) {
-            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid command");
+        if (!dispatchControl(req->uri, payload, sessionGeneration)) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid control data");
         }
-        callbacks_.command(data, sizeof data, generation);
         return respond(req, "{\"accepted\":true}");
     }
 
@@ -547,10 +600,11 @@ namespace uroa {
         }
         registerRoute(httpServer, "/info", HTTP_GET, &WifiNetwork::info);
         registerRoute(httpServer, "/claim", HTTP_POST, &WifiNetwork::claimHTTP);
-        registerRoute(httpServer, "/command", HTTP_POST, &WifiNetwork::commandHTTP);
+        registerRoute(httpServer, "/command", HTTP_POST, &WifiNetwork::controlHTTP);
+        registerRoute(httpServer, "/device-info", HTTP_POST, &WifiNetwork::controlHTTP);
         registerRoute(httpServer, "/events", HTTP_GET, &WifiNetwork::eventsHTTP);
         registerRoute(httpServer, "/release", HTTP_POST, &WifiNetwork::releaseHTTP);
-        for (const char *path : {"/info", "/claim", "/command", "/events", "/release"}) {
+        for (const char *path : {"/info", "/claim", "/command", "/device-info", "/events", "/release"}) {
             registerRoute(httpServer, path, HTTP_OPTIONS, &WifiNetwork::options);
         }
         config.server_port = 82;
@@ -612,15 +666,19 @@ namespace uroa {
         if (!connected || !ready || owner != number) {
             return;
         }
+        // WebSocketの操作名とHMAC対象のパスを一致させ、窓口をまたぐ署名の流用を拒否する。
+        // dataの欠落・文字列以外を空一覧による消去として扱わない。
+        if ((op != "command" && op != "device-info") || !doc["data"].is<const char *>()) {
+            sockets.disconnect(number);
+            return;
+        }
+        const String path = "/" + op;
         String data = doc["data"] | "";
         xSemaphoreTake(stateLock, portMAX_DELAY);
-        bool ok = authorize(doc["session"] | "", doc["counter"] | uint32_t(0), "/command", data, doc["mac"] | "");
+        bool ok = authorize(doc["session"] | "", doc["counter"] | uint32_t(0), path, data, doc["mac"] | "");
+        const uint32_t sessionGeneration = generation.load();
         xSemaphoreGive(stateLock);
-        uint8_t bytes[10];
-        if (ok && unhex(data, bytes, sizeof bytes)) {
-            callbacks_.command(bytes, 10, generation);
-        }
-        else {
+        if (!ok || !dispatchControl(path, data, sessionGeneration)) {
             sockets.disconnect(number);
         }
     }

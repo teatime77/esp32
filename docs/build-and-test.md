@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## 機器一覧のWi-Fi対応（2026-11-05）
+
+共通登録APIは[control-connection.tsのsendDeviceInfo()](../../uroa/diagram/ts/ble-wifi/control-connection.ts)、Wi-Fiの認証・配送は[uroa_wifi.cppのdispatchControl()/controlHTTP()/socketEvent()](../lib/wifi/src/uroa_wifi.cpp)、機器一覧の検証・置換は[main.cppのreceiveDeviceInfo()/handleDeviceInfo()](../app/diagram-control/src/main.cpp)を参照する。
+
+ユーザー指定に従い、テストは作成・実行せず、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`だけでビルドした。既存PlatformIOキャッシュへの書込み権限を使用し、最終ソースのコンパイル・リンク・`firmware.bin`生成は成功した。静的RAMは62232/327680バイト、Flashは1202117/1310720バイト。uroaの`npm.cmd run verify`も成功した。
+
+XIAO・SuperMiniのビルド、Upload、ブラウザー操作、実BLE／Wi-Fi、空一覧・最大長・不正形式・認証エラー・切断・世代変更・STREAM再開の実動作は未確認。静的RAM値にはVM等の動的確保は含まれない。
+
 ## 通常指令・通知の共通層抽出（2026-11-05）
 
 通常通信の共通窓口は[control_transport.h](../app/diagram-control/include/control_transport.h)、Wi-Fiの通知APIは[uroa_wifi.h](../lib/wifi/include/uroa_wifi.h)、Web側は[control-connection.ts](../../uroa/diagram/ts/ble-wifi/control-connection.ts)を参照する。

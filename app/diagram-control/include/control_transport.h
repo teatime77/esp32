@@ -4,7 +4,8 @@
  * @details main.cppは指令キュー・機器操作・応答生成を担当し、本クラスはBLE/Wi-Fiを選別する。
  * lib/bleはGATT、lib/wifiは認証済みHTTP/WebSocketと送信バッファーを担当する。
  * Web側の共通窓口はuroa/diagram/ts/ble-wifi/control-connection.ts。
- * Command/Status v1とTelemetry v3の形式は維持し、カメラ・機器登録・Python転送・デバッグは扱わない。
+ * 機器一覧の接続照合も共用し、内容の検証はmain.cppが担当する。
+ * Command/Status v1とTelemetry v3の形式は維持し、カメラ・Python転送・デバッグは扱わない。
  */
 #pragma once
 #include <uroa_ble.h>

@@ -4,6 +4,9 @@
  */
 #include "control_transport.h"
 
+static_assert(uroa::BleTransport::DeviceInfoMaxLength == uroa::WifiNetwork::DeviceInfoMaxLength,
+    "DeviceInfo capacity must match between BLE and Wi-Fi");
+
 /** @brief 稼働中保持する通信先を接続する。@param ble BLE。@param wifi Wi-Fi。 */
 ControlTransport::ControlTransport(uroa::BleTransport &ble, uroa::WifiNetwork &wifi) : ble_(ble), wifi_(wifi) {
 }

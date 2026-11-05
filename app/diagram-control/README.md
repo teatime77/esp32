@@ -90,7 +90,7 @@ Wi-Fiで制御権を取得するとBLE指令を抑止し、BLEを遅延停止す
 
 バイナリ形式は[protocol.md](docs/protocol.md)を参照する。Commandは10byte、Statusは12byte、センサー通知はBLE・Wi-Fiとも後述のversion=3を使う。共通ライブラリーの範囲検査・補間・同期を利用する。
 
-DeviceInfo用のWrite Characteristic（`f3641406-00b0-4240-ba50-05ca45bf8abc`、最大20byte／書き込み）も同じServiceへ公開する。diagramのBLE接続時にセンサーとアクチュエータの情報を送信し、ESP32は指令キューを経由して`loop()`で全件検証・保持する。`DeviceInfo accepted`と機器一覧、または`DeviceInfo rejected`をシリアルへ出力する。登録による機器初期化・サーボ有効化は行わない。形式は[protocol.md](docs/protocol.md)を参照する。分割転送・Wi-Fi転送・専用のアプリ側ACKは未実装で、GATT書込成功と内容の検証成功は区別する。
+DeviceInfoはBLE・Wi-Fiの共通窓口から登録する。配送・受付と検証完了の区別は[control-connection.tsのsendDeviceInfo()](../../../uroa/diagram/ts/ble-wifi/control-connection.ts)、ESP32の検証・置換は[main.cppのreceiveDeviceInfo()/handleDeviceInfo()](src/main.cpp)、Wi-Fiの窓口は[uroa_wifi.cppのdispatchControl()](../../lib/wifi/src/uroa_wifi.cpp)を参照する。
 
 センサー通知はversion=3の8バイトヘッダーに、DeviceInfo順でIMU（種別0・13バイト）と超音波距離（種別2・3バイト）を連結する。距離は20〜4000mmのuint16 little endian、未測定・失敗は`0xFFFF`。同種別の複数ブロックは同じ物理センサーの値を共有する。サーボは通知に含めず、IMU9AxisとCameraを含むSTREAMは未対応。距離だけならIMUは不要。距離のGPIO未割り当てや測定タスク確保失敗はHARDWAREエラー。DeviceInfo未受信はFORMATエラーになる。
 

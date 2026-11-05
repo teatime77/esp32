@@ -355,18 +355,19 @@ namespace {
     }
 
     /**
-     * @brief BLEタスクの機器情報を現在の接続世代とともにキューへコピーする。
+     * @brief BLE/Wi-Fiタスクの機器情報を現在の接続世代とともにキューへコピーする。
      * @param data コールバック中だけ有効な受信データ。
      * @param length 受信バイト数。0は機器一覧の消去。
-     * @param generation 受信元のBLE接続世代。
-     * @details I2Cと機器情報の解釈は行わない。キュー飽和時は既存指令と同じ停止要求を出す。
+     * @param session 受信元の通信経路と接続世代。
+     * @details I2Cと機器情報の解釈は行わない。キュー飽和時は停止要求を出し、Wi-Fi制御権を解除する。
+     * コールバックへの配送・GATT書込みの成功は一覧の内容検証完了を意味しない。
      */
-    void receiveDeviceInfo(const uint8_t *data, size_t length, uint32_t generation) {
-        if (network.connected.load() || !bluetooth.connected.load() || length > DeviceInfoMaxLength) {
+    void receiveDeviceInfo(const uint8_t *data, size_t length, ControlTransport::Session session) {
+        if (!controlTransport.isCurrent(session) || length > DeviceInfoMaxLength) {
             return;
         }
         Queued queued{};
-        queued.session = {ControlTransport::Source::Ble, generation};
+        queued.session = session;
         queued.isDeviceInfo = true;
         queued.deviceInfoLength = static_cast<uint8_t>(length);
         if (length > 0) {
@@ -375,6 +376,9 @@ namespace {
         if (xQueueSend(commands, &queued, 0) != pdTRUE) {
             resetDeviceInfo.store(true);
             mustStop.store(true);
+            if (session.source == ControlTransport::Source::Wifi) {
+                network.stopControl();
+            }
         }
     }
 
@@ -383,6 +387,8 @@ namespace {
      * @param data 種別1バイト、サーボの場合は続けてCH・モードを持つ受信データ。
      * @param length 受信バイト数。0から20。
      * @details loop()から呼ぶ。登録のみで機器初期化・サーボのARM・計測開始は行わない。
+     * BLE/Wi-Fiとも同じ生一覧を全件検証する。空一覧で消去、不正な内容では以前の一覧を保持する。
+     * Wi-Fi切替直後もWeb側が一覧を再送し、置換で停止したSTREAMを新しく要求する。
      */
     void handleDeviceInfo(const uint8_t *data, size_t length) {
         if (length > DeviceInfoMaxLength) {
@@ -746,6 +752,9 @@ void setup() {
     wifiCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
         receive(data, length, {ControlTransport::Source::Wifi, generation});
     };
+    wifiCallbacks.deviceInfo = [](const uint8_t *data, size_t length, uint32_t generation) {
+        receiveDeviceInfo(data, length, {ControlTransport::Source::Wifi, generation});
+    };
     wifiCallbacks.session = [](bool connected, uint32_t) {
         // BLEで受信した一覧をWi-Fi制御権の取得時だけ引き継ぐ。
         if (!connected) {
@@ -791,7 +800,7 @@ void setup() {
         receive(data, length, {ControlTransport::Source::Ble, generation});
     };
     bleCallbacks.deviceInfo = [](const uint8_t *data, size_t length, uint32_t generation) {
-        receiveDeviceInfo(data, length, generation);
+        receiveDeviceInfo(data, length, {ControlTransport::Source::Ble, generation});
     };
     bleCallbacks.bytecode = [](const uint8_t *data, size_t length, uint32_t generation) {
         bytecodeReceiver.enqueue(data, length, generation);

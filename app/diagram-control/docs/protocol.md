@@ -37,9 +37,9 @@ DeviceInfoはdiagram上の機器情報を送る独立したCharacteristicで、C
 | 3 | Camera | 1 byte | 種別のみ |
 | 128 | ServoMotor | 3 bytes | 種別、CH 0〜15、モード（0=角度、1=速度） |
 
-例: `[0, 128, 0, 1, 128, 1, 1]`は6軸IMUと速度モードのサーボCH0・CH1。種類が同じ機器も受信順に保持する。空の一覧は0バイトの書き込みで消去する。20バイト超はWeb側で送信前に拒否する。分割転送とWi-Fi経由の転送は未実装。
+例: `[0, 128, 0, 1, 128, 1, 1]`は6軸IMUと速度モードのサーボCH0・CH1。種類が同じ機器も受信順に保持する。空の一覧は0バイトの書き込みで消去する。20バイト超はWeb側で送信前に拒否する。BLE・Wi-Fiの配送と完了の範囲は[control-connection.tsのsendDeviceInfo()](../../../../uroa/diagram/ts/ble-wifi/control-connection.ts)を参照する。分割転送は未実装。
 
-ESP32のBLEコールバックは受信バイト列と接続世代を通常指令と同じキューへコピーする。`loop()`は現在のBLE接続世代を照合し、未知の種別・途中で切れたサーボレコード・CH／モード範囲外を拒否する。全件が正しい場合だけ`deviceInfos`・`deviceInfoCount`を置き換え、シリアルへ`DeviceInfo accepted`と各レコードを出力する。一覧の置換に成功するとSTREAMと超音波測定要求を停止し、旧測定を無効化する。新しい一覧で送信するにはSTREAMを再要求する。不正な内容は`DeviceInfo rejected`を出し、以前の一覧とSTREAMを保持する。通常のBLE接続・切断、Wi-Fi制御権の解除、キュー飽和では一覧も消去する。BLEからWi-Fi制御権を取得するときは一覧を引き継ぐ。STOPは確定済み一覧を残し、待機中の指令と機器情報を破棄する。
+ESP32での受信・接続世代の照合・全件検証・一覧置換とSTREAM停止は[main.cppのreceiveDeviceInfo()/handleDeviceInfo()](../src/main.cpp)を正本とする。BLE・Wi-Fiで同じ処理を使い、受付と検証成功は区別する。
 
 ここで行うのは機器情報の保持であり、機器の存在確認・ドライバー追加・I2C設定・サーボのARM・計測開始は行わない。Write responseはGATTの受付を示し、`loop()`での検証完了を示さない。DeviceInfo専用のアプリ側ACKは未実装で、検証結果はシリアルで確認する。
 
@@ -127,7 +127,7 @@ UltrasonicDistanceSensorレコードを追加する。
 
 Characteristic最大長は268バイト、希望ATT MTUは271を維持する。実際の通知長が合意MTU−3以内かを開始時と送信前に検査する。IMU1個ならMTU 24以上、IMU1個と距離1個ならMTU 27以上が必要。不足時はRANGEエラーとし、切り詰め・分割は行わない。最大20個を常に送れる保証ではない。
 
-Wi-Fi制御はBLEの機器一覧を引き継ぎ、同じversion=3をHTTP／WebSocketで送る。最大268バイト、HTTPは最新のセンサー通知を1件保持する。制御権の変更ではSTREAMと測定要求を停止し、新しい経路でのSTREAM開始を待つ。Wi-Fi経由でのDeviceInfo再登録は未実装。
+Wi-Fiの機器一覧登録は[共通登録API](../../../../uroa/diagram/ts/ble-wifi/control-connection.ts)、接続時の再登録とSTREAMの連携は[ble.ts](../../../../uroa/diagram/ts/ble-wifi/ble.ts)を参照する。version=3の通知は最大268バイト、HTTPは最新のセンサー通知を1件保持する。
 
 diagram側は今回変更していない。現行ブラウザーはIMUだけのレコード形式を前提としており、距離を含む通知には別途受信処理とSTREAM要求の対応が必要。IMUだけの通知のバイト形式は維持し、旧version=1のIMU形式は復活させない。温度・姿勢角は含めない。IMU内部設定100Hz、通知最大20Hzであり、高周波解析用ではない。
 

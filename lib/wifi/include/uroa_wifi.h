@@ -20,6 +20,7 @@ namespace uroa {
     class WifiNetwork {
         public:
         static constexpr size_t MaxPacketLength = 268; ///< Statusと最大20個の6軸IMUレコードを収める上限。
+        static constexpr size_t DeviceInfoMaxLength = 20; ///< BLEと共通の機器一覧の生バイト数上限。
         std::atomic<bool> connected{
             false}; ///< Wi-Fi制御権の有効状態。ルーターへの接続状態ではない。アプリはload()で参照する。
         std::atomic<uint32_t> generation{0}; ///< 制御権の取得・解除で更新する世代番号。アプリはload()で参照する。
@@ -38,6 +39,8 @@ namespace uroa {
          */
         struct Callbacks {
             std::function<void(const uint8_t *, size_t, uint32_t)> command;
+            /** @brief 認証済み機器一覧を通信タスクから渡す。受け手は呼出中に内容・世代をキューへコピーする。 */
+            std::function<void(const uint8_t *, size_t, uint32_t)> deviceInfo;
             std::function<void(bool, uint32_t)> session;
             std::function<void()> startBLE;
             std::function<void()> stopBLE;
@@ -250,9 +253,10 @@ namespace uroa {
          * @brief 512バイト未満のHTTP本文を最後まで読み取る。
          * @param req HTTP要求。
          * @param text 取得したHTTP本文の出力先。
+         * @param allowEmpty 機器一覧の消去だけが0バイトの本文を許可する。
          * @return 本文を取得できたらtrue。
          */
-        bool body(httpd_req_t *req, String &text);
+        bool body(httpd_req_t *req, String &text, bool allowEmpty = false);
         /**
          * @brief 64件の窓で要求番号の再使用を拒否し、到着順の逆転を許容する。
          * @param value 検査または変換する値。
@@ -273,9 +277,18 @@ namespace uroa {
          * @brief HTTP制御要求を認証し、失敗時は401を返す。
          * @param req HTTP要求。
          * @param payload 本文またはWebSocket受信データ。
+         * @param sessionGeneration 認証時の接続世代の出力先。省略時は出力しない。
          * @return 要求を認証できたらtrue。
          */
-        bool authorizeHTTP(httpd_req_t *req, const String &payload = "");
+        bool authorizeHTTP(httpd_req_t *req, const String &payload = "", uint32_t *sessionGeneration = nullptr);
+        /**
+         * @brief 通常指令・機器一覧を復号して、それぞれのコールバックへ渡す。
+         * @param path 認証した窓口のパス。
+         * @param payload 16進文字列。機器一覧は空文字列を許可する。
+         * @param sessionGeneration 認証時にコピーした世代。
+         * @return 現接続で形式が正しく、コールバックへ配送したらtrue。内容検証結果ではない。
+         */
+        bool dispatchControl(const String &path, const String &payload, uint32_t sessionGeneration);
         /**
          * @brief 認証された要求へ制御権を付与し、接続世代を更新する。
          * @param nonce 制御権取得のchallenge。
@@ -309,11 +322,11 @@ namespace uroa {
          */
         esp_err_t claimHTTP(httpd_req_t *req);
         /**
-         * @brief 認証済みHTTP指令を検査して指令コールバックへ渡す。
+         * @brief 認証済みHTTPの指令・機器一覧を対応するコールバックへ渡す。
          * @param req HTTP要求。
          * @return HTTP応答処理の結果。
          */
-        esp_err_t commandHTTP(httpd_req_t *req);
+        esp_err_t controlHTTP(httpd_req_t *req);
         /**
          * @brief 現接続世代のStatusと最新IMUを署名付きJSONで返す。
          * @param req HTTP要求。
