@@ -4,6 +4,7 @@
 
 - `command(data, length)`は10バイトをコピーする。不正な長さではversion=0を返す。
 - `valid(command)`はversion、reserved、opcodeを検査する。CH・値・時間の検査は教材／機器側で行う。
+- PythonBlockの開始・停止で使う操作の契約は[Opの仕様コメント](include/uroa_protocol.h)、教材側の処理は[main.cpp](../../app/diagram-control/src/main.cpp)を参照する。
 - `urgentStop(data, length)`は従来互換の優先STOP判定。reserved等を検査する通常経路とは意図的に分かれている。
 - `status(out, ...)`には12バイト以上の出力領域を渡す。
 - `deviceTelemetryLength(sensorTypes, sensorCount)`は、サーボを除いたDeviceInfo順のセンサー種別から必要な通知長を計算する。未対応種別・不正な配列・サイズのオーバーフローでは0を返す。センサー0件はヘッダー8バイト。

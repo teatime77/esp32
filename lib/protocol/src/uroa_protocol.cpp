@@ -63,7 +63,7 @@ namespace uroa {
      */
     bool Protocol::valid(const Command &command) {
         const auto *b = command.bytes;
-        return b[0] == 1 && b[5] == 0 && b[1] >= ARM && b[1] <= SET_SPEED;
+        return b[0] == 1 && b[5] == 0 && b[1] >= ARM && b[1] <= VM_STOP;
     }
 
     /**

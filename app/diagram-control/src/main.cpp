@@ -53,7 +53,7 @@ namespace {
     uroa::BleTransport bluetooth; ///< 稼働中保持するBLEサーバー。
     BytecodeReceiver bytecodeReceiver; ///< loop()で分割受信を検証し、確定後にVMへ渡す。
     BytecodeVM bytecodeVm; ///< loop()だけが操作するVM。受信器の確定バッファを借用する。
-    uint32_t vmRevision = 0; ///< VMへ渡したプログラムの世代。
+    uint32_t vmRevision = 0; ///< VMが照合した確定プログラムの世代。更新だけでは開始しない。
     BytecodeVM::State reportedVmState = BytecodeVM::State::Idle; ///< シリアルへ報告済みの状態。
 
     uroa::Mpu6050 imu(Wire); ///< loop()からだけI2C操作するIMU。
@@ -132,11 +132,17 @@ namespace {
     BytecodeVM::NativeApi nativeApi = device_api::makeNativeApi(nativeDevices); ///< setup()でVMへ登録する静的な表。
 
     /**
-     * @brief 新しい受信済みコードを開始し、最大128命令ずつ実行する。
+     * @brief 確定バッファの置換で旧VMを停止し、開始済みのVMを最大128命令ずつ実行する。
      * @param stopped このloop()でSTOP・接続変更・通信期限切れを処理した場合true。
      * @details 受信器のバッファ置換後は、旧バッファを使うtick()より前にstart()またはstop()する。
      *
-     * 正常COMMITで受信器の`programRevision`が進むと、loop()が新しいプログラムを開始する。1周最大128命令を実行し、通常の指令・サーボ・通信・停止処理へ制御を返す。無限whileも1回のloop()を占有しない。STOP、切断、Wi-Fi切替、接続変更、通信キュー飽和、5秒の通信期限切れではVMを停止する。再接続やPINGで自動再開しない。もう一度実行するにはバイトコードを再送する。
+     * 正常COMMITは保持だけを行い、自動実行しない。VM_START=10で保持コードを先頭から開始し、
+     * VM_STOP=11でVMと所有機器を停止する。Command v1のCH=255、value=duration=0を必須とする。
+     * Protocolの操作番号とWeb側のpython/python-block.tsが共通契約を持ち、ble-wifi/ble.tsが
+     * 最後の転送・現在の接続・取消を確認する。開始ACKはstart()の結果までで、終了通知ではない。
+     * 1周最大128命令を実行し、通常の指令・サーボ・通信・停止処理へ制御を返す。
+     * STOP、切断、Wi-Fi切替、接続変更、通信キュー飽和、5秒の通信期限切れでもVMを停止する。
+     * 再接続やPINGで自動再開しない。保持コードはVM_STARTで再実行できる。
      *
      * 受信ACKはCRC・形式検証・RAM保持の完了を表し、VMの開始・正常終了を保証しない。開始時のメモリ確保失敗や実行エラーはシリアルで確認する。
      *
@@ -146,7 +152,7 @@ namespace {
      *
      * 通常指令と同様、loop()は停止要求を先に処理してから受信処理を進める。
      *
-     * STOPはサーボとVMの実行を停止する。確定データは消去しない。VMは切断・通信期限切れでも停止し、再実行は再送で行う。
+     * STOPはサーボとVMの実行を停止する。確定データは消去しない。
      *
      * VMは1周128命令まで進め、展開した構造体とネイティブ呼出しに対応する。VMの規約は
      * bytecode_vm.cppの各処理を参照。device_api.generated.cppのID表でDeviceNativeを呼び出す。
@@ -159,9 +165,6 @@ namespace {
             vmRevision = bytecodeReceiver.programRevision;
             bytecodeVm.stop();
             reportedVmState = BytecodeVM::State::Idle;
-            if (!cancelled) {
-                bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
-            }
         }
         if (cancelled) {
             bytecodeVm.stop();
@@ -568,8 +571,9 @@ namespace {
     /**
      * @brief loop()内で指令を検査し、機器操作と受付結果の通知を行う。
      * @param command 現在の接続世代で受信した指令。
+     * @param allowVmStart このloop()で停止要求がなければtrue。停止した周回ではVM開始を拒否する。
      */
-    void handle(const Protocol::Command &command) {
+    void handle(const Protocol::Command &command, bool allowVmStart) {
         const auto *bytes = command.bytes;
         const uint16_t sequence = Protocol::read16(bytes + 2);
         const uint16_t value = Protocol::read16(bytes + 6);
@@ -581,6 +585,36 @@ namespace {
             return;
         }
         lastCommand = millis();
+        // VMはloop()だけが操作する。確定バッファの置換後も旧イメージを読む前にstop()する。
+        if (operation == Protocol::VM_START || operation == Protocol::VM_STOP) {
+            if (channel != 255 || value != 0 || duration != 0) {
+                status(Protocol::CODE_RANGE, sequence);
+                return;
+            }
+            if (!bluetooth.connected.load() || network.connected.load() || network.bleUnavailable()) {
+                status(Protocol::CODE_NOT_ARMED, sequence);
+                return;
+            }
+            if (operation == Protocol::VM_START &&
+                (!allowVmStart || mustStop.load() || urgentStop.load())) {
+                status(Protocol::CODE_BUSY, sequence);
+                return;
+            }
+            bytecodeVm.stop();
+            vmRevision = bytecodeReceiver.programRevision;
+            reportedVmState = BytecodeVM::State::Stopped;
+            if (operation == Protocol::VM_STOP) {
+                status(Protocol::CODE_OK, sequence);
+                return;
+            }
+            if (!bytecodeReceiver.program || bytecodeReceiver.programLength == 0) {
+                status(Protocol::CODE_NOT_ARMED, sequence);
+                return;
+            }
+            const bool started = bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
+            status(started ? Protocol::CODE_OK : Protocol::CODE_FORMAT, sequence);
+            return;
+        }
         if (operation == Protocol::PING || operation == Protocol::INFO) {
             status(Protocol::CODE_OK, sequence, channel);
             return;
@@ -808,7 +842,7 @@ void loop() {
                 handleDeviceInfo(queued.deviceInfoData, queued.deviceInfoLength);
             }
             else {
-                handle(queued.command);
+                handle(queued.command, !vmStopRequested);
             }
         }
     }

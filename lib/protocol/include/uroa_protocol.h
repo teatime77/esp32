@@ -25,6 +25,10 @@ namespace uroa {
 
         /**
          * @brief protocol v1の指令操作番号。
+         * @details VM_START/VM_STOPはCH=255、value=duration=0。diagram-controlのmain.cppが
+         * 保持済みコードの開始／VMと所有機器の停止を行う。COMMITだけでは開始しない。
+         * 開始ACKはVM初期化までを表し、実行終了は表さない。Web側は
+         * uroa/diagram/ts/ble-wifi/ble.tsとpython/python-block.tsを参照する。
          */
         enum Op : uint8_t {
             ARM = 1,
@@ -35,7 +39,9 @@ namespace uroa {
             INFO = 6,
             DISABLE = 7,
             ARM_SPEED = 8,
-            SET_SPEED = 9
+            SET_SPEED = 9,
+            VM_START = 10,
+            VM_STOP = 11
         };
 
         /**

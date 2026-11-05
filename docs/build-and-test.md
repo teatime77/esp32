@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## PythonBlockのVM開始・停止（2026-11-05）
+
+uroaのPythonBlockに合わせてProtocolとdiagram-controlを変更した。開始・停止と受信完了の分担は[main.cppの仕様コメント](../app/diagram-control/src/main.cpp)、Web側は[python-block.ts](../../uroa/diagram/ts/python/python-block.ts)を参照する。
+
+リポジトリールートで`platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`を実行し、コンパイル・リンク・`firmware.bin`生成に成功した。初回は既存PlatformIOキャッシュの書込み制限で停止し、キャッシュへの権限を付けて再実行した。静的RAMは61952/327680バイト、Flashは1195937/1310720バイト。動的確保量は静的RAM値に含まれない。従来のユーザー指定に従いテストは作成・実行しない。XIAO・SuperMiniのビルド、Upload、実BLE、VMと機器の実機動作は未確認。
+
 ## SSD1306共有ライブラリー（2026-11-05）
 
 `lib/display`を追加し、diagram-controlのPython `Display`から共通ドライバーを使う構成へ変更した。仕様は[uroa_display.h](../lib/display/include/uroa_display.h)、VMとの接続は[device_native.cpp](../app/diagram-control/src/device_native.cpp)、使用例は[README](../lib/display/README.md)を参照する。

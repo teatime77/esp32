@@ -22,7 +22,7 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 
 uroaのBLE接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMITでRAMへ保持する。VMはバイナリversion=1・2・3に対応する。受信ACKはVM実行や、ABI・ネイティブIDとスタブ表の互換性確認の成功を表さない。受信範囲は[受信器の仕様コメント](src/bytecode_receiver.cpp)、呼出し・値コピー・スタブの登録APIは[VM仕様](src/bytecode_vm.cpp)を参照する。
 
-VM実行はSTOP・切断・通信期限切れで停止し、再接続やPINGで再開しない。再実行は再送する。HALT時に大域変数の先頭16スロットまで、エラー時にエラー番号とPCをシリアルへ出力する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNativeの各メソッド](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
+PythonBlockと開発用送信ボタンは保持完了後に開始指令を送る。受信と開始・停止の分担、再実行とACKの範囲は[main.cppのrunBytecode・handleの仕様コメント](src/main.cpp)を参照する。HALT時に大域変数の先頭16スロットまで、エラー時にエラー番号とPCをシリアルへ出力する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNativeの各メソッド](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
 
 API変更後はuroaルートで`python diagram/python/generate-device-api.py`を実行し、JSONとC++の3成果物を一緒に更新する。生成物の一致確認は`--check`、JSONだけの生成は`--json-only`。ESP32のビルドは生成済みC++を使うため、ESP32リポジトリーだけでも可能。入力・生成の仕様は[生成プログラム](../../../uroa/diagram/python/generate-device-api.py)と[変換処理](../../../uroa/diagram/python/device_api_cpp.py)を参照する。
 
