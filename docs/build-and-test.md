@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## Pythonのsleep（2026-11-05）
+
+待機APIとVMの接続は[function_sleepの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。uroa側の[device.pyi](../../uroa/diagram/python/device.pyi)からJSON・C++スタブ・ABI指紋を再生成する。uroaルートで`python diagram/python/generate-device-api.py --check`を実行し、生成物が一致することを静的確認する。
+
+従来のユーザー指定に従いテストは作成・実行せず、リポジトリールートの`platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`だけでコンパイル・リンク・バイナリー生成を確認する。実機へのUpload、待機時間・再開位置・Stop・切断・millisのラップ時の実動作、XIAO・SuperMiniのビルドは未確認。
+
+生成物の`--check`とesp32devのビルドは成功した。静的RAMは61968/327680バイト、Flashは1196569/1310720バイト。VM等の動的確保は静的RAM値に含まれない。既存PlatformIOキャッシュへの書込み権限を使い、実機への書込みは行っていない。uroaの`npm.cmd run verify`と両リポジトリーの`git -c core.whitespace=cr-at-eol diff --check`も成功した。
+
 ## PythonBlockのVM開始・停止（2026-11-05）
 
 uroaのPythonBlockに合わせてProtocolとdiagram-controlを変更した。開始・停止と受信完了の分担は[main.cppの仕様コメント](../app/diagram-control/src/main.cpp)、Web側は[python-block.ts](../../uroa/diagram/ts/python/python-block.ts)を参照する。

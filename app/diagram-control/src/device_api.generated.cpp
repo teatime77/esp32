@@ -522,9 +522,29 @@ namespace device_api {
             return Error::None;
         }
 
+        /** @brief function_sleepの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke20(BytecodeVM::NativeCall &call) {
+            using Type = BytecodeVM::Type;
+            using Error = BytecodeVM::Error;
+            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
+                return Error::Operand;
+            }
+            float arg_seconds{};
+            if (call.arguments[0].type != Type::Float) {
+                return Error::Type;
+            }
+            arg_seconds = call.arguments[0].real;
+            const Error status = static_cast<Backend *>(call.context)->function_sleep(arg_seconds);
+            if (status != Error::None) {
+                return status;
+            }
+            call.results[0].type = Type::None;
+            return Error::None;
+        }
+
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
         const uint8_t abiHash[32] = {
-            0xD0, 0xCC, 0x57, 0x54, 0x8F, 0x6E, 0xD8, 0xAF, 0x21, 0x8E, 0xAE, 0xE2, 0xCB, 0x2A, 0x54, 0x14, 0x1D, 0x90, 0xA7, 0x9D, 0x9A, 0x14, 0x20, 0xCA, 0x9B, 0x03, 0x14, 0x1A, 0x54, 0x7B, 0x54, 0xBC
+            0x1C, 0x68, 0x5B, 0x6E, 0x13, 0x6B, 0xE4, 0x03, 0x72, 0x3B, 0x0F, 0xA6, 0x37, 0x70, 0xD7, 0x08, 0x98, 0x1D, 0xA8, 0x76, 0x88, 0x9F, 0x99, 0x15, 0xB2, 0x32, 0x86, 0x04, 0xE1, 0xF3, 0xDD, 0x67
         };
         // nativeIdの昇順。引数と戻り値の幅はrecord展開後のスロット数。
         const BytecodeVM::NativeEntry entries[] = {
@@ -547,6 +567,7 @@ namespace device_api {
             {17, 5, 1, invoke17},
             {18, 1, 1, invoke18},
             {19, 1, 1, invoke19},
+            {20, 1, 1, invoke20},
         };
 
         /** @brief VM停止時に機器の出力とハンドルを解放する。@param context 登録バックエンド。 */
@@ -557,6 +578,6 @@ namespace device_api {
 
     /** @brief VM登録表を構築する。@param backend 登録中保持する機器操作。@return 静的なID表を参照する登録情報。 */
     BytecodeVM::NativeApi makeNativeApi(Backend &backend) {
-        return {abiHash, entries, 19, &backend, resetBackend};
+        return {abiHash, entries, 20, &backend, resetBackend};
     }
 }

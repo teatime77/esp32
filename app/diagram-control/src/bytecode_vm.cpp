@@ -463,6 +463,9 @@ bool BytecodeVM::validValue(const Value &value) const {
  * NativePendingは待機通知で、PCと引数を保って次のtickで同じ命令を再試行する。
  * 待機時は結果を返さず、バックエンドが処理の進捗を保持する。成功した呼出しもloop()へ戻し、
  * 1回のtickで複数のI2C操作や長い転送を連続実行しない。instructionsは再試行回数も数える。
+ * sleepもこの契約を使い、時間判定はdevice_native.cppのfunction_sleepが行う。
+ * 待機中のstateはRunningで、tick()はC++のloop()へ戻る。完了後は保持した次の命令へ進み、
+ * sleepの引数式や呼出し元の文を最初から実行し直さない。
  */
 void BytecodeVM::callNative(uint16_t id) {
     if (!nativeApi_ || id == 0) {

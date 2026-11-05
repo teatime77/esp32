@@ -60,6 +60,8 @@ class DeviceNative : public device_api::Backend {
     Error Display_display(uint32_t receiver) override;
     /** @brief シリアルへ改行付きで出力する。@param text 長さ付き文字列。@return 実行結果またはNativePending。 */
     Error function_print(device_api::StringView text) override;
+    /** @brief Pythonだけを秒単位で待機させる。@param seconds 非負の秒数。@return 完了またはNativePending。 */
+    Error function_sleep(float seconds) override;
 
     private:
     /** @brief バックエンド内の機器種別。JSONのクラスIDとは独立。 */
@@ -91,4 +93,7 @@ class DeviceNative : public device_api::Backend {
     uint32_t nextHandle_ = 1;
     size_t textOffset_ = 0;
     size_t serialOffset_ = 0;
+    bool sleepPending_ = false; ///< function_sleepとresetがloop()だけで更新する待機状態。
+    uint32_t sleepStartedMs_ = 0; ///< 最初の呼出し時のmillis。再試行で更新しない。
+    uint32_t sleepDurationMs_ = 0; ///< 切り上げた待機時間。最大0x7FFFFFFFミリ秒。
 };

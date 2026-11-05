@@ -143,6 +143,8 @@ namespace {
      * 1周最大128命令を実行し、通常の指令・サーボ・通信・停止処理へ制御を返す。
      * STOP、切断、Wi-Fi切替、接続変更、通信キュー飽和、5秒の通信期限切れでもVMを停止する。
      * 再接続やPINGで自動再開しない。保持コードはVM_STARTで再実行できる。
+     * Pythonのsleep待機でもloop()を継続し、各周回の停止・通信処理を優先する。待機の仕様は
+     * device_native.cppのfunction_sleepとbytecode_vm.cppのcallNativeを参照する。
      *
      * 受信ACKはCRC・形式検証・RAM保持の完了を表し、VMの開始・正常終了を保証しない。開始時のメモリ確保失敗や実行エラーはシリアルで確認する。
      *

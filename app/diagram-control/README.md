@@ -26,6 +26,14 @@ PythonBlockと開発用送信ボタンは保持完了後に開始指令を送る
 
 API変更後はuroaルートで`python diagram/python/generate-device-api.py`を実行し、JSONとC++の3成果物を一緒に更新する。生成物の一致確認は`--check`、JSONだけの生成は`--json-only`。ESP32のビルドは生成済みC++を使うため、ESP32リポジトリーだけでも可能。入力・生成の仕様は[生成プログラム](../../../uroa/diagram/python/generate-device-api.py)と[変換処理](../../../uroa/diagram/python/device_api_cpp.py)を参照する。
 
+PythonBlockから待機を使う例。`sleep`はimportなしで呼び出せる。単位・待機・取消とVMとの分担は[function_sleepの仕様コメント](src/device_native.cpp)を参照する。API追加でABI指紋が変わるため、更新したファームウェアと生成済みdevice-api.jsonを組み合わせ、バイトコードを再ビルド・送信する。
+
+```python
+while True:
+    print("tick")
+    sleep(1.0)
+```
+
 SSD1306は[Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306)とGFXを使用する。配線と寸法の設定は[config.h](include/config.h)、実装上のフォント制限は[Display_print](src/device_native.cpp)を参照する。
 
 ## ビルドと書き込み

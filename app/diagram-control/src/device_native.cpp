@@ -4,6 +4,7 @@
  */
 #include "device_native.h"
 #include "config.h"
+#include <Arduino.h>
 #include <algorithm>
 #include <cmath>
 
@@ -40,6 +41,9 @@ void DeviceNative::reset() {
     display_.reset();
     textOffset_ = 0;
     serialOffset_ = 0;
+    sleepPending_ = false;
+    sleepStartedMs_ = 0;
+    sleepDurationMs_ = 0;
 }
 
 /** @brief 生存ハンドルと種別を照合する。@param handle 対象。@param kind 必要種別。@return 情報またはnull。 */
@@ -350,5 +354,49 @@ DeviceNative::Error DeviceNative::function_print(device_api::StringView text) {
         return Error::NativePending;
     }
     serialOffset_ = 0;
+    return Error::None;
+}
+
+/**
+ * @brief sleepの待機中はVMからloop()へ制御を返し、期限後に呼出しを完了する。
+ * @param seconds 非負で有限の秒数。VMの数値はfloat32で、整数は生成器がfloatへ変換する。
+ * @return 待機中はNativePending、完了はNone、不正な時間はOperand。
+ * @details
+ * uroa/diagram/python/device.pyiのsleep(seconds: float) -> Noneを生成スタブがここへ接続する。
+ * 秒数をミリ秒へ切り上げ、0〜0x7FFFFFFFミリ秒を許可する。負数・非有限値・上限超過は拒否する。
+ * 正の時間は最初の呼出しだけmillisを記録する。VMのcallNative()はNativePendingでPCを戻し、
+ * 引数・大域値・関数フレームを保って次のtick()で同じ呼出しを再試行する。引数式は再評価しない。
+ * 再試行では符号なしの経過時間差を使い、millisのラップをまたいでも待機できる。
+ * 時間経過後はNoneを返し、生成スタブが戻り値を設定して、VMは次の命令から続行する。
+ * 指定時間は最小待機時間であり、loop()の実行間隔等により再開は遅れ得る。
+ * 0秒は即座に完了するが、成功したネイティブ呼出しもtick()を終了するためloop()へ制御を返す。
+ * delayやbusy waitは使わず、通信・センサー・サーボ補間・停止処理はloop()で継続する。
+ * 待機中もVMのstateはRunning。Stop・切断・再開始・実行エラー時のreset()が待機状態を破棄し、
+ * 古い期限で再開しない。新しいsleep呼出しは新しい期限を作る。
+ */
+DeviceNative::Error DeviceNative::function_sleep(float seconds) {
+    if (!std::isfinite(seconds) || seconds < 0.0f) {
+        return Error::Operand;
+    }
+    const double milliseconds = std::ceil(double(seconds) * 1000.0);
+    if (milliseconds > 2147483647.0) {
+        return Error::Operand;
+    }
+    if (milliseconds == 0.0) {
+        return Error::None;
+    }
+    const uint32_t now = millis();
+    if (!sleepPending_) {
+        sleepStartedMs_ = now;
+        sleepDurationMs_ = uint32_t(milliseconds);
+        sleepPending_ = true;
+        return Error::NativePending;
+    }
+    if (uint32_t(now - sleepStartedMs_) < sleepDurationMs_) {
+        return Error::NativePending;
+    }
+    sleepPending_ = false;
+    sleepStartedMs_ = 0;
+    sleepDurationMs_ = 0;
     return Error::None;
 }
