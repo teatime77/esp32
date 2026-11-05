@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## 通常指令・通知の共通層抽出（2026-11-05）
+
+通常通信の共通窓口は[control_transport.h](../app/diagram-control/include/control_transport.h)、Wi-Fiの通知APIは[uroa_wifi.h](../lib/wifi/include/uroa_wifi.h)、Web側は[control-connection.ts](../../uroa/diagram/ts/ble-wifi/control-connection.ts)を参照する。
+
+ユーザー指定に従い、テストは作成・実行せず、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`だけをビルドした。コンパイル・リンク・`firmware.bin`生成は成功し、静的RAMは62216/327680バイト、Flashは1201149/1310720バイト。初回はPlatformIOの既存ロックファイルへの書込み制限で停止し、キャッシュへの書込み権限を付けた再実行で完了した。Web側の`npm.cmd run verify`も成功した。
+
+XIAO・SuperMiniのビルド、Upload、ブラウザー操作、実BLE／Wi-Fi、切替・切断・ACK期限超過・停止・センサー通知の実機動作は未確認。静的RAM値にはVM等の動的確保は含まれない。
+
 ## PythonデバッガのBLE通信（2026-11-05）
 
 要求処理は[bytecode_debugger.cpp](../app/diagram-control/src/bytecode_debugger.cpp)、停止・値の直列化は[bytecode_vm.cpp](../app/diagram-control/src/bytecode_vm.cpp)、ワイヤー形式の正本とdiagram側の復号は[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を参照する。

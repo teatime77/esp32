@@ -8,6 +8,7 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 |---|---|
 | [include/config.h](include/config.h) | ピン、角度・パルス範囲、UUID、期限、教材用の公開設定 |
 | [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU・距離通知、超音波測定タスクとBLE/Wi-Fi連携 |
+| [include/control_transport.h](include/control_transport.h)・[src/control_transport.cpp](src/control_transport.cpp) | 通常通信の接続照合とStatus・Telemetryの共通配送 |
 | [include/bytecode_receiver.h](include/bytecode_receiver.h)・[src/bytecode_receiver.cpp](src/bytecode_receiver.cpp) | 分割バイトコードの検証・RAM保持・確定世代の更新 |
 | [include/bytecode_vm.h](include/bytecode_vm.h)・[src/bytecode_vm.cpp](src/bytecode_vm.cpp) | 値スロットVMとネイティブ呼出しの登録API。loop()から最大128命令ずつ実行 |
 | [include/bytecode_debugger.h](include/bytecode_debugger.h)・[src/bytecode_debugger.cpp](src/bytecode_debugger.cpp) | BLEのブレークポイント一覧と停止Snapshotの通信 |

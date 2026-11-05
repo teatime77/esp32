@@ -13,7 +13,9 @@
 namespace uroa {
     /**
      * @brief 特定のBLE・カメラ実装に依存しないWi-Fi制御サーバー。稼働中は1基板に1個を保持する。
-     * @details BLEや特定カメラの実装を知らない、uroa教材向けWi-Fi制御サーバー。 WiFi/mDNSは基板共通資源。1基板で1個を使い、稼働中は破棄しない。 begin()はsetup()で1回、tick()/publish()は制御ループで呼ぶ。
+     * @details BLEや特定カメラの実装を知らない、uroa教材向けWi-Fi制御サーバー。WiFi/mDNSは基板共通資源。
+     * 1基板で1個を使い、稼働中は破棄しない。begin()はsetup()で1回、
+     * tick()/publishStatus()/publishTelemetry()は制御ループで呼ぶ。
      */
     class WifiNetwork {
         public:
@@ -84,13 +86,27 @@ namespace uroa {
          */
         void tick();
         /**
-         * @brief Statusをキューへ、HTTP用IMUを最新1件へ保持する。飽和時は制御を解除する。
+         * @brief StatusをACKキューへ保持する。飽和時は制御を解除する。
          * @param data 入力または出力のバイト配列。
          * @param length データ長（バイト）。
          */
-        void publish(const uint8_t *data, size_t length);
+        void publishStatus(const uint8_t *data, size_t length);
+        /**
+         * @brief TelemetryをHTTP用の最新1件とWebSocket通知へ渡す。
+         * @param data 組立て済みセンサー通知。
+         * @param length データ長（バイト）。
+         * @details パケット長によるStatus判定は行わない。呼出元が通知先を選ぶ。
+         */
+        void publishTelemetry(const uint8_t *data, size_t length);
 
         private:
+        /**
+         * @brief 通知先に従い内容をコピーする共通実装。制御ループから呼ぶ。
+         * @param data 通知全体。
+         * @param length 通知長。
+         * @param telemetry センサー通知ならtrue、Statusならfalse。
+         */
+        void publish(const uint8_t *data, size_t length, bool telemetry);
         /**
          * @brief 応答送信が終わるまでOrigin文字列を保持するCORSヘッダー設定。
          */

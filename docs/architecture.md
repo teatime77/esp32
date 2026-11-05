@@ -34,6 +34,8 @@ PythonデバッグのBLE窓口は[uroa_ble.h](../lib/ble/include/uroa_ble.h)、�
 
 ## 通信と依存関係
 
+通常指令・通知の共通配送と接続照合は[control_transport.h](../app/diagram-control/include/control_transport.h)、Web側の待ち列・ACK・通知検証は[control-connection.ts](../../uroa/diagram/ts/ble-wifi/control-connection.ts)を参照する。WifiNetworkの通知APIは[publishStatus()/publishTelemetry()](../lib/wifi/include/uroa_wifi.h)へ分離した。
+
 BLE・Wi-FiのTelemetryはversion=3とし、8バイトヘッダーの後へ登録センサー順のIMU6Axis（種別0・13バイト）／超音波距離（種別2・3バイト）を連結する。距離はmm単位のuint16 little endian、20〜4000mmが有効、未測定・失敗は0xFFFF。同種別の複数ブロックは同じ物理センサーの値を共有する。Protocol 0.4.0の`deviceTelemetryLength()`で通知長を計算し、`deviceTelemetry()`はセンサー種別配列・IMU生データ・距離mmを受け取って変換する。全件検査後に出力し、機器の測定や通信は担当しない。DeviceInfo未受信のSTREAMはFORMAT、IMU9Axis・Cameraを含む一覧はHARDWAREとして拒否する。利用可否は登録機器ごとに調べ、距離だけの構成ではIMUを要求しない。BLEは最大268バイト・希望MTU 271を維持し、通知長＋3が合意MTUを超えれば拒否する。Wi-Fiも最大268バイトの同じ形式を使う。
 
 2026-10-31に、既存ServiceへDeviceInfoのWrite用Characteristic（`f3641406-00b0-4240-ba50-05ca45bf8abc`、最大20バイト／書き込み）を追加した。教材から`BleTransport::Config::deviceInfoUuid`を渡し、空なら登録しない。専用の`Callbacks::deviceInfo`へ渡し、教材が通常指令と同じキューへ内容と接続世代をコピーする。`loop()`は種別・レコード長・サーボCH／モードを全件検証し、成功時だけ受信順の一覧を置き換える。接続・制御権変更とキュー飽和では一覧を消去する。既存Commandとして解釈せず、機器初期化・ARM・STREAM開始も行わない。検証結果はシリアルへ表示し、専用ACK・分割転送・Wi-Fi転送は未実装。BLEの停止・再開でCharacteristicの参照を解除・再登録する。形式は[protocol.md](../app/diagram-control/docs/protocol.md)を参照する。

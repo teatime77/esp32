@@ -894,17 +894,28 @@ namespace uroa {
         }
     }
 
+    /** @brief StatusをACKキューへ渡す。@param data 通知。@param length 通知長。 */
+    void WifiNetwork::publishStatus(const uint8_t *data, size_t length) {
+        publish(data, length, false);
+    }
+
+    /** @brief センサー通知を最新値と通知キューへ渡す。@param data 通知。@param length 通知長。 */
+    void WifiNetwork::publishTelemetry(const uint8_t *data, size_t length) {
+        publish(data, length, true);
+    }
+
     /**
-     * @brief Statusをキューへ、HTTP用IMUを最新1件へ保持する。飽和時は制御を解除する。
-     * @details Statusはキュー、HTTPのIMUは最新1件だけを保持して古い計測の滞留を防ぐ。
+     * @brief 通知先に従いStatusをキューへ、HTTP用Telemetryを最新1件へ保持する。
+     * @details パケット長では種別を判定しない。飽和時は制御を解除する。
      * @param data 入力または出力のバイト配列。
      * @param length データ長（バイト）。
+     * @param telemetry センサー通知ならtrue、Statusならfalse。
      */
-    void WifiNetwork::publish(const uint8_t *data, size_t length) {
+    void WifiNetwork::publish(const uint8_t *data, size_t length, bool telemetry) {
         if (!connected || !ready || length == 0 || length > MaxPacketLength) {
             return;
         }
-        if (length != 12) {
+        if (telemetry) {
             xSemaphoreTake(stateLock, portMAX_DELAY);
             memcpy(lastIMU, data, length);
             lastIMULength = length;

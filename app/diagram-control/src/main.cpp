@@ -3,6 +3,7 @@
  * @brief diagramのBLE/Wi-Fi指令でサーボを操作し、登録されたIMU・距離の測定値を返す。
  * @details 通信タスクは指令をキューへコピーし、I2C・応答・停止・送信はloop()で行う。
  * HC-SR04のGPIOと同期測定は専用タスクだけが操作し、測定結果をキューでloop()へ渡す。
+ * 通常通信の受信元・接続世代の照合と通知配送はcontrol_transport.h/.cppへ委譲する。
  */
 #include <Arduino.h>
 #include <Wire.h>
@@ -16,6 +17,7 @@
 #include <math.h>
 #include "config.h"
 #include "network.h"
+#include "control_transport.h"
 #include "bytecode_receiver.h"
 #include "bytecode_vm.h"
 #include "bytecode_debugger.h"
@@ -52,6 +54,7 @@ namespace {
     bool deviceInfoReceived = false; ///< STREAM開始前の機器登録状態。loop()だけが更新する。
 
     uroa::BleTransport bluetooth; ///< 稼働中保持するBLEサーバー。
+    ControlTransport controlTransport(bluetooth, network); ///< 通常指令の接続照合と通知配送の共通窓口。
     BytecodeReceiver bytecodeReceiver; ///< loop()で分割受信を検証し、確定後にVMへ渡す。
     BytecodeVM bytecodeVm; ///< loop()だけが操作するVM。受信器の確定バッファを借用する。
     BytecodeDebugger bytecodeDebugger(bytecodeReceiver, bytecodeVm, bluetooth); ///< デバッグ通信・命令フラグ・停止値の所有者。
@@ -104,8 +107,7 @@ namespace {
     /** @brief 受信指令と、その受信元・接続世代を保持する。 */
     struct Queued {
         Protocol::Command command;
-        uint32_t session;
-        bool wifi = false;
+        ControlTransport::Session session{};
         bool isDeviceInfo = false;
         uint8_t deviceInfoLength = 0;
         uint8_t deviceInfoData[DeviceInfoMaxLength]{};
@@ -317,25 +319,22 @@ namespace {
         const uint16_t target = speed ? current : state ? state->target : 0;
         Protocol::status(packet, code, sequence, stateFlags() | (speed ? Protocol::FLAG_SPEED : 0), channel, current,
             target, servos.remaining(channel, millis()));
-        if (!network.bleUnavailable()) {
-            bluetooth.publishStatus(packet, sizeof packet);
-        }
-        network.publish(packet, sizeof packet);
+        controlTransport.publishStatus(packet, sizeof packet);
     }
 
     /**
      * @brief 通信タスクから指令をコピーし、STOPを優先フラグへ渡す。
      * @param data コールバック中だけ有効な受信データ。
      * @param length 受信バイト数。
-     * @param generation 受信元の接続世代。
-     * @param wifi Wi-Fi経由ならtrue、BLEならfalse。
-     * @details I2Cを操作しない。Wi-Fi制御権がある間はBLE指令を受け付けない。
+     * @param session 受信元の通信経路と接続世代。
+     * @details I2Cを操作しない。受信時とキューから実行する直前に接続・制御権を照合する。
+     * STOPも旧接続からは受け付けず、有効な接続のSTOPは従来どおり通常キューを迂回する。
      */
-    void receive(const uint8_t *data, size_t length, uint32_t generation, bool wifi) {
-        if (!wifi && network.connected.load()) {
+    void receive(const uint8_t *data, size_t length, ControlTransport::Session session) {
+        if (!controlTransport.isCurrent(session)) {
             return;
         }
-        if (wifi && length != 10) {
+        if (session.source == ControlTransport::Source::Wifi && length != 10) {
             return;
         }
         if (Protocol::urgentStop(data, length)) {
@@ -345,12 +344,11 @@ namespace {
         }
         Queued queued{};
         queued.command = Protocol::command(data, length);
-        queued.session = generation;
-        queued.wifi = wifi;
+        queued.session = session;
         if (xQueueSend(commands, &queued, 0) != pdTRUE) {
             resetDeviceInfo.store(true);
             mustStop.store(true);
-            if (wifi) {
+            if (session.source == ControlTransport::Source::Wifi) {
                 network.stopControl();
             }
         }
@@ -368,7 +366,7 @@ namespace {
             return;
         }
         Queued queued{};
-        queued.session = generation;
+        queued.session = {ControlTransport::Source::Ble, generation};
         queued.isDeviceInfo = true;
         queued.deviceInfoLength = static_cast<uint8_t>(length);
         if (length > 0) {
@@ -522,7 +520,7 @@ namespace {
         uint8_t sensorTypes[DeviceInfoMaxLength];
         const size_t count = copySensorTypes(sensorTypes);
         const size_t length = Protocol::deviceTelemetryLength(sensorTypes, count);
-        if (length == 0 || (!network.connected.load() && length + NotificationHeaderLength > bluetooth.mtu.load())) {
+        if (!controlTransport.canPublishTelemetry(length)) {
             stopTelemetry();
             status(length == 0 ? Protocol::CODE_HARDWARE : Protocol::CODE_RANGE, 0);
             return;
@@ -545,10 +543,7 @@ namespace {
             status(Protocol::CODE_FORMAT, 0);
             return;
         }
-        if (!network.bleUnavailable()) {
-            bluetooth.publishTelemetry(packet, written);
-        }
-        network.publish(packet, written);
+        controlTransport.publishTelemetry(packet, written);
     }
 
     /**
@@ -647,7 +642,7 @@ namespace {
                     status(Protocol::CODE_HARDWARE, sequence);
                     return;
                 }
-                if (!network.connected.load() && length + NotificationHeaderLength > bluetooth.mtu.load()) {
+                if (!controlTransport.canPublishTelemetry(length)) {
                     Serial.printf("DeviceTelemetry requires ATT MTU >= %u; current=%u\n",
                         static_cast<unsigned>(length + NotificationHeaderLength),
                         static_cast<unsigned>(bluetooth.mtu.load()));
@@ -749,7 +744,7 @@ void setup() {
 
     uroa::WifiNetwork::Callbacks wifiCallbacks;
     wifiCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
-        receive(data, length, generation, true);
+        receive(data, length, {ControlTransport::Source::Wifi, generation});
     };
     wifiCallbacks.session = [](bool connected, uint32_t) {
         // BLEで受信した一覧をWi-Fi制御権の取得時だけ引き継ぐ。
@@ -793,7 +788,7 @@ void setup() {
     bytecodeDebugger.begin();
     uroa::BleTransport::Callbacks bleCallbacks;
     bleCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
-        receive(data, length, generation, false);
+        receive(data, length, {ControlTransport::Source::Ble, generation});
     };
     bleCallbacks.deviceInfo = [](const uint8_t *data, size_t length, uint32_t generation) {
         receiveDeviceInfo(data, length, generation);
@@ -849,9 +844,7 @@ void loop() {
     Queued queued;
     // 1周4件までに制限し、補間と期限監視の処理時間を残す。
     for (int count = 0; count < 4 && xQueueReceive(commands, &queued, 0) == pdTRUE; ++count) {
-        if ((queued.wifi && network.connected.load() && queued.session == network.generation.load()) ||
-            (!queued.wifi && !network.connected.load() && bluetooth.connected.load() &&
-                queued.session == bluetooth.generation.load())) {
+        if (controlTransport.isCurrent(queued.session)) {
             if (queued.isDeviceInfo) {
                 handleDeviceInfo(queued.deviceInfoData, queued.deviceInfoLength);
             }
