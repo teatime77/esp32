@@ -25,7 +25,7 @@
  * readyは保持完了を表す。main.cppがversion=1・2・3対応のVM開始を試みる。
  * この受信段階ではABI指紋の一致とnativeIdの存在・引数型は照合しない。
  * 登録スタブ表との照合・呼出し・実行時の値と寿命の検査はbytecode_vm.cppが担当する。
- * readyはスタブ互換性や実行成功を表さない。機器のスタブ本体は後続作業とする。
+ * readyはスタブ互換性や実行成功を表さない。機器のスタブはdevice_api.generated.cppで接続する。
  */
 #include "bytecode_receiver.h"
 #include <cstring>

@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## Python機器スタブ（2026-11-05）
+
+uroaルートの`python diagram/python/generate-device-api.py`でJSONとC++ヘッダー・実装を生成する。`--check`は3成果物の一致確認、`--json-only`は従来のJSONだけを生成する。生成と機器操作の仕様は[生成処理](../../uroa/diagram/python/device_api_cpp.py)と[DeviceNativeの各メソッド](../app/diagram-control/src/device_native.cpp)を参照する。
+
+ユーザー指定により、`app/diagram-control`で`platformio.exe run -e esp32dev`だけを実行する。テストは作成・実行せず、XIAO・SuperMiniのビルド、Upload、実BLE・センサー・サーボ・表示器の実機確認は行わない。uroa側はPythonの生成処理と仕様コメントの変更で、TypeScriptの実行コードは変更しない。
+
+最終ビルドは成功。静的RAMは61944/327680バイト、Flashは1194777/1310720バイト。生成プログラムの`--check`で3成果物の完全一致を確認した。両リポジトリーの`git diff --check`も成功。VM・受信バッファ・SSD1306表示バッファ等の動的確保は静的RAM値に含まれない。npmビルドとテストは行っていない。
+
 ## Python VMの構造体・ネイティブ呼出し（2026-11-04）
 
 [VM](../app/diagram-control/src/bytecode_vm.cpp)へversion=3の値スロット・呼出し規約とネイティブ登録APIを実装した。実行範囲・所有権・スタブの接続方法と未実装部分は同ファイル先頭コメントを参照する。

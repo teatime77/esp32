@@ -21,7 +21,7 @@ Wi-Fi設定のJSON操作、分割送信、Wi-Fi上の指令・署名・セッシ
 
 Bytecode（f3641407、Write最大20バイト）とBytecode Result（f3641408、Read20バイト）で分割転送する。転送フレームとCRC32は[uroaの転送仕様](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。正常COMMITのACKは形式検証・RAM保持の成功を表し、VMの正常終了を意味しない。
 
-受信器とVMはバイナリversion=1・2・3に対応する。転送層が行う形式検証は[受信器の仕様コメント](../src/bytecode_receiver.cpp)、登録スタブ表とのABI・ネイティブID照合は[VM仕様](../src/bytecode_vm.cpp)を参照する。機器スタブ本体は後続作業とする。
+受信器とVMはバイナリversion=1・2・3に対応する。転送層が行う形式検証は[受信器の仕様コメント](../src/bytecode_receiver.cpp)、登録スタブ表とのABI・ネイティブID照合は[VM仕様](../src/bytecode_vm.cpp)、生成スタブと機器操作の接続は[device_api.generated.cpp](../src/device_api.generated.cpp)と[device_native.cpp](../src/device_native.cpp)を参照する。
 
 loop()は確定世代の更新でVMを開始し、1周128命令まで実行する。STOPは既存のサーボ停止に加えVMを停止する。切断・制御権変更・通信期限切れでも停止し、再開は再送で行う。VMの上限・エラーとシリアル出力は[VM仕様](../src/bytecode_vm.cpp)を参照する。VMの実行結果をBLEへ返す拡張パケットは今回は追加しない。
 

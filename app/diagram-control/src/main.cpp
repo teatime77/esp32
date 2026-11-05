@@ -18,6 +18,7 @@
 #include "network.h"
 #include "bytecode_receiver.h"
 #include "bytecode_vm.h"
+#include "device_native.h"
 
 namespace {
     using uroa::Pca9685Servos;
@@ -73,6 +74,7 @@ namespace {
     /** @brief 超音波測定タスクからloop()へ渡す、測定要求の世代と距離。 */
     struct UltrasonicSample {
         uint32_t request = 0;
+        uint32_t measuredAt = 0; ///< 測定を終えたmillis。VMは古い結果を数値として返さない。
         uint16_t distanceMm = Protocol::InvalidDistanceMm;
     };
 
@@ -116,6 +118,18 @@ namespace {
     uint16_t sampleSeq = 0; ///< センサー通知sequence。16bitで周回する。
     uint32_t lastCommand = 0; ///< 最後に有効形式の指令を受け付けた時刻（ms）。
     uint32_t lastSample = 0; ///< 最後にセンサー通知を組み立てた時刻（ms）。
+    bool vmDistanceActive = false; ///< VMの距離要求。STREAMの要求とは独立し、loop()だけが更新する。
+    uint32_t vmDistanceStarted = 0; ///< 初回測定の待機期限を判定するmillis。
+
+    /** @brief 専用タスクのGPIO初期化結果を読む。@return 測定要求を受け取れるならtrue。 */
+    bool nativeDistanceReady();
+    /** @brief VMの距離要求だけを変更する。@param enabled 有効にするか。 */
+    void enableNativeDistance(bool enabled);
+    /** @brief 最新距離をVMへ渡す。@param result mm。@return 成功・待機・失敗。 */
+    BytecodeVM::Error readNativeDistance(float &result);
+
+    DeviceNative nativeDevices(Wire, servos, imu, {nativeDistanceReady, enableNativeDistance, readNativeDistance});
+    BytecodeVM::NativeApi nativeApi = device_api::makeNativeApi(nativeDevices); ///< setup()でVMへ登録する静的な表。
 
     /**
      * @brief 新しい受信済みコードを開始し、最大128命令ずつ実行する。
@@ -135,7 +149,8 @@ namespace {
      * STOPはサーボとVMの実行を停止する。確定データは消去しない。VMは切断・通信期限切れでも停止し、再実行は再送で行う。
      *
      * VMは1周128命令まで進め、展開した構造体とネイティブ呼出しに対応する。VMの規約は
-     * bytecode_vm.cpp先頭を参照。機器スタブは未登録なので機器API呼出しはエラー14となる。
+     * bytecode_vm.cppの各処理を参照。device_api.generated.cppのID表でDeviceNativeを呼び出す。
+     * HALT後は最後のサーボ指令を保持し、STOP・切断・再送で解放する。エラーではVMの出力を停止する。
      */
     void runBytecode(bool stopped) {
         const bool connected = bluetooth.connected.load() && !network.connected.load() && !network.bleUnavailable();
@@ -163,6 +178,7 @@ namespace {
          * エラー時は`VM error=番号 pc=位置`を出す。
          */
         if (bytecodeVm.state == BytecodeVM::State::Error) {
+            nativeDevices.reset();
             Serial.printf("VM error=%u pc=%lu\n", unsigned(bytecodeVm.error),
                 static_cast<unsigned long>(bytecodeVm.errorPc));
         }
@@ -211,7 +227,8 @@ namespace {
      */
     void setUltrasonicSampling(bool enabled) {
         const uint32_t next = (ultrasonicRequest.load() + 2U) & ~uint32_t(1);
-        ultrasonicRequest.store(next | (enabled ? 1U : 0U));
+        // 物理センサーはSTREAMとVMで共有し、どちらか一方の要求で測定する。
+        ultrasonicRequest.store(next | (enabled || vmDistanceActive ? 1U : 0U));
     }
 
     /** @brief loop()から通知と超音波測定要求を停止し、旧サンプルを無効化する。 */
@@ -242,6 +259,7 @@ namespace {
                 if (result != uroa::HcSr04::Result::TooSoon) {
                     UltrasonicSample sample;
                     sample.request = request;
+                    sample.measuredAt = millis();
                     if (result == uroa::HcSr04::Result::Ok) {
                         sample.distanceMm = static_cast<uint16_t>(lroundf(ultrasonic.distanceCm * 10.0f));
                     }
@@ -423,6 +441,42 @@ namespace {
             }
         }
         return false;
+    }
+
+    /** @brief VMが使う測定タスクの準備状態を確認する。@return 準備済みならtrue。 */
+    bool nativeDistanceReady() {
+        return ultrasonicReady.load() && ultrasonicSamples != nullptr;
+    }
+
+    /** @brief VMの距離要求を切り替え、STREAMと合成する。@param enabled 有効にするか。
+     * @details 同じ値の再設定は世代を変えず、複数の距離オブジェクトで最新1件を共有する。
+     */
+    void enableNativeDistance(bool enabled) {
+        if (vmDistanceActive == enabled) {
+            return;
+        }
+        vmDistanceActive = enabled;
+        vmDistanceStarted = millis();
+        setUltrasonicSampling(streamHz != 0 && hasSensor(DeviceType::UltrasonicDistanceSensor));
+    }
+
+    /** @brief 最新の測定値をmmで返す。@param result mm。@return 成功・NativePending・NativeFailure。
+     * @details 初回待ちは最大1秒。未測定・失敗の0xFFFFと1秒を超えた古い値を有効な距離へ変換しない。
+     */
+    BytecodeVM::Error readNativeDistance(float &result) {
+        using Error = BytecodeVM::Error;
+        if (!vmDistanceActive || !nativeDistanceReady()) {
+            return Error::NativeFailure;
+        }
+        UltrasonicSample sample;
+        if (xQueuePeek(ultrasonicSamples, &sample, 0) != pdTRUE || sample.request != ultrasonicRequest.load()) {
+            return millis() - vmDistanceStarted < 1000 ? Error::NativePending : Error::NativeFailure;
+        }
+        if (sample.distanceMm == Protocol::InvalidDistanceMm || millis() - sample.measuredAt > 1000) {
+            return Error::NativeFailure;
+        }
+        result = float(sample.distanceMm);
+        return Error::None;
     }
 
     /**
@@ -609,6 +663,7 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     const bool i2cStarted = Wire.begin(SDA_PIN, SCL_PIN);
+    nativeDevices.i2cReady = i2cStarted;
     Wire.setClock(100000);
     Wire.setTimeOut(30);
     Serial.println("ESP32 diagram-control: servo outputs OFF at startup");
@@ -628,6 +683,9 @@ void setup() {
     }
     Serial.printf("PCA9685=%s MPU6050=%s (0x%02X)\n", servos.available ? "OK" : "MISSING",
         imu.available ? "OK" : "MISSING", imu.address);
+    if (!bytecodeVm.bindNativeApi(&nativeApi)) {
+        Serial.println("VM native API registration failed");
+    }
     commands = xQueueCreate(16, sizeof(Queued));
     if (!commands) {
         servos.allOff();

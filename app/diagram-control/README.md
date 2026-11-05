@@ -10,6 +10,8 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 | [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU・距離通知、超音波測定タスクとBLE/Wi-Fi連携 |
 | [include/bytecode_receiver.h](include/bytecode_receiver.h)・[src/bytecode_receiver.cpp](src/bytecode_receiver.cpp) | 分割バイトコードの検証・RAM保持・確定世代の更新 |
 | [include/bytecode_vm.h](include/bytecode_vm.h)・[src/bytecode_vm.cpp](src/bytecode_vm.cpp) | 値スロットVMとネイティブ呼出しの登録API。loop()から最大128命令ずつ実行 |
+| [include/device_api.generated.h](include/device_api.generated.h)・[src/device_api.generated.cpp](src/device_api.generated.cpp) | device.pyiから生成する型・スタブ・ABIハッシュ・ID表 |
+| [include/device_native.h](include/device_native.h)・[src/device_native.cpp](src/device_native.cpp) | 既存ドライバーを使うPython機器APIの実装 |
 | [include/network.h](include/network.h)・[src/network.cpp](src/network.cpp) | WifiNetworkへ設定・カメラ処理を渡す |
 | [include/camera.h](include/camera.h)・[src/camera.cpp](src/camera.cpp) | Senseのカメラ初期化・公開atomic・JPEG応答 |
 | [platformio.ini](platformio.ini) | 対象基板と共通ライブラリーの相対参照 |
@@ -20,7 +22,11 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 
 uroaのBLE接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMITでRAMへ保持する。VMはバイナリversion=1・2・3に対応する。受信ACKはVM実行や、ABI・ネイティブIDとスタブ表の互換性確認の成功を表さない。受信範囲は[受信器の仕様コメント](src/bytecode_receiver.cpp)、呼出し・値コピー・スタブの登録APIは[VM仕様](src/bytecode_vm.cpp)を参照する。
 
-VM実行はSTOP・切断・通信期限切れで停止し、再接続やPINGで再開しない。再実行は再送する。HALT時に大域変数の先頭16スロットまで、エラー時にエラー番号とPCをシリアルへ出力する。機器のスタブ本体・生成登録表・Flash保存は未実装。現行構成の機器API呼出しはエラー14（スタブ未登録）となる。
+VM実行はSTOP・切断・通信期限切れで停止し、再接続やPINGで再開しない。再実行は再送する。HALT時に大域変数の先頭16スロットまで、エラー時にエラー番号とPCをシリアルへ出力する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNativeの各メソッド](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
+
+API変更後はuroaルートで`python diagram/python/generate-device-api.py`を実行し、JSONとC++の3成果物を一緒に更新する。生成物の一致確認は`--check`、JSONだけの生成は`--json-only`。ESP32のビルドは生成済みC++を使うため、ESP32リポジトリーだけでも可能。入力・生成の仕様は[生成プログラム](../../../uroa/diagram/python/generate-device-api.py)と[変換処理](../../../uroa/diagram/python/device_api_cpp.py)を参照する。
+
+SSD1306は[Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306)とGFXを使用する。配線と寸法の設定は[config.h](include/config.h)、実装上のフォント制限は[Display_print](src/device_native.cpp)を参照する。
 
 ## ビルドと書き込み
 

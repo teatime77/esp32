@@ -459,7 +459,10 @@ bool BytecodeVM::validValue(const Value &value) const {
  * スタブは各引数型・classId・ハンドルの有効性を検査し、全結果を宣言順に設定する責任を持つ。
  * コールバックはloop()で短時間に同期実行し、VM再入は禁止。
  * 未登録・ID欠落はエラー14、ABI不一致は15。スタブの失敗は返却されたErrorで停止する。
- * スタブ本体・生成表は今回実装しないため、標準構成の機器操作・print/Display.printはまだ実行できない。
+ * 生成表はdevice_api.generated.cpp、機器操作はdevice_native.cppが担当する。
+ * NativePendingは待機通知で、PCと引数を保って次のtickで同じ命令を再試行する。
+ * 待機時は結果を返さず、バックエンドが処理の進捗を保持する。成功した呼出しもloop()へ戻し、
+ * 1回のtickで複数のI2C操作や長い転送を連続実行しない。instructionsは再試行回数も数える。
  */
 void BytecodeVM::callNative(uint16_t id) {
     if (!nativeApi_ || id == 0) {
@@ -511,6 +514,11 @@ void BytecodeVM::callNative(uint16_t id) {
         entry.resultSlots, nativeApi_->context};
     nativeActive_ = true;
     const Error result = entry.invoke(call);
+    yielded_ = true;
+    if (result == Error::NativePending) {
+        pc = errorPc;
+        return;
+    }
     if (result != Error::None) {
         fail(result);
         return;
@@ -954,7 +962,8 @@ void BytecodeVM::step() {
 
 /** @brief 停止・通信処理へ制御を返すため実行量を制限する。@param budget 最大命令数。 */
 void BytecodeVM::tick(uint32_t budget) {
-    for (uint32_t count = 0; count < budget && state == State::Running; ++count) {
+    yielded_ = false;
+    for (uint32_t count = 0; count < budget && state == State::Running && !yielded_; ++count) {
         step();
     }
 }

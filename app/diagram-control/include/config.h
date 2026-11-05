@@ -24,6 +24,9 @@ constexpr int ULTRASONIC_TRIGGER_PIN = 25; ///< HC-SR04のTRIGへ接続するGPI
 constexpr int ULTRASONIC_ECHO_PIN = 26; ///< 分圧またはレベル変換したECHOを受けるGPIO入力。
 #endif
 constexpr uint32_t ULTRASONIC_SAMPLE_INTERVAL_MS = 100; ///< 超音波測定タスクが各処理後に待つ時間（ms）。
+constexpr uint8_t DISPLAY_ADDRESS = 0x3C; ///< PythonのDisplay()が使うSSD1306のI2Cアドレス。
+constexpr uint8_t DISPLAY_WIDTH = 128; ///< SSD1306表示幅。PAGE転送用に高さは8の倍数とする。
+constexpr uint8_t DISPLAY_HEIGHT = 64;
 constexpr uint8_t PCA_ADDRESS = 0x40;
 constexpr float SERVO_FREQUENCY = 50.0f;
 // 角度サーボの初期範囲。機構と個体を確認してから調整する。

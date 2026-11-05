@@ -1,5 +1,5 @@
 /** @file bytecode_vm.h
- * @brief Pythonの値スロットVM。呼出し・所有権の規約はbytecode_vm.cpp先頭を参照。
+ * @brief Pythonの値スロットVM。呼出し・所有権の規約はbytecode_vm.cppの各処理を参照。
  */
 #pragma once
 #include <stdint.h>
@@ -42,7 +42,8 @@ class BytecodeVM {
         AbiMismatch, ///< 15: バイトコードと登録表のAPIハッシュが違う。
         NativeFailure, ///< 16: スタブが報告する機器エラー等。
         StringLimit, ///< 17: 動的文字列数・長さの上限。
-        StringFormat ///< 18: 未対応・不正な数値書式。
+        StringFormat, ///< 18: 未対応・不正な数値書式。
+        NativePending ///< 19: スタブからVMへの待機通知。Error状態にはせず、次のtickで再試行する。
     };
     /** @brief スロット型。管理用のReturnPc/SavedBpはPythonに公開しない。 */
     enum class Type : uint8_t {
@@ -81,7 +82,7 @@ class BytecodeVM {
         uint16_t resultSlots;
         Error (*invoke)(NativeCall &call); ///< 同期実行。成功時Error::None。
     };
-    /** @brief 将来自動生成する登録表。表・ハッシュ・contextは登録中ずっと有効に保つ。 */
+    /** @brief 自動生成する登録表。表・ハッシュ・contextは登録中ずっと有効に保つ。 */
     struct NativeApi {
         const uint8_t *abiHash; ///< JSONのabiHashを復号した32バイト。
         const NativeEntry *entries; ///< 非0のID昇順、重複なし。
@@ -155,6 +156,7 @@ class BytecodeVM {
 
     const NativeApi *nativeApi_ = nullptr;
     bool nativeActive_ = false;
+    bool yielded_ = false; ///< ネイティブ呼出し後はloop()へ戻す。tick()が更新する。
     uint8_t abiHash_[32]{};
     uint16_t version_ = 0;
     size_t recordLength_ = 8;
