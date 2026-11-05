@@ -1,6 +1,6 @@
 # ESP32ライブラリーの作業案内
 
-VS Code + PlatformIOで開発する。`lib/`の7ライブラリーと`app/diagram-control/`を管理する。倒立アプリは含めない。
+VS Code + PlatformIOで開発する。`lib/`の8ライブラリーと`app/diagram-control/`を管理する。倒立アプリは含めない。
 
 - ライブラリーは`lib/<名前>/library.json`・`README.md`・`include/*.h`・`src/*.cpp`で構成する。
 - `.h`には宣言とメンバーの定義、`.cpp`には関数・コンストラクターの実装を書く。削除指定の特殊メンバーと定数はヘッダーに置ける。

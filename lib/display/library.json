@@ -1,0 +1,13 @@
+{
+  "name": "UroaDisplay",
+  "version": "0.1.0",
+  "description": "SSD1306 drawing and cooperative I2C display transfers for ESP32",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "license": "MIT",
+  "dependencies": {
+    "adafruit/Adafruit SSD1306": "2.5.17",
+    "adafruit/Adafruit GFX Library": "1.13.0",
+    "adafruit/Adafruit BusIO": "1.17.4"
+  }
+}

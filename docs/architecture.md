@@ -23,7 +23,7 @@
 
 ## 呼出元の責任
 
-- IMU・サーボは教材が開始した`TwoWire&`を受け取る。同じ制御タスクからI2Cを操作する。
+- IMU・サーボ・Displayは教材が開始した`TwoWire&`を受け取る。同じ制御タスクからI2Cを操作する。
 - BLE・Wi-Fiの指令コールバックでは受信内容を即座にコピーし、キューや停止要求へ渡す。コールバック中にI2Cを操作しない。
 - BLE・Wi-Fiの`connected`と`generation`は`std::atomic`を保持する。タスク間の更新・参照の同期を通常のboolや整数で置き換えない。
 - 通信オブジェクトは稼働中保持する。BLEとWi-Fi/mDNSはそれぞれ基板上で1インスタンスを前提とする。Wi-Fiタスクとサーバーを破棄するAPIは提供しない。
@@ -38,7 +38,9 @@ BLE・Wi-FiのTelemetryはversion=3とし、8バイトヘッダーの後へ登�
 
 Protocolのcommand/statusは既存version=1、IMUはversion=3、Plotはversion=2を使う。NVS形式、Wi-Fiのポート80/81/82、HMAC認証、CORS、BLEの認証済み分割設定窓口は既存実装を引き継ぐ。
 
-BLEはNimBLE-Arduino、Wi-FiはArduinoJsonとWebSockets、ServoはAdafruit PWM Servo DriverとBusIOに依存する。バージョンは各`library.json`を参照する。IMU、Protocol、Plotには追加の外部ライブラリー依存はない。
+BLEはNimBLE-Arduino、Wi-FiはArduinoJsonとWebSockets、ServoはAdafruit PWM Servo DriverとBusIO、DisplayはAdafruit SSD1306・GFX・BusIOに依存する。バージョンは各`library.json`を参照する。IMU、Protocol、Plotには追加の外部ライブラリー依存はない。
+
+Displayの公開APIと転送仕様は[uroa_display.h](../lib/display/include/uroa_display.h)、Pythonの`Display`とVMの接続・寿命管理は[device_native.cpp](../app/diagram-control/src/device_native.cpp)を参照する。利用例は[ライブラリーREADME](../lib/display/README.md)に置く。
 
 ## バイトコードの受信とRAM保持
 

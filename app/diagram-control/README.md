@@ -90,6 +90,8 @@ diagram側は今回変更していない。既存のIMUだけの通知は同じ�
 
 ## 確認範囲
 
+Pythonの`Display`からSSD1306を使う方法とC++の例は[Displayライブラリー](../../lib/display/README.md)を参照する。表示器の寸法・アドレスは`include/config.h`、VMとの接続仕様は`src/device_native.cpp`のコメントに記載する。
+
 検証結果は[ビルドと検証](../../docs/build-and-test.md)へ記録する。ビルドと実機の動作確認を区別し、Upload・実BLE/Wi-Fi・カメラ・サーボ・IMUの確認は実施後に記録する。
 
 元のMITライセンス表記は[LICENSE](LICENSE)に保持する。

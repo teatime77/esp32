@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## SSD1306共有ライブラリー（2026-11-05）
+
+`lib/display`を追加し、diagram-controlのPython `Display`から共通ドライバーを使う構成へ変更した。仕様は[uroa_display.h](../lib/display/include/uroa_display.h)、VMとの接続は[device_native.cpp](../app/diagram-control/src/device_native.cpp)、使用例は[README](../lib/display/README.md)を参照する。
+
+リポジトリールートで`platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`を実行する。ユーザー指定によりesp32devだけを対象とし、テストは作成・実行しない。PlatformIOの既存キャッシュとロックファイルへの書き込み権限を使用した。
+
+コンパイル・リンク・`firmware.bin`生成に成功。静的RAMは61952/327680バイト、Flashは1195737/1310720バイト。表示バッファとVM等の動的確保は静的RAM値に含まれない。XIAO・SuperMiniのビルド、Upload、実I2C・SSD1306表示・VMの実機実行は未確認。
+
 ## Python機器スタブ（2026-11-05）
 
 uroaルートの`python diagram/python/generate-device-api.py`でJSONとC++ヘッダー・実装を生成する。`--check`は3成果物の一致確認、`--json-only`は従来のJSONだけを生成する。生成と機器操作の仕様は[生成処理](../../uroa/diagram/python/device_api_cpp.py)と[DeviceNativeの各メソッド](../app/diagram-control/src/device_native.cpp)を参照する。

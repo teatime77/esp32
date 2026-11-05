@@ -3,7 +3,7 @@
  */
 #pragma once
 #include "device_api.generated.h"
-#include <Adafruit_SSD1306.h>
+#include <uroa_display.h>
 #include <uroa_imu.h>
 #include <uroa_servo.h>
 
@@ -81,20 +81,14 @@ class DeviceNative : public device_api::Backend {
     Object *find(uint32_t handle, Kind kind);
     /** @brief 新しいハンドルを確保する。@param kind 種別。@param result 出力。@return 成否。 */
     Error create(Kind kind, uint32_t &result);
-    /** @brief 表示機器・色を検査する。@param receiver ハンドル。@param color 色。@return 有効ならtrue。 */
-    bool drawable(uint32_t receiver, int32_t color);
-    /** @brief 描画時間とint16演算の範囲を検査する。@param value 座標。@return 有効ならtrue。 */
-    static bool coordinate(int32_t value);
-    TwoWire &wire_;
+    /** @brief 表示結果をVMへ変換する。@param result ドライバーの結果。@return VMの結果。 */
+    static Error displayError(uroa::Ssd1306Display::Result result);
     uroa::Pca9685Servos &servos_;
     uroa::Mpu6050 &imu_;
     DistanceCallbacks distance_;
-    Adafruit_SSD1306 display_;
+    uroa::Ssd1306Display display_;
     Object objects_[32];
     uint32_t nextHandle_ = 1;
-    bool displayReady_ = false;
-    bool flushing_ = false;
-    size_t displayOffset_ = 0;
     size_t textOffset_ = 0;
     size_t serialOffset_ = 0;
 };

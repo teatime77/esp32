@@ -1,16 +1,27 @@
 /** @file device_native.cpp
- * @brief Python機器APIを既存ドライバーへ接続する。VMとの型・ID変換はdevice_api.generated.cppが担当する。
+ * @brief Python機器APIを共有ドライバーへ接続する。VMとの型・ID変換はdevice_api.generated.cppが担当する。
+ * @details Displayの描画・I2C転送はlib/display、VMハンドル・分割文字列の寿命と結果変換は本ファイルが担当する。
  */
 #include "device_native.h"
 #include "config.h"
 #include <algorithm>
 #include <cmath>
 
+namespace {
+    /** @brief 教材の表示設定を共有ライブラリーへ渡す。@return config.hの画面と100kHzの共有バス設定。 */
+    uroa::Ssd1306Display::Config displayConfig() {
+        uroa::Ssd1306Display::Config config;
+        config.width = DISPLAY_WIDTH;
+        config.height = DISPLAY_HEIGHT;
+        config.address = DISPLAY_ADDRESS;
+        config.i2cClockHz = 100000;
+        return config;
+    }
+}
+
 /** @brief loop()が共有する機器を借用する。@param wire I2C。@param servos サーボ。@param imu IMU。@param distance 距離の受渡し。 */
-DeviceNative::DeviceNative(TwoWire &wire, uroa::Pca9685Servos &servos, uroa::Mpu6050 &imu,
-    DistanceCallbacks distance)
-    : wire_(wire), servos_(servos), imu_(imu), distance_(distance),
-      display_(DISPLAY_WIDTH, DISPLAY_HEIGHT, &wire, -1, 100000, 100000) {
+DeviceNative::DeviceNative(TwoWire &wire, uroa::Pca9685Servos &servos, uroa::Mpu6050 &imu, DistanceCallbacks distance)
+    : servos_(servos), imu_(imu), distance_(distance), display_(wire, displayConfig()) {
 }
 
 /** @brief VMが有効化したCHと距離要求だけを停止する。他の通信によるSTREAMは保持する。
@@ -26,9 +37,7 @@ void DeviceNative::reset() {
     if (distance_.enable) {
         distance_.enable(false);
     }
-    displayReady_ = false;
-    flushing_ = false;
-    displayOffset_ = 0;
+    display_.reset();
     textOffset_ = 0;
     serialOffset_ = 0;
 }
@@ -194,69 +203,72 @@ DeviceNative::Error DeviceNative::UltrasonicDistanceSensor_get_distance(uint32_t
     return distance_.read(result);
 }
 
+/** @brief 表示ライブラリーの結果をVMへ変換する。@param result ドライバーの結果。@return VMの結果。 */
+DeviceNative::Error DeviceNative::displayError(uroa::Ssd1306Display::Result result) {
+    using Result = uroa::Ssd1306Display::Result;
+    switch (result) {
+        case Result::Ok:
+            return Error::None;
+        case Result::Pending:
+            return Error::NativePending;
+        case Result::InvalidArgument:
+            return Error::Operand;
+        case Result::NoMemory:
+            return Error::Memory;
+        case Result::NotInitialized:
+        case Result::I2cError:
+            return Error::NativeFailure;
+    }
+    return Error::NativeFailure;
+}
+
 /** @brief SSD1306の共有バッファを準備する。@param result ハンドル。@return 実行結果。
- * @details config.hの寸法・I2Cアドレスを使う。1実行の初回だけ白・座標0・空画面へ戻す。
+ * @details config.hの寸法・I2Cアドレスを使う。1実行の初回だけ白・座標0・空バッファへ戻す。
  * Wire.beginは行わず、100kHzを保つ。複数Displayは1台の表示バッファを共有する。
+ * resetで転送を中止し、次回のDisplay()で再初期化する。画面はdisplay()まで前回の表示を保つ。
  */
 DeviceNative::Error DeviceNative::Display_construct(uint32_t &result) {
     if (!i2cReady) {
         return Error::NativeFailure;
     }
-    if (!displayReady_) {
-        wire_.beginTransmission(DISPLAY_ADDRESS);
-        if (wire_.endTransmission() != 0) {
-            return Error::NativeFailure;
+    if (!display_.available) {
+        const Error status = displayError(display_.begin());
+        if (status != Error::None) {
+            return status;
         }
-        if (!display_.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDRESS, false, false)) {
-            return Error::Memory;
-        }
-        display_.clearDisplay();
-        display_.setTextColor(SSD1306_WHITE);
-        display_.setTextSize(1);
-        display_.setCursor(0, 0);
-        display_.setTextWrap(true);
-        displayReady_ = true;
     }
     return create(Kind::Display, result);
 }
 
-/** @brief 色と表示ハンドルを検査する。@param receiver ハンドル。@param color 0〜2。@return 有効ならtrue。 */
-bool DeviceNative::drawable(uint32_t receiver, int32_t color) {
-    return find(receiver, Kind::Display) && displayReady_ && color >= 0 && color <= 2;
-}
-
-/** @brief 極端な座標で描画処理を占有させない。@param value 座標。@return −1024〜1024ならtrue。 */
-bool DeviceNative::coordinate(int32_t value) {
-    return value >= -1024 && value <= 1024;
-}
-
 /** @brief 後続の文字色を設定する。@param receiver ハンドル。@param color 0=黒、1=白、2=反転。@return 実行結果。 */
 DeviceNative::Error DeviceNative::Display_set_text_color(uint32_t receiver, int32_t color) {
-    if (!drawable(receiver, color)) {
+    if (!find(receiver, Kind::Display)) {
         return Error::Operand;
     }
-    display_.setTextColor(uint16_t(color));
-    return Error::None;
+    return displayError(display_.setTextColor(color));
 }
 
 /** @brief 文字の開始位置を設定する。@param receiver ハンドル。@param x 横。@param y 縦。@return 実行結果。 */
 DeviceNative::Error DeviceNative::Display_set_cursor(uint32_t receiver, int32_t x, int32_t y) {
-    if (!drawable(receiver, 0) || !coordinate(x) || !coordinate(y)) {
+    if (!find(receiver, Kind::Display)) {
         return Error::Operand;
     }
-    display_.setCursor(int16_t(x), int16_t(y));
-    return Error::None;
+    return displayError(display_.setCursor(x, y));
 }
 
 /** @brief バッファへ文字を書く。@param receiver ハンドル。@param text 長さ付きバイト列。@return 実行結果またはNativePending。
- * @details 1回64バイトまででloopへ戻る。改行は付けない。標準GFXフォントを使い、日本語フォント・UTF-8変換は行わない。
+ * @details 同じ文字列を保持したまま1回64バイトまででloopへ戻る。改行は付けない。標準GFXフォントを使い、日本語フォント・UTF-8変換は行わない。
  */
 DeviceNative::Error DeviceNative::Display_print(uint32_t receiver, device_api::StringView text) {
-    if (!drawable(receiver, 0) || textOffset_ > text.length) {
+    if (!find(receiver, Kind::Display) || textOffset_ > text.length || (!text.data && text.length != 0)) {
         return Error::Operand;
     }
     const size_t count = std::min(size_t(64), text.length - textOffset_);
-    display_.write(reinterpret_cast<const uint8_t *>(text.data + textOffset_), count);
+    const char *data = text.data ? text.data + textOffset_ : nullptr;
+    const Error status = displayError(display_.print(data, count));
+    if (status != Error::None) {
+        return status;
+    }
     textOffset_ += count;
     if (textOffset_ != text.length) {
         return Error::NativePending;
@@ -266,79 +278,49 @@ DeviceNative::Error DeviceNative::Display_print(uint32_t receiver, device_api::S
 }
 
 /** @brief バッファへ線を描く。@param receiver ハンドル。@param x1 始点X。@param y1 始点Y。@param x2 終点X。@param y2 終点Y。@param color 色。@return 実行結果。 */
-DeviceNative::Error DeviceNative::Display_draw_line(uint32_t receiver, int32_t x1, int32_t y1,
-    int32_t x2, int32_t y2, int32_t color) {
-    if (!drawable(receiver, color) || !coordinate(x1) || !coordinate(y1) || !coordinate(x2) || !coordinate(y2)) {
+DeviceNative::Error DeviceNative::Display_draw_line(
+    uint32_t receiver, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t color) {
+    if (!find(receiver, Kind::Display)) {
         return Error::Operand;
     }
-    display_.drawLine(int16_t(x1), int16_t(y1), int16_t(x2), int16_t(y2), uint16_t(color));
-    return Error::None;
+    return displayError(display_.drawLine(x1, y1, x2, y2, color));
 }
 
 /** @brief バッファへ矩形を描く。@param receiver ハンドル。@param x 左。@param y 上。@param width 幅0〜1024。@param height 高さ0〜1024。@param color 色。@return 実行結果。 */
-DeviceNative::Error DeviceNative::Display_draw_rect(uint32_t receiver, int32_t x, int32_t y,
-    int32_t width, int32_t height, int32_t color) {
-    if (!drawable(receiver, color) || !coordinate(x) || !coordinate(y) || width < 0 || width > 1024 || height < 0 || height > 1024) {
+DeviceNative::Error DeviceNative::Display_draw_rect(
+    uint32_t receiver, int32_t x, int32_t y, int32_t width, int32_t height, int32_t color) {
+    if (!find(receiver, Kind::Display)) {
         return Error::Operand;
     }
-    if (width != 0 && height != 0) {
-        display_.drawRect(int16_t(x), int16_t(y), int16_t(width), int16_t(height), uint16_t(color));
-    }
-    return Error::None;
+    return displayError(display_.drawRect(x, y, width, height, color));
 }
 
 /** @brief バッファへ円を描く。@param receiver ハンドル。@param x 中心X。@param y 中心Y。@param radius 半径0〜1024。@param color 色。@return 実行結果。 */
-DeviceNative::Error DeviceNative::Display_draw_circle(uint32_t receiver, int32_t x, int32_t y,
-    int32_t radius, int32_t color) {
-    if (!drawable(receiver, color) || !coordinate(x) || !coordinate(y) || radius < 0 || radius > 1024) {
+DeviceNative::Error DeviceNative::Display_draw_circle(
+    uint32_t receiver, int32_t x, int32_t y, int32_t radius, int32_t color) {
+    if (!find(receiver, Kind::Display)) {
         return Error::Operand;
     }
-    display_.drawCircle(int16_t(x), int16_t(y), int16_t(radius), uint16_t(color));
-    return Error::None;
+    return displayError(display_.drawCircle(x, y, radius, color));
 }
 
 /** @brief バッファの円を塗る。@param receiver ハンドル。@param x 中心X。@param y 中心Y。@param radius 半径0〜1024。@param color 色。@return 実行結果。 */
-DeviceNative::Error DeviceNative::Display_fill_circle(uint32_t receiver, int32_t x, int32_t y,
-    int32_t radius, int32_t color) {
-    if (!drawable(receiver, color) || !coordinate(x) || !coordinate(y) || radius < 0 || radius > 1024) {
+DeviceNative::Error DeviceNative::Display_fill_circle(
+    uint32_t receiver, int32_t x, int32_t y, int32_t radius, int32_t color) {
+    if (!find(receiver, Kind::Display)) {
         return Error::Operand;
     }
-    display_.fillCircle(int16_t(x), int16_t(y), int16_t(radius), uint16_t(color));
-    return Error::None;
+    return displayError(display_.fillCircle(x, y, radius, color));
 }
 
 /** @brief 描画バッファを画面へ転送する。@param receiver ハンドル。@return 実行結果またはNativePending。
- * @details SSD1306へ16バイトずつ送り、各loopでSTOPを処理できるようにする。I2C失敗はNativeFailure。
+ * @details lib/displayがSSD1306へ16バイトずつ送り、各loopでSTOPを処理できるようにする。I2C失敗はNativeFailure。
  */
 DeviceNative::Error DeviceNative::Display_display(uint32_t receiver) {
-    if (!drawable(receiver, 0)) {
+    if (!find(receiver, Kind::Display)) {
         return Error::Operand;
     }
-    if (!flushing_) {
-        wire_.beginTransmission(DISPLAY_ADDRESS);
-        wire_.write(uint8_t(0));
-        const uint8_t commands[] = {SSD1306_COLUMNADDR, 0, DISPLAY_WIDTH - 1, SSD1306_PAGEADDR, 0, DISPLAY_HEIGHT / 8 - 1};
-        wire_.write(commands, sizeof commands);
-        if (wire_.endTransmission() != 0) {
-            return Error::NativeFailure;
-        }
-        displayOffset_ = 0;
-        flushing_ = true;
-    }
-    constexpr size_t length = size_t(DISPLAY_WIDTH) * DISPLAY_HEIGHT / 8;
-    const size_t count = std::min(size_t(16), length - displayOffset_);
-    wire_.beginTransmission(DISPLAY_ADDRESS);
-    wire_.write(uint8_t(0x40));
-    wire_.write(display_.getBuffer() + displayOffset_, count);
-    if (wire_.endTransmission() != 0) {
-        return Error::NativeFailure;
-    }
-    displayOffset_ += count;
-    if (displayOffset_ != length) {
-        return Error::NativePending;
-    }
-    flushing_ = false;
-    return Error::None;
+    return displayError(display_.displayStep());
 }
 
 /** @brief 長さ付き文字列と改行をSerialへ送る。@param text UTF-8バイト列。@return 実行結果またはNativePending。
