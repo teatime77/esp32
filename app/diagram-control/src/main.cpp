@@ -16,6 +16,7 @@
 #include <cstring>
 #include <math.h>
 #include "config.h"
+#include "device_name.h"
 #include "network.h"
 #include "control_transport.h"
 #include "bytecode_receiver.h"
@@ -704,10 +705,19 @@ namespace {
 /**
  * @brief I2C機器、超音波測定タスク、指令キュー、Wi-FiとBLEを開始する。
  * @details 起動時にサーボを自動ARMしない。接続変更時も停止を予約する。
+ * 表示名はdevice_name.cppの仕様に従って共通生成し、MAC取得失敗時は通信を開始しない。
  */
 void setup() {
     Serial.begin(115200);
     delay(200);
+    const String deviceName = makeDeviceName();
+    if (deviceName.isEmpty()) {
+        Serial.println("Device name setup FAILED: factory MAC unavailable");
+        while (true) {
+            delay(1000);
+        }
+    }
+    Serial.printf("Device name: %s\n", deviceName.c_str());
     const bool i2cStarted = Wire.begin(SDA_PIN, SCL_PIN);
     nativeDevices.i2cReady = i2cStarted;
     Wire.setClock(100000);
@@ -785,10 +795,10 @@ void setup() {
     wifiCallbacks.stopBLE = [] {
         bluetooth.stop();
     };
-    beginNetwork(wifiCallbacks);
+    beginNetwork(wifiCallbacks, deviceName);
 
     uroa::BleTransport::Config bleConfig;
-    bleConfig.name = DEVICE_NAME;
+    bleConfig.name = deviceName;
     bleConfig.serviceUuid = SERVICE_UUID;
     bleConfig.commandUuid = COMMAND_UUID;
     bleConfig.telemetryUuid = TELEMETRY_UUID;

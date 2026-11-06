@@ -10,6 +10,7 @@ extern uroa::WifiNetwork network; ///< 稼働中保持するWi-Fi制御サーバ
 /**
  * @brief 教材の設定とカメラ処理を渡し、Wi-Fiタスクを開始する。
  * @param callbacks 指令・接続変更・BLE開始停止の通知先。
+ * @param deviceName makeDeviceName()で生成したBLEと共通の表示名。
  * @details setup()で1回呼ぶ。通信コールバックからI2Cを操作しない。
  */
-void beginNetwork(const uroa::WifiNetwork::Callbacks &callbacks);
+void beginNetwork(const uroa::WifiNetwork::Callbacks &callbacks, const String &deviceName);

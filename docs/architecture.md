@@ -80,7 +80,7 @@ const uint32_t generation = bluetooth.generation.load();
 
 ## diagram-control
 
-`app/diagram-control/`は既存のuroa BLE Labを基に、公開メンバーAPIへ移行したアプリ。ESP32 DevKit、XIAO ESP32-S3 Sense、ESP32-S3 SuperMiniを対象とする。新しいBLE表示名は`ESP32-Diagram-Control`で、UUID、バイナリ形式、Wi-Fiの教材設定・NVS形式は維持する。
+`app/diagram-control/`は既存のuroa BLE Labを基に、公開メンバーAPIへ移行したアプリ。ESP32 DevKit、XIAO ESP32-S3 Sense、ESP32-S3 SuperMiniを対象とする。基板固有番号付きのBLE／Wi-Fi表示名は[device_name.cpp](../app/diagram-control/src/device_name.cpp)を参照する。UUID、バイナリ形式、Wi-Fiの教材設定・NVS形式は維持する。
 
 - `include/config.h`: ピン、サーボ範囲、UUID、期限、公開の教材設定。
 - `src/main.cpp`: 初期化、16件の指令キュー、接続世代、優先STOP、5秒期限監視、サーボ補間、登録センサー通知、超音波測定タスク。

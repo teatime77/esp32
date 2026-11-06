@@ -11,10 +11,11 @@ uroa::WifiNetwork network;
 /**
  * @brief 教材の設定とカメラ処理を渡し、Wi-Fiタスクを開始する。
  * @param callbacks 指令・接続変更・BLE開始停止の通知先。
+ * @param deviceName makeDeviceName()で生成したBLEと共通の表示名。
  */
-void beginNetwork(const uroa::WifiNetwork::Callbacks &callbacks) {
+void beginNetwork(const uroa::WifiNetwork::Callbacks &callbacks, const String &deviceName) {
     uroa::WifiNetwork::Config config;
-    config.name = DEVICE_NAME;
+    config.name = deviceName;
     config.connectionKey = TEACHING_CONNECTION_KEY;
     config.nvsNamespace = "uroa-net";
     auto hooks = callbacks;

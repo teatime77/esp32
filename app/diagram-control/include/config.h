@@ -7,16 +7,19 @@
 #include <stdint.h>
 
 #if defined(UROA_BOARD_SUPERMINI_ESP32S3)
+constexpr char DEVICE_NAME_PREFIX[] = "ESP32S3-Mini"; ///< 表示名の機種部分。固有番号の付加はdevice_name.cppが担当する。
 constexpr int SDA_PIN = 8; // ESP32-S3 SuperMini
 constexpr int SCL_PIN = 9;
 constexpr int ULTRASONIC_TRIGGER_PIN = -1; ///< この基板ではHC-SR04のピンを未割り当てとする。
 constexpr int ULTRASONIC_ECHO_PIN = -1;
 #elif defined(ARDUINO_XIAO_ESP32S3)
+constexpr char DEVICE_NAME_PREFIX[] = "XIAO-ESP32S3";
 constexpr int SDA_PIN = 5; // XIAO D4
 constexpr int SCL_PIN = 6; // XIAO D5
 constexpr int ULTRASONIC_TRIGGER_PIN = -1; ///< この基板ではHC-SR04のピンを未割り当てとする。
 constexpr int ULTRASONIC_ECHO_PIN = -1;
 #else
+constexpr char DEVICE_NAME_PREFIX[] = "ESP32-DevKit";
 constexpr int SDA_PIN = 21; // ESP32 DevKit V1
 constexpr int SCL_PIN = 22;
 // DOIT ESP32 DEVKIT V1: I2C、UART0、Flash、起動設定ピンとの重複を避ける。
@@ -35,7 +38,6 @@ constexpr uint16_t MAX_ANGLE = 12000;
 constexpr uint16_t MIN_PULSE_US = 1000; // 公称0度のパルス幅（µs）
 constexpr uint16_t MAX_PULSE_US = 2000; // 公称180度のパルス幅（µs）
 constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 5000;
-constexpr char DEVICE_NAME[] = "ESP32-Diagram-Control";
 constexpr char SERVICE_UUID[] = "f3641400-00b0-4240-ba50-05ca45bf8abc";
 constexpr char COMMAND_UUID[] = "f3641401-00b0-4240-ba50-05ca45bf8abc";
 constexpr char TELEMETRY_UUID[] = "f3641402-00b0-4240-ba50-05ca45bf8abc";

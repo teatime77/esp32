@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## 基板固有番号付きの表示名（2026-11-06）
+
+表示名の生成とBLE／Wi-Fiへの反映は[device_name.cppの仕様コメント](../app/diagram-control/src/device_name.cpp)を参照する。今後のビルド確認はユーザー指定により`xiao_esp32s3`を対象とし、テストは行わない。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e xiao_esp32s3 -j 2`を実行し、コンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは62848/327680バイト、Flashは1104073/3342336バイト。指定変更前に実行した`esp32dev`も成功した。PlatformIOキャッシュへの書込み権限を使用した。テスト・Upload・Windowsやブラウザーでの表示確認は行っていない。
+
 ## 共通接続APIの名称整理（2026-11-06）
 
 uroaの共通接続窓口は[device-connection.ts](../../uroa/diagram/ts/ble-wifi/device-connection.ts)へ改名した。ESP32の仕様コメント・参照文書と共通プロトコルの表題、通信に依存しないPlotライブラリーの説明も対応させた。BLE固有のBleTransport・GATT・UUID・BLE設定処理は引き続き固有名で区別する。

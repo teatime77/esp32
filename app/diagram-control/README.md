@@ -7,6 +7,7 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 | ファイル | 役割 |
 |---|---|
 | [include/config.h](include/config.h) | ピン、角度・パルス範囲、UUID、期限、教材用の公開設定 |
+| [include/device_name.h](include/device_name.h)・[src/device_name.cpp](src/device_name.cpp) | 基板固有番号を含むBLE／Wi-Fi表示名の生成 |
 | [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU・距離通知、超音波測定タスクとBLE/Wi-Fi連携 |
 | [include/control_transport.h](include/control_transport.h)・[src/control_transport.cpp](src/control_transport.cpp) | 通常通信の接続照合とStatus・Telemetryの共通配送 |
 | [include/control_session.h](include/control_session.h) | BLE／Wi-Fiの受信元と接続世代の共通識別子 |
@@ -20,6 +21,8 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 | [platformio.ini](platformio.ini) | 対象基板と共通ライブラリーの相対参照 |
 
 `.h`に宣言、`.cpp`に実装を置く。`imu.available`や`servos.states[ch]`を直接参照し、通信状態は`connected.load()`・`generation.load()`で読む。カメラも`cameraReady.load()`で参照し、値を返すだけの`cameraAvailable()`は作らない。
+
+BLE／Wi-Fiの表示名と基板固有番号の形式は[device_name.cppの仕様コメント](src/device_name.cpp)を参照する。起動時のシリアルログ`Device name:`でも生成した名前を確認できる。
 
 ## Pythonバイトコードの実行
 
@@ -69,7 +72,7 @@ SenseのカメラにはPSRAMが必要。画像はJPEG、320×240、品質16、�
 ## diagramから使う
 
 1. uroa側で`npm.cmd run dev`を起動し、ChromeなどWeb Bluetooth対応ブラウザーでdiagramを開く。別端末から使う場合はHTTPSが必要。
-2. 機器接続ブロックで`ESP32-Diagram-Control`を選ぶ。サービスUUIDは既存BLE Labと同じで、diagram側の変更は不要。
+2. 機器接続ブロックで、起動ログ`Device name:`に表示された機種名と固有番号付きの名前を選ぶ。名前の生成は[device_name.cpp](src/device_name.cpp)を参照する。サービスUUIDは既存BLE Labと同じで、diagram側の変更は不要。
 3. サーボはServoMotorBlockのCHと角度／速度モードを選ぶ。角度は「90°で有効化」の後に60〜120度を指定し、移動時間は0〜10000ms。速度は「0%で有効化」の後に−100〜100%を指定し、時間補間はしない。CHは0〜15。モード変更はCHを無効化し、再有効化を必要とする。
 4. IMUBlockを置くとdiagramがSTREAMを要求する。gyro・accを先頭のIMU出力からPlotBlockへ渡せる。このアプリは倒立用Balance通知を送らない。
 5. 「全サーボ停止」またはdiagramのStopで全PWMと待機指令を止める。センサー通知は継続し、STREAM=0で通知を停止する。
@@ -138,6 +141,6 @@ pio device monitor --project-dir app/diagram-control -e supermini_esp32s3 --port
 
 既存のSuperMini教材と同じGPIO8/9と4MB Flashの構成を引き継ぐ。PlatformIOの汎用S3ボード定義を基に、Flash 4MB・DIO・4MB用パーティション・USB CDCを指定し、PSRAMを前提としない。SuperMiniの製品名だけで全基板のFlash容量や配線を自動判別するものではない。
 
-BLE表示名は`ESP32-Diagram-Control`。ServoMotorBlockの角度／速度指定、IMUBlock、BLEによるWi-Fi設定とWi-Fi制御は共通。カメラは搭載しない構成で、CameraBlockのXIAO画像取得は利用しない。起動時の期待ログは`I2C config: SDA=GPIO8 SCL=GPIO9 ...`。PWMの自動有効化は行わず、SG90は90度、FS90Rは速度0%で明示的に有効化する。
+BLE表示名は起動ログ`Device name:`で確認する。生成形式は[device_name.cpp](src/device_name.cpp)を参照する。ServoMotorBlockの角度／速度指定、IMUBlock、BLEによるWi-Fi設定とWi-Fi制御は共通。カメラは搭載しない構成で、CameraBlockのXIAO画像取得は利用しない。起動時の期待ログは`I2C config: SDA=GPIO8 SCL=GPIO9 ...`。PWMの自動有効化は行わず、SG90は90度、FS90Rは速度0%で明示的に有効化する。
 
 新しい環境のビルド結果と実機確認の範囲は[検証記録](../../docs/build-and-test.md)を参照する。
