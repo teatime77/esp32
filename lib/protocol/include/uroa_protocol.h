@@ -28,7 +28,7 @@ namespace uroa {
          * @details VM_START/VM_STOPはCH=255、value=duration=0。diagram-controlのmain.cppが
          * 保持済みコードの開始／VMと所有機器の停止を行う。COMMITだけでは開始しない。
          * 開始ACKはVM初期化までを表し、実行終了は表さない。Web側は
-         * uroa/diagram/ts/ble-wifi/ble.tsとpython/python-block.tsを参照する。
+         * uroa/diagram/ts/ble-wifi/device-connection.tsとpython/python-block.tsを参照する。
          */
         enum Op : uint8_t {
             ARM = 1,

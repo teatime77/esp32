@@ -143,7 +143,7 @@ namespace {
      *
      * 正常COMMITは保持だけを行い、自動実行しない。VM_START=10で保持コードを先頭から開始し、
      * VM_STOP=11でVMと所有機器を停止する。Command v1のCH=255、value=duration=0を必須とする。
-     * Protocolの操作番号とWeb側のpython/python-block.tsが共通契約を持ち、ble-wifi/ble.tsが
+     * Protocolの操作番号とWeb側のpython/python-block.tsが共通契約を持ち、ble-wifi/device-connection.tsが
      * 最後の転送・現在の接続・取消を確認する。開始ACKはstart()の結果までで、終了通知ではない。
      * 1周最大128命令を実行し、通常の指令・サーボ・通信・停止処理へ制御を返す。
      * STOP、切断、Wi-Fi切替、接続変更、通信キュー飽和、5秒の通信期限切れでもVMを停止する。

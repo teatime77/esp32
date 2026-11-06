@@ -115,10 +115,14 @@ class BytecodeVM {
     void stop();
     /** @brief Stringを検査して長さ付きUTF-8を借用する。@param value 対象。@param data 出力先。@param length バイト長。@return 有効ならtrue。 */
     bool stringBytes(const Value &value, const char *&data, size_t &length) const;
-    /** @brief 一時停止中の値を通信形式へコピーする。@param data 出力。@param length 24+8*(globalCount+sp)。@return 成功時true。 */
+    /** @brief 停止値と参照中の文字列を含むSnapshot長を計算する。@return 不正状態・上限超過時0。 */
+    size_t debugSnapshotLength() const;
+    /** @brief 一時停止中の値を通信形式へコピーする。@param data 出力。@param length debugSnapshotLength()の値。@return 成功時true。 */
     bool copyDebugSnapshot(uint8_t *data, size_t length) const;
 
     private:
+    /** @brief 使用スロット順で文字列IDの初出か調べる。@param index 大域、スタックの順の添字。@return 初出Stringならtrue。 */
+    bool firstDebugString(uint32_t index) const;
     /** @brief 呼出し元の命令範囲・一時値下限・戻り値幅。 */
     struct Frame {
         uint32_t base;

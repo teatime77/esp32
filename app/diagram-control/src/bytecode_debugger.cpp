@@ -327,7 +327,7 @@ void BytecodeDebugger::handle(const Request &request) {
     reply(result, result == Ok ? accepted : 0);
 }
 
-/** @brief 状態変化だけを通知する。Snapshotは最大16408バイトで、チャンク読取り中も不変。 */
+/** @brief 状態変化だけを通知する。文字列込みSnapshotは最大256KiB、読取り中も不変。 */
 void BytecodeDebugger::publishState() {
     if (!enabled_) {
         return;
@@ -342,9 +342,14 @@ void BytecodeDebugger::publishState() {
         }
         else {
             ++stopId_;
-            snapshotLength_ = 24 + 8 * (vm_.globalCount + vm_.sp);
-            snapshot_.reset(new (std::nothrow) uint8_t[snapshotLength_]);
-            if (!snapshot_) {
+            snapshotLength_ = vm_.debugSnapshotLength();
+            if (snapshotLength_ != 0) {
+                snapshot_.reset(new (std::nothrow) uint8_t[snapshotLength_]);
+            }
+            if (snapshotLength_ == 0) {
+                snapshotError_ = Invalid;
+            }
+            else if (!snapshot_) {
                 snapshotLength_ = 0;
                 snapshotError_ = Memory;
             }

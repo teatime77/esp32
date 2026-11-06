@@ -1,6 +1,6 @@
 /**
  * @file uroa_plot.cpp
- * @brief 6系列のプロット値をBLE既定MTUに収まる通知へ変換する。
+ * @brief 6系列のプロット値を通信経路から独立した20バイトの通知へ変換する。
  */
 #include "uroa_plot.h"
 #include <math.h>

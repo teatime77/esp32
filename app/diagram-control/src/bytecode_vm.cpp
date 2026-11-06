@@ -978,18 +978,60 @@ void BytecodeVM::tick(uint32_t budget) {
     }
 }
 
-/** @brief Pausedの全使用スロットをパディングなしで直列化する。
+/** @brief 文字列IDを初出の1回だけ送るため使用スロットを比較する。
+ * @param index 大域に続けてスタックを並べた添字。@return 初出Stringならtrue。
+ * @details loop()だけが呼ぶ。補助配列やC++ポインターの公開は行わない。
+ */
+bool BytecodeVM::firstDebugString(uint32_t index) const {
+    const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
+    if (value.type != Type::String) {
+        return false;
+    }
+    for (uint32_t previous = 0; previous < index; ++previous) {
+        const Value &other = previous < globalCount ? globals[previous] : stack_[previous - globalCount];
+        if (other.type == Type::String && other.address == value.address) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** @brief 参照中の文字列を重複除去してSnapshotの必要長を計算する。
+ * @return Pausedでなければ0。上限256KiB、不正な文字列でも0。
+ * @details 定数文字列・動的文字列を切り詰めず送る。確保失敗はDebuggerがMemoryとして通知する。
+ */
+size_t BytecodeVM::debugSnapshotLength() const {
+    if (state != State::Paused || sp > MaxStack || globalCount > MaxGlobals ||
+        (sp && !stack_) || (globalCount && !globals)) {
+        return 0;
+    }
+    size_t length = 28 + 8 * (globalCount + sp);
+    for (uint32_t index = 0; index < globalCount + sp; ++index) {
+        if (!firstDebugString(index)) {
+            continue;
+        }
+        const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
+        const char *text = nullptr;
+        size_t bytes = 0;
+        if (!stringBytes(value, text, bytes) || bytes > 256 * 1024 || length + 8 + bytes > 256 * 1024) {
+            return 0;
+        }
+        length += 8 + bytes;
+    }
+    return length;
+}
+
+/** @brief Pausedの全使用スロットと文字列をパディングなしで直列化する。
  * @param data 出力領域。@param length 正確な必要長。@return Pausedで正常にコピーしたらtrue。
- * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.ts。文字列はIDだけを送り、
- * 動的一時文字列の実体は送らない。公開する管理値はPC/スタック添字であり、C++ポインターではない。
+ * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.tsのSnapshot version=2。
+ * BPチェーンはReturnPc/SavedBpとdiagramのCALL表から復元する。値・文字列は同じ停止中のもの。
  */
 bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
-    if (state != State::Paused || !data || sp > MaxStack || globalCount > MaxGlobals ||
-        length != 24 + 8 * (globalCount + sp) || (sp && !stack_) || (globalCount && !globals)) {
+    if (!data || length == 0 || length != debugSnapshotLength()) {
         return false;
     }
     std::memset(data, 0, length);
-    data[0] = 1;
+    data[0] = 2;
     data[1] = 1;
     data[2] = 8;
     const uint32_t header[] = {pc, bp, sp, globalCount, sp};
@@ -1041,5 +1083,30 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
             record[4 + byte] = uint8_t(payload >> (byte * 8));
         }
     }
-    return true;
+    size_t offset = 24 + 8 * (globalCount + sp);
+    uint32_t count = 0;
+    const size_t countOffset = offset;
+    offset += 4;
+    for (uint32_t index = 0; index < globalCount + sp; ++index) {
+        if (!firstDebugString(index)) {
+            continue;
+        }
+        const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
+        const char *text = nullptr;
+        size_t bytes = 0;
+        if (!stringBytes(value, text, bytes) || offset + 8 + bytes > length) {
+            return false;
+        }
+        for (size_t byte = 0; byte < 4; ++byte) {
+            data[offset + byte] = uint8_t(value.address >> (byte * 8));
+            data[offset + 4 + byte] = uint8_t(uint32_t(bytes) >> (byte * 8));
+        }
+        std::memcpy(data + offset + 8, text, bytes);
+        offset += 8 + bytes;
+        ++count;
+    }
+    for (size_t byte = 0; byte < 4; ++byte) {
+        data[countOffset + byte] = uint8_t(count >> (byte * 8));
+    }
+    return offset == length;
 }

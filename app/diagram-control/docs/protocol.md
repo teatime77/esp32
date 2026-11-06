@@ -1,4 +1,4 @@
-# BLE protocol v1
+# diagram-controlのBLE／Wi-Fi通信プロトコル
 
 GATT service: `f3641400-00b0-4240-ba50-05ca45bf8abc`
 
@@ -129,7 +129,7 @@ UltrasonicDistanceSensorレコードを追加する。
 
 Characteristic最大長は268バイト、希望ATT MTUは271を維持する。実際の通知長が合意MTU−3以内かを開始時と送信前に検査する。IMU1個ならMTU 24以上、IMU1個と距離1個ならMTU 27以上が必要。不足時はRANGEエラーとし、切り詰め・分割は行わない。最大20個を常に送れる保証ではない。
 
-Wi-Fiの機器一覧登録は[共通登録API](../../../../uroa/diagram/ts/ble-wifi/control-connection.ts)、接続時の再登録とSTREAMの連携は[ble.ts](../../../../uroa/diagram/ts/ble-wifi/ble.ts)を参照する。version=3の通知は最大268バイト、HTTPは最新のセンサー通知を1件保持する。
+Wi-Fiの機器一覧登録は[共通登録API](../../../../uroa/diagram/ts/ble-wifi/control-connection.ts)、接続時の再登録とSTREAMの連携は[device-connection.ts](../../../../uroa/diagram/ts/ble-wifi/device-connection.ts)を参照する。version=3の通知は最大268バイト、HTTPは最新のセンサー通知を1件保持する。
 
 diagram側は今回変更していない。現行ブラウザーはIMUだけのレコード形式を前提としており、距離を含む通知には別途受信処理とSTREAM要求の対応が必要。IMUだけの通知のバイト形式は維持し、旧version=1のIMU形式は復活させない。温度・姿勢角は含めない。IMU内部設定100Hz、通知最大20Hzであり、高周波解析用ではない。
 

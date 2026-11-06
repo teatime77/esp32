@@ -1,5 +1,21 @@
 # ビルドと検証
 
+## 共通接続APIの名称整理（2026-11-06）
+
+uroaの共通接続窓口は[device-connection.ts](../../uroa/diagram/ts/ble-wifi/device-connection.ts)へ改名した。ESP32の仕様コメント・参照文書と共通プロトコルの表題、通信に依存しないPlotライブラリーの説明も対応させた。BLE固有のBleTransport・GATT・UUID・BLE設定処理は引き続き固有名で区別する。
+
+ユーザー指定に従い、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`だけをビルドし、成功した。既存PlatformIOキャッシュへの書込み権限を使用した。静的RAMは62536/327680バイト、Flashは1205585/1310720バイト。uroaは成果物を出力しない静的型確認で46ソースの診断0件を確認した。テストと公開ビルドは実行していない。
+
+XIAO・SuperMiniのビルド、Upload、ブラウザーの表示・保存／復元、実BLE／Wi-Fi・実機動作は未確認。作業中のVM・デバッガ変更を保持し、上記のビルドには現在の作業ツリーを使用した。
+
+## Pythonブレークポイントと変数表示（2026-11-06）
+
+停止Snapshotの文字列直列化は[bytecode_vm.cpp](../app/diagram-control/src/bytecode_vm.cpp)、確保・配送は[bytecode_debugger.cpp](../app/diagram-control/src/bytecode_debugger.cpp)、通信形式の正本はuroaの[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)。画面との接続は[PythonBlock](../../uroa/diagram/ts/python/python-block.ts)、フレーム復元・値表示は[debugger-view.ts](../../uroa/diagram/ts/python/debugger-view.ts)を参照する。
+
+ユーザー指定に従い、リポジトリールートで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`だけをビルドした。初回の既存キャッシュの書込み制限は、同じコマンドにキャッシュ・ロックファイルへの権限を付けた再実行で解消した。コンパイル・リンク・`firmware.bin`生成は成功し、静的RAMは62536/327680バイト、Flashは1205585/1310720バイト。
+
+テストは作成・実行していない。XIAO・SuperMiniのビルド、Upload、ブラウザー操作、実BLE／Wi-Fi、ブレークポイント停止・フレーム選択・構造体・文字列の実機表示、最大Snapshotの通信時間と空きRAMは未確認。静的RAMにはSnapshot・文字列・VM等の動的確保を含まない。uroa側は変更ソースの成果物を出力しない静的型確認と差分確認だけで、公開ビルドは実行していない。
+
 ## プログラム・VM・デバッグ通信のBLE／Wi-Fi共通化（2026-11-05）
 
 受信元の共通識別子は[control_session.h](../app/diagram-control/include/control_session.h)、結果配送は[ControlTransport](../app/diagram-control/include/control_transport.h)、受信・保持は[BytecodeReceiver](../app/diagram-control/src/bytecode_receiver.cpp)、ブレークポイント・停止値は[BytecodeDebugger](../app/diagram-control/src/bytecode_debugger.cpp)、実行元の照合は[main.cpp](../app/diagram-control/src/main.cpp)を参照する。バイト形式・Wi-Fiの認証と独立したRead窓口の正本はuroaの[bytecode-transfer.ts](../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)。

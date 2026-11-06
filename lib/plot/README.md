@@ -13,7 +13,7 @@ const float values[6] = {angle, target, rate, error, leftPercent, rightPercent};
 plot.publish(millis(), values);
 ```
 
-`publish()`は周期が来て送信関数を呼んだ場合にtrueを返す。BLEでの到達・描画の成功は表さない。初回と周期変更後は次の呼び出しで送信し、以降は`millis()`の差を符号なしで比較する。停止中に値を蓄積したり、遅れた通知をまとめて再送したりしない。sequenceは16bitで周回する。
+`publish()`は周期が来て送信関数を呼んだ場合にtrueを返す。相手への到達・描画の成功は表さない。初回と周期変更後は次の呼び出しで送信し、以降は`millis()`の差を符号なしで比較する。停止中に値を蓄積したり、遅れた通知をまとめて再送したりしない。sequenceは16bitで周回する。
 
 `encode(packet, schema, sequence, now, values)`は通信なしで利用できる。schema=0、NaN、無限大、表現範囲外の値を拒否し、出力バッファを変更しない。数値は0.01刻みに丸める。利用側でschemaごとの系列名と単位を定め、diagramにも対応するパーサーとStructを登録する。任意のschemaを自動表示する機能はない。
 

@@ -25,9 +25,9 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 
 プログラム転送・VM操作・デバッグの両経路の分担は[bytecode-transfer.ts](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、受信元への配送は[ControlTransport](include/control_transport.h)、Wi-Fiの独立したRead窓口は[uroa_wifi.cppのcontrolValueHTTP()](../../lib/wifi/src/uroa_wifi.cpp)を参照する。
 
-デバッグ通信の入口と担当範囲は[bytecode_debugger.cpp](src/bytecode_debugger.cpp)、通信仕様の正本はuroaの[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、呼出し例は[ble.tsのsendBreakpoints()](../../../uroa/diagram/ts/ble-wifi/ble.ts)を参照する。エディタの行から命令PCへの変換とデバッガ画面・再開／ステップ操作は後続実装。ビルドと未確認の通信・実機境界は[検証記録](../../docs/build-and-test.md)に置く。
+デバッグ通信の入口と担当範囲は[bytecode_debugger.cpp](src/bytecode_debugger.cpp)、通信仕様の正本はuroaの[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、呼出し例は[device-connection.tsのsendBreakpoints()](../../../uroa/diagram/ts/ble-wifi/device-connection.ts)を参照する。行と命令PCの対応は[bytecode.ts](../../../uroa/diagram/ts/python/bytecode.ts)、停止時の最大化・所有権は[PythonBlock](../../../uroa/diagram/ts/python/python-block.ts)、変数・構造体・Call Stackの表示は[debugger-view.ts](../../../uroa/diagram/ts/python/debugger-view.ts)を参照する。再開／ステップ操作は後続実装。ビルドと未確認の通信・実機境界は[検証記録](../../docs/build-and-test.md)に置く。
 
-uroaのBLE接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMITでRAMへ保持する。VMはバイナリversion=1・2・3に対応する。受信ACKはVM実行や、ABI・ネイティブIDとスタブ表の互換性確認の成功を表さない。受信範囲は[受信器の仕様コメント](src/bytecode_receiver.cpp)、呼出し・値コピー・スタブの登録APIは[VM仕様](src/bytecode_vm.cpp)を参照する。
+uroaの機器接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMITでRAMへ保持する。VMはバイナリversion=1・2・3に対応する。受信ACKはVM実行や、ABI・ネイティブIDとスタブ表の互換性確認の成功を表さない。受信範囲は[受信器の仕様コメント](src/bytecode_receiver.cpp)、呼出し・値コピー・スタブの登録APIは[VM仕様](src/bytecode_vm.cpp)を参照する。
 
 PythonBlockと開発用送信ボタンは保持完了後に開始指令を送る。受信と開始・停止の分担、再実行とACKの範囲は[main.cppのrunBytecode・handleの仕様コメント](src/main.cpp)を参照する。HALT時に大域変数の先頭16スロットまで、エラー時にエラー番号とPCをシリアルへ出力する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNativeの各メソッド](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
 
@@ -69,7 +69,7 @@ SenseのカメラにはPSRAMが必要。画像はJPEG、320×240、品質16、�
 ## diagramから使う
 
 1. uroa側で`npm.cmd run dev`を起動し、ChromeなどWeb Bluetooth対応ブラウザーでdiagramを開く。別端末から使う場合はHTTPSが必要。
-2. BLE接続ブロックで`ESP32-Diagram-Control`を選ぶ。サービスUUIDは既存BLE Labと同じで、diagram側の変更は不要。
+2. 機器接続ブロックで`ESP32-Diagram-Control`を選ぶ。サービスUUIDは既存BLE Labと同じで、diagram側の変更は不要。
 3. サーボはServoMotorBlockのCHと角度／速度モードを選ぶ。角度は「90°で有効化」の後に60〜120度を指定し、移動時間は0〜10000ms。速度は「0%で有効化」の後に−100〜100%を指定し、時間補間はしない。CHは0〜15。モード変更はCHを無効化し、再有効化を必要とする。
 4. IMUBlockを置くとdiagramがSTREAMを要求する。gyro・accを先頭のIMU出力からPlotBlockへ渡せる。このアプリは倒立用Balance通知を送らない。
 5. 「全サーボ停止」またはdiagramのStopで全PWMと待機指令を止める。センサー通知は継続し、STREAM=0で通知を停止する。
