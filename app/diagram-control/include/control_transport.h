@@ -5,11 +5,12 @@
  * lib/bleはGATT、lib/wifiは認証済みHTTP/WebSocketと送信バッファーを担当する。
  * Web側の共通窓口はuroa/diagram/ts/ble-wifi/control-connection.ts。
  * 機器一覧の接続照合も共用し、内容の検証はmain.cppが担当する。
- * Command/Status v1とTelemetry v3の形式は維持し、カメラ・Python転送・デバッグは扱わない。
+ * プログラム・デバッグの受付結果と停止値も受信元の現接続だけへ配送する。カメラ画像は扱わない。
  */
 #pragma once
 #include <uroa_ble.h>
 #include <uroa_wifi.h>
+#include "control_session.h"
 
 /**
  * @brief 通常通信の接続照合・通知配送を通信経路から切り離す。
@@ -19,13 +20,10 @@
 class ControlTransport {
     public:
     /** @brief 同じ世代番号のBLEとWi-Fiを区別する受信元。 */
-    enum class Source : uint8_t { Ble, Wifi };
+    using Source = ControlSource;
 
     /** @brief 通信タスクでコピーし、loop()の実行直前にも照合する受信元と接続世代。 */
-    struct Session {
-        Source source;
-        uint32_t generation;
-    };
+    using Session = ControlSession;
 
     /** @brief 稼働中保持する通信先を参照する。@param ble BLE。@param wifi Wi-Fi。 */
     ControlTransport(uroa::BleTransport &ble, uroa::WifiNetwork &wifi);
@@ -36,6 +34,16 @@ class ControlTransport {
      * @return Wi-Fi制御中のBLE・旧接続・切断済みを除外できたらtrue。
      */
     bool isCurrent(const Session &session) const;
+    /** @brief 制御権から現在の経路と世代を読み出す。@return isCurrent()で再照合する識別子。 */
+    Session currentSession() const;
+    /** @brief 受信元の現接続だけへプログラム受付結果を渡す。@param data 結果。@param length 20。@param session 受信元。 */
+    void publishBytecodeResult(const uint8_t *data, size_t length, const Session &session);
+    /** @brief デバッグACKを受信元の現接続へ渡す。@param data 内容。@param length 20。@param session 受信元。 */
+    void publishDebugResult(const uint8_t *data, size_t length, const Session &session);
+    /** @brief 停止イベントを受信元の現接続へ渡す。@param data 内容。@param length 20。@param session 受信元。 */
+    void publishDebugEvent(const uint8_t *data, size_t length, const Session &session);
+    /** @brief 停止データを受信元の現接続へ渡す。@param data 内容。@param length 1〜20。@param session 受信元。 */
+    void publishDebugData(const uint8_t *data, size_t length, const Session &session);
 
     /**
      * @brief 通知長が現在の通信経路で送信可能か調べる。

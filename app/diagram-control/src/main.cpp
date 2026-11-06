@@ -57,7 +57,8 @@ namespace {
     ControlTransport controlTransport(bluetooth, network); ///< 通常指令の接続照合と通知配送の共通窓口。
     BytecodeReceiver bytecodeReceiver; ///< loop()で分割受信を検証し、確定後にVMへ渡す。
     BytecodeVM bytecodeVm; ///< loop()だけが操作するVM。受信器の確定バッファを借用する。
-    BytecodeDebugger bytecodeDebugger(bytecodeReceiver, bytecodeVm, bluetooth); ///< デバッグ通信・命令フラグ・停止値の所有者。
+    BytecodeDebugger bytecodeDebugger(bytecodeReceiver, bytecodeVm, controlTransport); ///< 両経路のデバッグ要求・命令フラグ・停止値の所有者。
+    ControlSession vmSession{}; ///< 最後のVM_STARTの受信元。loop()が更新し、別接続での実行継続を禁止する。
     uint32_t vmRevision = 0; ///< VMが照合した確定プログラムの世代。更新だけでは開始しない。
     BytecodeVM::State reportedVmState = BytecodeVM::State::Idle; ///< シリアルへ報告済みの状態。
 
@@ -147,6 +148,8 @@ namespace {
      * 1周最大128命令を実行し、通常の指令・サーボ・通信・停止処理へ制御を返す。
      * STOP、切断、Wi-Fi切替、接続変更、通信キュー飽和、5秒の通信期限切れでもVMを停止する。
      * 再接続やPINGで自動再開しない。保持コードはVM_STARTで再実行できる。
+     * VM_STARTを受けた通信経路と接続世代をvmSessionへ記録し、実行中もControlTransportで照合する。
+     * プログラム・デバッグの通信は両経路で同じ受信器・VMを使い、受信結果の正本は各専用窓口に分ける。
      * Pythonのsleep待機でもloop()を継続し、各周回の停止・通信処理を優先する。待機の仕様は
      * device_native.cppのfunction_sleepとbytecode_vm.cppのcallNativeを参照する。
      *
@@ -166,7 +169,7 @@ namespace {
      * HALT後は最後のサーボ指令を保持し、STOP・切断・再送で解放する。エラーではVMの出力を停止する。
      */
     void runBytecode(bool stopped) {
-        const bool connected = bluetooth.connected.load() && !network.connected.load() && !network.bleUnavailable();
+        const bool connected = controlTransport.isCurrent(vmSession);
         const bool cancelled = stopped || mustStop.load() || urgentStop.load() || !connected;
         if (vmRevision != bytecodeReceiver.programRevision) {
             vmRevision = bytecodeReceiver.programRevision;
@@ -578,8 +581,9 @@ namespace {
      * @brief loop()内で指令を検査し、機器操作と受付結果の通知を行う。
      * @param command 現在の接続世代で受信した指令。
      * @param allowVmStart このloop()で停止要求がなければtrue。停止した周回ではVM開始を拒否する。
+     * @param session 指令を受信した通信経路と接続世代。VM操作の直前にも照合する。
      */
-    void handle(const Protocol::Command &command, bool allowVmStart) {
+    void handle(const Protocol::Command &command, bool allowVmStart, const ControlSession &session) {
         const auto *bytes = command.bytes;
         const uint16_t sequence = Protocol::read16(bytes + 2);
         const uint16_t value = Protocol::read16(bytes + 6);
@@ -597,7 +601,7 @@ namespace {
                 status(Protocol::CODE_RANGE, sequence);
                 return;
             }
-            if (!bluetooth.connected.load() || network.connected.load() || network.bleUnavailable()) {
+            if (!controlTransport.isCurrent(session)) {
                 status(Protocol::CODE_NOT_ARMED, sequence);
                 return;
             }
@@ -618,6 +622,7 @@ namespace {
                 status(Protocol::CODE_NOT_ARMED, sequence);
                 return;
             }
+            vmSession = session;
             const bool started = bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
             status(started ? Protocol::CODE_OK : Protocol::CODE_FORMAT, sequence);
             return;
@@ -755,6 +760,18 @@ void setup() {
     wifiCallbacks.deviceInfo = [](const uint8_t *data, size_t length, uint32_t generation) {
         receiveDeviceInfo(data, length, {ControlTransport::Source::Wifi, generation});
     };
+    wifiCallbacks.bytecode = [](const uint8_t *data, size_t length, uint32_t generation) {
+        const ControlSession session{ControlSource::Wifi, generation};
+        if (controlTransport.isCurrent(session)) {
+            bytecodeReceiver.enqueue(data, length, session);
+        }
+    };
+    wifiCallbacks.debug = [](const uint8_t *data, size_t length, uint32_t generation) {
+        const ControlSession session{ControlSource::Wifi, generation};
+        if (controlTransport.isCurrent(session)) {
+            bytecodeDebugger.enqueue(data, length, session);
+        }
+    };
     wifiCallbacks.session = [](bool connected, uint32_t) {
         // BLEで受信した一覧をWi-Fi制御権の取得時だけ引き継ぐ。
         if (!connected) {
@@ -788,11 +805,10 @@ void setup() {
     bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
     bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength;
     bleConfig.passkey = PAIRING_CODE;
-    bytecodeReceiver.begin([](const uint8_t *data, size_t length) {
-        bluetooth.publishBytecodeResult(data, length);
-    }, [](uint32_t generation) {
-        return bluetooth.connected.load() && bluetooth.generation.load() == generation && !network.connected.load() &&
-            !network.bleUnavailable();
+    bytecodeReceiver.begin([](const uint8_t *data, size_t length, const ControlSession &session) {
+        controlTransport.publishBytecodeResult(data, length, session);
+    }, [](const ControlSession &session) {
+        return controlTransport.isCurrent(session);
     });
     bytecodeDebugger.begin();
     uroa::BleTransport::Callbacks bleCallbacks;
@@ -803,10 +819,16 @@ void setup() {
         receiveDeviceInfo(data, length, {ControlTransport::Source::Ble, generation});
     };
     bleCallbacks.bytecode = [](const uint8_t *data, size_t length, uint32_t generation) {
-        bytecodeReceiver.enqueue(data, length, generation);
+        const ControlSession session{ControlSource::Ble, generation};
+        if (controlTransport.isCurrent(session)) {
+            bytecodeReceiver.enqueue(data, length, session);
+        }
     };
     bleCallbacks.debug = [](const uint8_t *data, size_t length, uint32_t generation) {
-        bytecodeDebugger.enqueue(data, length, generation);
+        const ControlSession session{ControlSource::Ble, generation};
+        if (controlTransport.isCurrent(session)) {
+            bytecodeDebugger.enqueue(data, length, session);
+        }
     };
     bleCallbacks.session = [](bool, uint32_t) {
         if (!network.connected.load()) {
@@ -848,8 +870,8 @@ void loop() {
         lastCommand = now;
         status(Protocol::CODE_OK, urgentSeq.load());
     }
-    bytecodeReceiver.process(bluetooth.connected.load() && !network.connected.load() && !network.bleUnavailable(),
-        bluetooth.generation.load());
+    const ControlSession session = controlTransport.currentSession();
+    bytecodeReceiver.process(controlTransport.isCurrent(session), session);
     Queued queued;
     // 1周4件までに制限し、補間と期限監視の処理時間を残す。
     for (int count = 0; count < 4 && xQueueReceive(commands, &queued, 0) == pdTRUE; ++count) {
@@ -858,7 +880,7 @@ void loop() {
                 handleDeviceInfo(queued.deviceInfoData, queued.deviceInfoLength);
             }
             else {
-                handle(queued.command, !vmStopRequested);
+                handle(queued.command, !vmStopRequested, queued.session);
             }
         }
     }
@@ -883,8 +905,7 @@ void loop() {
     network.tick();
     // デバッグ要求もloop()で処理し、Stopがある周回では設定・値取得を受け付けない。
     // PausedではVMだけを止める。機器出力・補間は維持し、既存のStop・切断・通信期限が停止させる。
-    bytecodeDebugger.process(!vmStopRequested && bluetooth.connected.load() && !network.connected.load() &&
-        !network.bleUnavailable(), bluetooth.generation.load());
+    bytecodeDebugger.process(!vmStopRequested && controlTransport.isCurrent(session), session);
     runBytecode(vmStopRequested);
     bytecodeDebugger.publishState();
     delay(2);

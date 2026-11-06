@@ -1,5 +1,5 @@
 /** @file bytecode_debugger.h
- * @brief BLEデバッグ要求のキュー、命令フラグと停止Snapshotをloop()で管理する。
+ * @brief BLE／Wi-Fiデバッグ要求のキュー、命令フラグと停止Snapshotをloop()で管理する。
  */
 #pragma once
 #include <Arduino.h>
@@ -7,21 +7,21 @@
 #include <memory>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include <uroa_ble.h>
+#include "control_transport.h"
 #include "bytecode_receiver.h"
 #include "bytecode_vm.h"
 
 /** @brief 通信仕様はuroa/diagram/ts/ble-wifi/debug-protocol.tsを正本とする。 */
 class BytecodeDebugger {
     public:
-    /** @brief 稼働中保持する参照を接続する。@param receiver プログラム所有者。@param vm VM。@param ble BLE。 */
-    BytecodeDebugger(BytecodeReceiver &receiver, BytecodeVM &vm, uroa::BleTransport &ble);
+    /** @brief 稼働中保持する参照を接続する。@param receiver プログラム所有者。@param vm VM。@param transport 通信共通窓口。 */
+    BytecodeDebugger(BytecodeReceiver &receiver, BytecodeVM &vm, ControlTransport &transport);
     /** @brief setup()で固定要求キューを確保する。 */
     void begin();
-    /** @brief BLEタスクで要求をコピーする。@param data 要求。@param length 8〜20。@param session 接続世代。 */
-    void enqueue(const uint8_t *data, size_t length, uint32_t session);
-    /** @brief loop()で接続・プログラム世代と要求を処理する。@param enabled BLE制御中か。@param session 接続世代。 */
-    void process(bool enabled, uint32_t session);
+    /** @brief 通信タスクで要求をコピーする。@param data 要求。@param length 8〜20。@param session 受信元と接続世代。 */
+    void enqueue(const uint8_t *data, size_t length, ControlSession session);
+    /** @brief loop()で接続・プログラム世代と要求を処理する。@param enabled 現接続で処理可能か。@param session 受信元と接続世代。 */
+    void process(bool enabled, ControlSession session);
     /** @brief tick()後に状態を通知し、Pausedへの遷移では不変Snapshotを確保する。 */
     void publishState();
     /** @brief VMの開始・停止前に旧Snapshotを無効化する。命令フラグは同じプログラムに保持する。 */
@@ -30,9 +30,9 @@ class BytecodeDebugger {
     private:
     /** @brief 専用ACKの結果番号。TypeScript側のdebugProtocol.errorsと共通。 */
     enum Code : uint8_t { Ok, Format, Order, Range, Memory, Crc, Invalid, Busy, Stale, Timeout };
-    /** @brief BLEタスクから渡す固定長のコピー。 */
+    /** @brief 通信タスクから渡す固定長のコピー。 */
     struct Request {
-        uint32_t session = 0;
+        ControlSession session{};
         uint8_t length = 0;
         uint8_t bytes[20]{};
     };
@@ -51,11 +51,11 @@ class BytecodeDebugger {
 
     BytecodeReceiver &receiver_;
     BytecodeVM &vm_;
-    uroa::BleTransport &ble_;
+    ControlTransport &transport_;
     QueueHandle_t requests_ = nullptr; ///< setup()が確保し、稼働中保持する。
     std::atomic<bool> overflow_{false}; ///< enqueue()が設定しprocess()が解除する。
     bool enabled_ = false;
-    uint32_t session_ = 0;
+    ControlSession session_{};
     uint32_t revision_ = 0;
     Request lastRequest_;
     uint16_t requestId_ = 0;

@@ -114,8 +114,8 @@ namespace {
  * @param publish setup()・loop()から呼ぶ結果の出力先。
  * @param current loop()で確定直前に接続世代を再照合する関数。
  */
-void BytecodeReceiver::begin(const std::function<void(const uint8_t *, size_t)> &publish,
-    const std::function<bool(uint32_t)> &current) {
+void BytecodeReceiver::begin(const std::function<void(const uint8_t *, size_t, const ControlSession &)> &publish,
+    const std::function<bool(const ControlSession &)> &current) {
     publish_ = publish;
     current_ = current;
     frames_ = xQueueCreate(4, sizeof(Frame));
@@ -123,14 +123,17 @@ void BytecodeReceiver::begin(const std::function<void(const uint8_t *, size_t)> 
     reply(frames_ == nullptr ? Memory : Ok);
 }
 
-/** @brief BLEタスクでフレームをコピーする。@param data 入力。@param length 長さ。@param session 接続世代。
+/** @brief 通信タスクでフレームをコピーする。@param data 入力。@param length 長さ。@param session 受信元と接続世代。
  *
  * @details
  * ## ESP32の受信と保持
  *
- * [BleTransport](../../../../esp32/lib/ble/include/uroa_ble.h)は20バイト以内のフレームを`Callbacks::bytecode`へ渡す。[BytecodeReceiver](../../../../esp32/app/diagram-control/include/bytecode_receiver.h)の`enqueue()`は接続世代とともに4件の専用FreeRTOSキューへコピーする。BLEコールバックで動的確保・CRC・バイナリの解析を行わない。
+ * BleTransportとWifiNetworkは20バイト以内のフレームをCallbacks::bytecodeへ渡す。
+ * enqueue()は受信元と接続世代をControlSessionとして4件の専用FreeRTOSキューへコピーする。
+ * 通信コールバックで動的確保・CRC・バイナリの解析を行わない。ResultはControlTransportを通じて
+ * 受信元の現接続だけへ返す。完全な配送・署名・保持の契約はWebのbytecode-transfer.tsを参照する。
  */
-void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, uint32_t session) {
+void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSession session) {
     Frame frame;
     frame.session = session;
     if (length <= sizeof frame.data) {
@@ -153,7 +156,7 @@ void BytecodeReceiver::cancel() {
 /** @brief 最新の受付結果を再公開する。 */
 void BytecodeReceiver::publishResult() {
     if (publish_) {
-        publish_(result_, sizeof result_);
+        publish_(result_, sizeof result_, session_);
     }
 }
 
@@ -173,13 +176,13 @@ void BytecodeReceiver::reply(Code code, const Frame *frame) {
     publishResult();
 }
 
-/** @brief 現在のBLE接続世代のフレームと受信期限を処理する。@param connected BLE制御中か。@param session 世代。
+/** @brief 現在の受信元・接続世代のフレームと受信期限を処理する。@param connected 現接続が有効か。@param session 世代。
  *
  * @details
  * 切断・BLE停止・Wi-Fi切替・接続世代の変更、受信キュー飽和、受信待ち15秒超過、ABORT、不正フレームでは未完了の受信を破棄する。キュー飽和やタイミングによっては対象sequenceの結果が返らず、Web側の2.5秒タイムアウトから再接続が必要になる。
  */
-void BytecodeReceiver::process(bool connected, uint32_t session) {
-    if (connected != connected_ || session != session_) {
+void BytecodeReceiver::process(bool connected, ControlSession session) {
+    if (connected != connected_ || session.source != session_.source || session.generation != session_.generation) {
         connected_ = connected;
         session_ = session;
         cancel();
@@ -208,7 +211,7 @@ void BytecodeReceiver::process(bool connected, uint32_t session) {
     }
     Frame frame;
     for (int count = 0; count < 4 && xQueueReceive(frames_, &frame, 0) == pdTRUE; ++count) {
-        if (connected_ && frame.session == session_) {
+        if (connected_ && frame.session.source == session_.source && frame.session.generation == session_.generation) {
             handle(frame);
         }
     }
@@ -217,9 +220,9 @@ void BytecodeReceiver::process(bool connected, uint32_t session) {
 /** @brief 現接続のフレームを解釈する。@param frame キューから取り出したコピー。
  *
  * @details
- * `loop()`の`process()`は現BLE接続世代のデータだけを処理する。BEGINで受信バッファを確保し、DATAのID・sequence・連続位置・全体長を検査してコピーする。COMMIT時に受信長・CRCと次の構造を全件検査する。
+ * `loop()`の`process()`は現受信元・接続世代のデータだけを処理する。BEGINで受信バッファを確保し、DATAのID・sequence・連続位置・全体長を検査してコピーする。COMMIT時に受信長・CRCと次の構造を全件検査する。
  *
- * 全件に成功し、確定直前にも現在のBLE接続・世代を再照合できたときだけ、公開メンバー`program`・`programLength`・`programCrc32`を置き換え、readyを返す。公開メンバーはloop()だけが更新し、VMは確定バッファを借用し、loop()が実行前に確定世代を照合する。受信中・検証失敗時は以前の確定済みプログラムを保持するため、新旧2個分のRAMが必要になる場合がある。確保に失敗したら以前のプログラムを残して拒否する。
+ * 全件に成功し、確定直前にも現在の受信元・接続世代を再照合できたときだけ、公開メンバー`program`・`programLength`・`programCrc32`を置き換え、readyを返す。公開メンバーはloop()だけが更新し、VMは確定バッファを借用し、loop()が実行前に確定世代を照合する。受信中・検証失敗時は以前の確定済みプログラムを保持するため、新旧2個分のRAMが必要になる場合がある。確保に失敗したら以前のプログラムを残して拒否する。
  *
  * 確定済みデータは切断後もRAMに残るが再起動で失われる。受信完了時はシリアルに`Bytecode received: bytes=... crc32=...`を出す。
  */

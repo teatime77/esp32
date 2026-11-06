@@ -41,6 +41,10 @@ namespace uroa {
             std::function<void(const uint8_t *, size_t, uint32_t)> command;
             /** @brief 認証済み機器一覧を通信タスクから渡す。受け手は呼出中に内容・世代をキューへコピーする。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> deviceInfo;
+            /** @brief プログラム転送フレームをコピーする配送先。内容検証・動的確保はloop()で行う。 */
+            std::function<void(const uint8_t *, size_t, uint32_t)> bytecode;
+            /** @brief デバッグ要求を世代とともにコピーする配送先。VMへ通信タスクから触れない。 */
+            std::function<void(const uint8_t *, size_t, uint32_t)> debug;
             std::function<void(bool, uint32_t)> session;
             std::function<void()> startBLE;
             std::function<void()> stopBLE;
@@ -101,6 +105,14 @@ namespace uroa {
          * @details パケット長によるStatus判定は行わない。呼出元が通知先を選ぶ。
          */
         void publishTelemetry(const uint8_t *data, size_t length);
+        /** @brief プログラムResultをRead専用窓口へコピーする。@param data 内容。@param length 20。@param sessionGeneration 宛先世代。 */
+        void publishBytecodeResult(const uint8_t *data, size_t length, uint32_t sessionGeneration);
+        /** @brief デバッグACKを独立したRead値へコピーする。@param data 内容。@param length 20。@param sessionGeneration 宛先世代。 */
+        void publishDebugResult(const uint8_t *data, size_t length, uint32_t sessionGeneration);
+        /** @brief VM停止状態を独立したRead値へコピーする。@param data 内容。@param length 20。@param sessionGeneration 宛先世代。 */
+        void publishDebugEvent(const uint8_t *data, size_t length, uint32_t sessionGeneration);
+        /** @brief 選択済み停止データをRead値へコピーする。@param data 内容。@param length 1〜20。@param sessionGeneration 宛先世代。 */
+        void publishDebugData(const uint8_t *data, size_t length, uint32_t sessionGeneration);
 
         private:
         /**
@@ -124,7 +136,7 @@ namespace uroa {
             Handler handler;
         };
 
-        RouteBinding routes_[16]{};
+        RouteBinding routes_[28]{};
         size_t routeCount_ = 0;
         Config config_;
         Callbacks callbacks_;
@@ -182,6 +194,20 @@ namespace uroa {
         size_t lastIMULength = 0;
         bool haveIMU = false;
         String controlOrigin;
+        /** @brief センサー通知から独立した、現接続の結果・停止情報のRead値。stateLockで同期する。 */
+        struct ControlValue {
+            uint8_t data[20]{};
+            uint8_t length = 0;
+            uint32_t generation = 0;
+        };
+        ControlValue bytecodeResult_;
+        ControlValue debugResult_;
+        ControlValue debugEvent_;
+        ControlValue debugData_;
+        /** @brief 現世代だけのRead値をロック下で更新する。@param value 更新先。@param data 内容。@param length 長さ。@param sessionGeneration 世代。 */
+        void storeControlValue(ControlValue &value, const uint8_t *data, size_t length, uint32_t sessionGeneration);
+        /** @brief 認証済みRead要求へ現世代の値と要求番号を署名して返す。@param req 要求。@return HTTP応答処理の結果。 */
+        esp_err_t controlValueHTTP(httpd_req_t *req);
         /**
          * @brief 乱数を16進文字列へ変換する。
          * @param bytes 生成する乱数のバイト数。

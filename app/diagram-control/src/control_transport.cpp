@@ -20,6 +20,66 @@ bool ControlTransport::isCurrent(const Session &session) const {
         session.generation == ble_.generation.load();
 }
 
+/** @brief 制御権と各atomicの世代を読む。@return 経路付きの識別子。状態の変化はisCurrent()で再照合する。 */
+ControlTransport::Session ControlTransport::currentSession() const {
+    if (wifi_.connected.load()) {
+        return {Source::Wifi, wifi_.generation.load()};
+    }
+    return {Source::Ble, ble_.generation.load()};
+}
+
+/** @brief 専用のプログラム受付結果へ配送する。@param data 結果。@param length 20。@param session 受信元。 */
+void ControlTransport::publishBytecodeResult(const uint8_t *data, size_t length, const Session &session) {
+    if (!isCurrent(session)) {
+        return;
+    }
+    if (session.source == Source::Wifi) {
+        wifi_.publishBytecodeResult(data, length, session.generation);
+    }
+    else {
+        ble_.publishBytecodeResult(data, length);
+    }
+}
+
+/** @brief デバッグACKを配送する。@param data 内容。@param length 20。@param session 受信元。 */
+void ControlTransport::publishDebugResult(const uint8_t *data, size_t length, const Session &session) {
+    if (!isCurrent(session)) {
+        return;
+    }
+    if (session.source == Source::Wifi) {
+        wifi_.publishDebugResult(data, length, session.generation);
+    }
+    else {
+        ble_.publishDebugResult(data, length);
+    }
+}
+
+/** @brief 停止イベントを配送する。@param data 内容。@param length 20。@param session 受信元。 */
+void ControlTransport::publishDebugEvent(const uint8_t *data, size_t length, const Session &session) {
+    if (!isCurrent(session)) {
+        return;
+    }
+    if (session.source == Source::Wifi) {
+        wifi_.publishDebugEvent(data, length, session.generation);
+    }
+    else {
+        ble_.publishDebugEvent(data, length);
+    }
+}
+
+/** @brief 選択済み停止データを配送する。@param data 内容。@param length 1〜20。@param session 受信元。 */
+void ControlTransport::publishDebugData(const uint8_t *data, size_t length, const Session &session) {
+    if (!isCurrent(session)) {
+        return;
+    }
+    if (session.source == Source::Wifi) {
+        wifi_.publishDebugData(data, length, session.generation);
+    }
+    else {
+        ble_.publishDebugData(data, length);
+    }
+}
+
 /** @brief 通知容量とBLEの合意MTUを確認する。@param length 通知長。@return 送信可能ならtrue。 */
 bool ControlTransport::canPublishTelemetry(size_t length) const {
     return length > 0 && length <= uroa::WifiNetwork::MaxPacketLength &&

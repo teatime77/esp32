@@ -2,7 +2,7 @@
 
 共通ライブラリーは`lib/`に置き、各ライブラリーの宣言を`include/`、実装を`src/`に分離する。教材アプリは`app/`に独立したPlatformIOプロジェクトとして置く。現在のアプリは[diagram-control](../app/diagram-control/README.md)。教材アプリのピン、周期、キュー、停止方針、認証設定は共通ライブラリーへ固定しない。
 
-PythonデバッグのBLE窓口は[uroa_ble.h](../lib/ble/include/uroa_ble.h)、教材側の要求処理・命令フラグ・停止値は[bytecode_debugger.cpp](../app/diagram-control/src/bytecode_debugger.cpp)を参照する。通信の完全な形式はuroaの[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を正本とし、ライブラリーはVMを直接操作しない。ビルド・実機確認の境界は[検証記録](build-and-test.md)に記載する。
+PythonデバッグのBLE窓口は[uroa_ble.h](../lib/ble/include/uroa_ble.h)、Wi-Fi窓口は[uroa_wifi.h](../lib/wifi/include/uroa_wifi.h)、教材側の要求処理・命令フラグ・停止値は[bytecode_debugger.cpp](../app/diagram-control/src/bytecode_debugger.cpp)を参照する。通信の完全な形式はuroaの[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を正本とし、ライブラリーはVMを直接操作しない。ビルド・実機確認の境界は[検証記録](build-and-test.md)に記載する。
 
 ## 公開状態への移行
 
@@ -48,15 +48,15 @@ Displayの公開APIと転送仕様は[uroa_display.h](../lib/display/include/uro
 
 ## バイトコードの受信とRAM保持
 
-2026-11-03にBleTransportへ`Config::bytecodeUuid`・`bytecodeResultUuid`と`Callbacks::bytecode`を追加した。両UUIDを指定した教材だけが20バイトのWrite／Read窓口を公開し、結果は`publishBytecodeResult()`で設定する。BLEタスクは受信内容を教材へ渡すだけで、バイトコードの解析・動的確保・実行を行わない。
+プログラム転送はBLE／Wi-Fiの[共通転送仕様](../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を使う。各通信ライブラリーは要求のコピーと結果保持を担当し、[ControlTransport](../app/diagram-control/include/control_transport.h)が受信元・接続世代を照合して配送する。
 
-diagram-controlの`BytecodeReceiver`は4件の専用キューと受信途中の動的バッファを持つ。loop()が接続世代・連続位置・CRC・バイナリの構造を検証し、正常COMMIT時だけ公開の`program`・`programLength`・`programCrc32`を置き換える。新旧プログラムを同時に保持できるRAMがなければ更新を拒否する。切断・Wi-Fi切替・期限超過・不正フレームでは未完了分だけを破棄する。確定済みデータはRAMに残すが、VM・Flash保存・実行開始は実装しない。詳細は[protocol.md](../app/diagram-control/docs/protocol.md)を参照する。
+受信器のキュー・形式検証・確定と取消は[bytecode_receiver.cpp](../app/diagram-control/src/bytecode_receiver.cpp)、両経路で使う識別子は[control_session.h](../app/diagram-control/include/control_session.h)を正本とする。受信完了・開始・実行終了は別々の状態として扱う。
 
 ## PythonサブセットVM
 
-diagram-controlのBytecodeReceiverは、正常COMMITで公開の`programRevision`を更新する。loop()はこの世代をVM実行前に照合し、BytecodeVMへ確定バッファを渡して開始する。VMはバッファを借用するため、置換後は旧バッファを使ってtick()せず、必ずstart()かstop()する。VMの操作と受信器の確定はloop()だけが行う。
+VM開始・停止・実行元セッションの照合・バッファの借用は[main.cppのrunBytecode()/handle()](../app/diagram-control/src/main.cpp)、PythonBlockとの連携は[python-block.ts](../../uroa/diagram/ts/python/python-block.ts)を参照する。
 
-VMは24命令、int32・float32・None、未初期化検査、関数フレームと再帰に対応する。1周128命令までとして通信・停止処理へ制御を返す。STOP・接続変更・通信期限切れで停止し、再接続では再開しない。公開のglobalsに結果を保持し、機器ドライバーは呼ばない。上限・エラー・シリアル出力は[VM仕様](../app/diagram-control/src/bytecode_vm.cpp)を参照する。
+命令・値・機器スタブ・実行制限・エラーは[VM仕様](../app/diagram-control/src/bytecode_vm.cpp)、ブレークポイントと停止値は[BytecodeDebugger](../app/diagram-control/src/bytecode_debugger.cpp)を正本とする。
 
 ## 呼び出し例
 

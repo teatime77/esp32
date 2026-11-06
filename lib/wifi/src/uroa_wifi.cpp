@@ -344,6 +344,10 @@ namespace uroa {
         owner = socketOwner;
         ready = false;
         haveIMU = false;
+        bytecodeResult_ = ControlValue{};
+        debugResult_ = ControlValue{};
+        debugEvent_ = ControlValue{};
+        debugData_ = ControlValue{};
         outputCounter = 0;
         ++generation;
         connected = true;
@@ -449,17 +453,27 @@ namespace uroa {
             callbacks_.command(data, sizeof data, sessionGeneration);
             return true;
         }
-        if (path != "/device-info" || !callbacks_.deviceInfo || payload.length() > 2 * DeviceInfoMaxLength ||
-            payload.length() % 2 != 0) {
+        const size_t length = payload.length() / 2;
+        if (payload.length() % 2 != 0 || length > DeviceInfoMaxLength) {
             return false;
         }
-        const size_t length = payload.length() / 2;
         uint8_t data[DeviceInfoMaxLength]{};
         if (!unhex(payload, data, length)) {
             return false;
         }
-        callbacks_.deviceInfo(data, length, sessionGeneration);
-        return true;
+        if (path == "/device-info" && callbacks_.deviceInfo) {
+            callbacks_.deviceInfo(data, length, sessionGeneration);
+            return true;
+        }
+        if (path == "/bytecode" && callbacks_.bytecode && length >= 10) {
+            callbacks_.bytecode(data, length, sessionGeneration);
+            return true;
+        }
+        if (path == "/debug-control" && callbacks_.debug && length >= 8) {
+            callbacks_.debug(data, length, sessionGeneration);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -482,6 +496,58 @@ namespace uroa {
             return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid control data");
         }
         return respond(req, "{\"accepted\":true}");
+    }
+
+    /**
+     * @brief 現接続の結果・停止値をTelemetryとは独立した署名付きHTTP Readで返す。
+     * @param req 認証するGET要求。
+     * @return HTTP応答処理の結果。
+     * @details 応答はsession/counter/data/proof。HMAC対象はsession|resource|counter|data。
+     * resourceはbytecode-result/debug-result/debug-event/debug-data。要求番号と窓口を署名へ含める。
+     * 値と世代はstateLock下でコピーし、切断済み・別世代・未公開は503で拒否する。
+     * 各バイト形式と完了の範囲はWebのbytecode-transfer.ts/debug-protocol.tsを正本とする。
+     */
+    esp_err_t WifiNetwork::controlValueHTTP(httpd_req_t *req) {
+        const CorsHeaders headers(req);
+        uint32_t sessionGeneration = 0;
+        if (!authorizeHTTP(req, "", &sessionGeneration)) {
+            return ESP_OK;
+        }
+        const String path = req->uri;
+        const ControlValue *value = nullptr;
+        if (path == "/bytecode-result") {
+            value = &bytecodeResult_;
+        }
+        else if (path == "/debug-result") {
+            value = &debugResult_;
+        }
+        else if (path == "/debug-event") {
+            value = &debugEvent_;
+        }
+        else if (path == "/debug-data") {
+            value = &debugData_;
+        }
+        if (!value) {
+            return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Unknown result");
+        }
+        xSemaphoreTake(stateLock, portMAX_DELAY);
+        if (!connected.load() || !ready.load() || sessionGeneration != generation.load() ||
+            value->generation != sessionGeneration || value->length == 0) {
+            xSemaphoreGive(stateLock);
+            httpd_resp_set_status(req, "503 Service Unavailable");
+            return httpd_resp_send(req, "Result unavailable", HTTPD_RESP_USE_STRLEN);
+        }
+        StaticJsonDocument<384> doc;
+        const String data = packetHex(value->data, value->length);
+        const String count = header(req, "X-Uroa-Counter");
+        doc["session"] = controlSession;
+        doc["counter"] = count;
+        doc["data"] = data;
+        doc["proof"] = hmac(controlSession + "|" + path.substring(1) + "|" + count + "|" + data);
+        xSemaphoreGive(stateLock);
+        String result;
+        serializeJson(doc, result);
+        return respond(req, result);
     }
 
     /**
@@ -591,7 +657,7 @@ namespace uroa {
         config.server_port = 80;
         config.ctrl_port = 32768;
         config.stack_size = 8192;
-        config.max_uri_handlers = 16;
+        config.max_uri_handlers = 28;
         config.recv_wait_timeout = 2;
         config.send_wait_timeout = 2;
         if (httpd_start(&httpServer, &config) != ESP_OK) {
@@ -602,9 +668,15 @@ namespace uroa {
         registerRoute(httpServer, "/claim", HTTP_POST, &WifiNetwork::claimHTTP);
         registerRoute(httpServer, "/command", HTTP_POST, &WifiNetwork::controlHTTP);
         registerRoute(httpServer, "/device-info", HTTP_POST, &WifiNetwork::controlHTTP);
+        registerRoute(httpServer, "/bytecode", HTTP_POST, &WifiNetwork::controlHTTP);
+        registerRoute(httpServer, "/debug-control", HTTP_POST, &WifiNetwork::controlHTTP);
+        for (const char *path : {"/bytecode-result", "/debug-result", "/debug-event", "/debug-data"}) {
+            registerRoute(httpServer, path, HTTP_GET, &WifiNetwork::controlValueHTTP);
+            registerRoute(httpServer, path, HTTP_OPTIONS, &WifiNetwork::options);
+        }
         registerRoute(httpServer, "/events", HTTP_GET, &WifiNetwork::eventsHTTP);
         registerRoute(httpServer, "/release", HTTP_POST, &WifiNetwork::releaseHTTP);
-        for (const char *path : {"/info", "/claim", "/command", "/device-info", "/events", "/release"}) {
+        for (const char *path : {"/info", "/claim", "/command", "/device-info", "/bytecode", "/debug-control", "/events", "/release"}) {
             registerRoute(httpServer, path, HTTP_OPTIONS, &WifiNetwork::options);
         }
         config.server_port = 82;
@@ -668,7 +740,8 @@ namespace uroa {
         }
         // WebSocketの操作名とHMAC対象のパスを一致させ、窓口をまたぐ署名の流用を拒否する。
         // dataの欠落・文字列以外を空一覧による消去として扱わない。
-        if ((op != "command" && op != "device-info") || !doc["data"].is<const char *>()) {
+        if ((op != "command" && op != "device-info" && op != "bytecode" && op != "debug-control") ||
+            !doc["data"].is<const char *>()) {
             sockets.disconnect(number);
             return;
         }
@@ -950,6 +1023,46 @@ namespace uroa {
             shutdownBLE = false;
             shutdownAt = 0;
         }
+    }
+
+    /** @brief 現世代の専用Read値をコピーする。@param value 出力先。@param data 内容。@param length 1〜20。@param sessionGeneration 世代。 */
+    void WifiNetwork::storeControlValue(ControlValue &value, const uint8_t *data, size_t length, uint32_t sessionGeneration) {
+        if (length == 0 || length > sizeof value.data) {
+            return;
+        }
+        xSemaphoreTake(stateLock, portMAX_DELAY);
+        if (connected.load() && sessionGeneration == generation.load()) {
+            memcpy(value.data, data, length);
+            value.length = static_cast<uint8_t>(length);
+            value.generation = sessionGeneration;
+        }
+        xSemaphoreGive(stateLock);
+    }
+
+    /** @brief プログラム受付結果を更新する。@param data 内容。@param length 20。@param sessionGeneration 世代。 */
+    void WifiNetwork::publishBytecodeResult(const uint8_t *data, size_t length, uint32_t sessionGeneration) {
+        if (length == 20) {
+            storeControlValue(bytecodeResult_, data, length, sessionGeneration);
+        }
+    }
+
+    /** @brief デバッグACKを更新する。@param data 内容。@param length 20。@param sessionGeneration 世代。 */
+    void WifiNetwork::publishDebugResult(const uint8_t *data, size_t length, uint32_t sessionGeneration) {
+        if (length == 20) {
+            storeControlValue(debugResult_, data, length, sessionGeneration);
+        }
+    }
+
+    /** @brief 停止イベントを更新する。@param data 内容。@param length 20。@param sessionGeneration 世代。 */
+    void WifiNetwork::publishDebugEvent(const uint8_t *data, size_t length, uint32_t sessionGeneration) {
+        if (length == 20) {
+            storeControlValue(debugEvent_, data, length, sessionGeneration);
+        }
+    }
+
+    /** @brief 選択済み停止データを更新する。@param data 内容。@param length 1〜20。@param sessionGeneration 世代。 */
+    void WifiNetwork::publishDebugData(const uint8_t *data, size_t length, uint32_t sessionGeneration) {
+        storeControlValue(debugData_, data, length, sessionGeneration);
     }
 
     /** @brief StatusをACKキューへ渡す。@param data 通知。@param length 通知長。 */

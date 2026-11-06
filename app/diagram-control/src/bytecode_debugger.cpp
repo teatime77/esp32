@@ -1,7 +1,7 @@
 /** @file bytecode_debugger.cpp
- * @brief BLEデバッグの段階受信、opcode bit7の設定と停止時の値転送。
+ * @brief BLE／Wi-Fiデバッグの段階受信、opcode bit7の設定と停止時の値転送。
  * @details バイト単位の共通仕様はuroa/diagram/ts/ble-wifi/debug-protocol.tsを参照する。
- * lib/bleはコピーだけ、main.cppはloop()の順序、bytecode_vm.cppは停止と値の直列化を担当する。
+ * lib/bleとlib/wifiはコピーだけ、main.cppはloop()の順序、bytecode_vm.cppは停止と値の直列化を担当する。
  * 受信器のCRCはフラグ設定前のイメージを識別する。変更するのは検証済み命令先頭のbit7だけで、
  * プログラム世代は変えない。切断・Wi-Fi切替ではフラグを戻す。動的文字列本体は送らない。
  * PausedはVMだけを止め、既存の出力・補間は維持する。既存Stop・切断・通信期限の停止は優先する。
@@ -44,9 +44,9 @@ namespace {
     }
 }
 
-/** @brief 稼働中の依存先を保持する。@param receiver 受信器。@param vm VM。@param ble BLE。 */
-BytecodeDebugger::BytecodeDebugger(BytecodeReceiver &receiver, BytecodeVM &vm, uroa::BleTransport &ble)
-    : receiver_(receiver), vm_(vm), ble_(ble) {
+/** @brief 稼働中の依存先を保持する。@param receiver 受信器。@param vm VM。@param transport 通信共通窓口。 */
+BytecodeDebugger::BytecodeDebugger(BytecodeReceiver &receiver, BytecodeVM &vm, ControlTransport &transport)
+    : receiver_(receiver), vm_(vm), transport_(transport) {
 }
 
 /** @brief setup()で4件の固定コピー領域を確保する。 */
@@ -54,8 +54,8 @@ void BytecodeDebugger::begin() {
     requests_ = xQueueCreate(4, sizeof(Request));
 }
 
-/** @brief BLEタスクからコピーする。@param data 入力。@param length 長さ。@param session 接続世代。 */
-void BytecodeDebugger::enqueue(const uint8_t *data, size_t length, uint32_t session) {
+/** @brief 通信タスクからコピーする。@param data 入力。@param length 長さ。@param session 受信元と接続世代。 */
+void BytecodeDebugger::enqueue(const uint8_t *data, size_t length, ControlSession session) {
     if (!requests_ || !data || length < 8 || length > 20) {
         overflow_.store(true);
         return;
@@ -116,13 +116,14 @@ void BytecodeDebugger::invalidateSnapshot() {
     snapshotError_ = Ok;
 }
 
-/** @brief 接続変更・期限・要求をloop()で処理する。@param enabled BLE制御中。@param session 接続世代。 */
-void BytecodeDebugger::process(bool enabled, uint32_t session) {
-    if (enabled != enabled_ || session != session_ || revision_ != receiver_.programRevision) {
+/** @brief 接続変更・期限・要求をloop()で処理する。@param enabled 現接続で処理可能。@param session 受信元と接続世代。 */
+void BytecodeDebugger::process(bool enabled, ControlSession session) {
+    const bool changedSession = session.source != session_.source || session.generation != session_.generation;
+    if (enabled != enabled_ || changedSession || revision_ != receiver_.programRevision) {
         clearFlags();
         cancelTransfer();
         invalidateSnapshot();
-        if (session != session_) {
+        if (changedSession) {
             requestId_ = 0;
             lastRequest_ = Request{};
         }
@@ -130,6 +131,10 @@ void BytecodeDebugger::process(bool enabled, uint32_t session) {
         session_ = session;
         revision_ = receiver_.programRevision;
         std::memset(event_, 0, sizeof event_);
+        if (changedSession) {
+            operation_ = 0;
+            reply(Ok);
+        }
     }
     if (overflow_.exchange(false)) {
         cancelTransfer();
@@ -141,7 +146,7 @@ void BytecodeDebugger::process(bool enabled, uint32_t session) {
     }
     Request request;
     for (size_t index = 0; requests_ && index < 4 && xQueueReceive(requests_, &request, 0) == pdTRUE; ++index) {
-        if (enabled_ && request.session == session_) {
+        if (enabled_ && request.session.source == session_.source && request.session.generation == session_.generation) {
             handle(request);
         }
     }
@@ -167,7 +172,7 @@ bool BytecodeDebugger::applyBreakpoints() {
         }
         pc += size;
     }
-    if (selected != count_ || !ble_.connected.load() || ble_.generation.load() != session_) {
+    if (selected != count_ || !transport_.isCurrent(session_)) {
         return false;
     }
     clearFlags();
@@ -189,7 +194,7 @@ void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
     write32(result_ + 8, receiver_.programRevision);
     write32(result_ + 12, value);
     write32(result_ + 16, extra);
-    ble_.publishDebugResult(result_, sizeof result_);
+    transport_.publishDebugResult(result_, sizeof result_, session_);
 }
 
 /** @brief 要求を順番に処理する。@param request 現接続の固定コピー。 */
@@ -198,7 +203,7 @@ void BytecodeDebugger::handle(const Request &request) {
     const uint16_t id = read16(data + 2);
     if (id == requestId_ && id != 0 && request.length == lastRequest_.length &&
         std::memcmp(data, lastRequest_.bytes, request.length) == 0) {
-        ble_.publishDebugResult(result_, sizeof result_);
+        transport_.publishDebugResult(result_, sizeof result_, session_);
         return;
     }
     if (id == 0 || id <= requestId_) {
@@ -238,7 +243,7 @@ void BytecodeDebugger::handle(const Request &request) {
         }
         else {
             const uint32_t size = snapshotLength_ - offset < 20 ? snapshotLength_ - offset : 20;
-            ble_.publishDebugData(snapshot_.get() + offset, size);
+            transport_.publishDebugData(snapshot_.get() + offset, size, session_);
             reply(Ok, offset, size);
         }
         return;
@@ -363,6 +368,6 @@ void BytecodeDebugger::publishState() {
     write32(event + 16, snapshotCrc_);
     if (std::memcmp(event_, event, sizeof event_) != 0) {
         std::memcpy(event_, event, sizeof event_);
-        ble_.publishDebugEvent(event_, sizeof event_);
+        transport_.publishDebugEvent(event_, sizeof event_, session_);
     }
 }

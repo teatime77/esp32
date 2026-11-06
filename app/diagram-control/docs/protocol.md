@@ -21,6 +21,8 @@ Wi-Fi設定のJSON操作、分割送信、Wi-Fi上の指令・署名・セッシ
 
 Bytecode（f3641407、Write最大20バイト）とBytecode Result（f3641408、Read20バイト）で分割転送する。転送フレームとCRC32は[uroaの転送仕様](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。正常COMMITのACKは形式検証・RAM保持の成功を表し、VMの正常終了を意味しない。
 
+Wi-Fiのプログラム・デバッグ窓口と認証付きRead、両経路でのResult・Event・Dataの照合は[bytecode-transfer.ts](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[debug-protocol.ts](../../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)の共通仕様を正本とする。
+
 受信器とVMはバイナリversion=1・2・3に対応する。転送層が行う形式検証は[受信器の仕様コメント](../src/bytecode_receiver.cpp)、登録スタブ表とのABI・ネイティブID照合は[VM仕様](../src/bytecode_vm.cpp)、生成スタブと機器操作の接続は[device_api.generated.cpp](../src/device_api.generated.cpp)と[device_native.cpp](../src/device_native.cpp)を参照する。
 
 受信後の明示的な開始・停止、保持コードの再実行とACKの範囲は[main.cppのrunBytecode・handleの仕様コメント](../src/main.cpp)、操作番号は[Protocol::Op](../../../lib/protocol/include/uroa_protocol.h)を参照する。VMの上限・エラーとシリアル出力は[VM仕様](../src/bytecode_vm.cpp)を参照する。VMの実行結果をBLEへ返す拡張パケットは追加しない。

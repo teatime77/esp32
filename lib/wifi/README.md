@@ -13,6 +13,8 @@
 | `publishStatus(data, length)` / `publishTelemetry(data, length)` | 制御ループから通知先を指定する。[API仕様](include/uroa_wifi.h)を参照 |
 | `command(data, length, generation)` | HTTP／ネットワークタスクから呼ぶ。即座にコピーして制御キューへ送る |
 | `deviceInfo(data, length, generation)` | 機器一覧の配送先。[コールバック仕様](include/uroa_wifi.h)と[共通配送](src/uroa_wifi.cpp)を参照 |
+| `bytecode(data, length, generation)` / `debug(data, length, generation)` | プログラム・デバッグ要求の配送先。[API仕様](include/uroa_wifi.h)を参照 |
+| `publishBytecodeResult()` / `publishDebugResult()` / `publishDebugEvent()` / `publishDebugData()` | 宛先の世代を指定して独立したRead値を更新する。[同期・読出し仕様](src/uroa_wifi.cpp)を参照 |
 | `session(connected, generation)` | 複数タスクから呼ばれ得る。停止フラグの設定など短い処理だけにする |
 | `startBLE()` / `stopBLE()` | tickの呼び出し元で実行する。BLEライブラリーのstart/stopへ接続する |
 | `cameraBegin()` / `cameraAvailable()` / `cameraServe(request)` | 省略可能。画像取得を教材側へ委譲する。AvailableはHTTP等のタスクからも呼ぶ |

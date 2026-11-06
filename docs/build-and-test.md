@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## プログラム・VM・デバッグ通信のBLE／Wi-Fi共通化（2026-11-05）
+
+受信元の共通識別子は[control_session.h](../app/diagram-control/include/control_session.h)、結果配送は[ControlTransport](../app/diagram-control/include/control_transport.h)、受信・保持は[BytecodeReceiver](../app/diagram-control/src/bytecode_receiver.cpp)、ブレークポイント・停止値は[BytecodeDebugger](../app/diagram-control/src/bytecode_debugger.cpp)、実行元の照合は[main.cpp](../app/diagram-control/src/main.cpp)を参照する。バイト形式・Wi-Fiの認証と独立したRead窓口の正本はuroaの[bytecode-transfer.ts](../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)。
+
+ユーザー指定に従い、テストは作成・実行せず、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`だけをビルドした。既存PlatformIOキャッシュへの書込み権限を使用し、コンパイル・リンク・`firmware.bin`生成は成功した。静的RAMは62536/327680バイト、Flashは1205173/1310720バイト。uroaの`npm.cmd run verify`も成功した。
+
+XIAO・SuperMiniのビルド、Upload、ブラウザー操作、実BLE／Wi-Fi、署名検証・切断・切替・取消・期限超過・最大長での通信時間と空きRAM、VM停止・機器出力の実動作は未確認。静的RAM値にはプログラム・Snapshot・VM等の動的確保は含まれない。
+
 ## 機器一覧のWi-Fi対応（2026-11-05）
 
 共通登録APIは[control-connection.tsのsendDeviceInfo()](../../uroa/diagram/ts/ble-wifi/control-connection.ts)、Wi-Fiの認証・配送は[uroa_wifi.cppのdispatchControl()/controlHTTP()/socketEvent()](../lib/wifi/src/uroa_wifi.cpp)、機器一覧の検証・置換は[main.cppのreceiveDeviceInfo()/handleDeviceInfo()](../app/diagram-control/src/main.cpp)を参照する。

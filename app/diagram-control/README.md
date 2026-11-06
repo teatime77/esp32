@@ -9,9 +9,10 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 | [include/config.h](include/config.h) | ピン、角度・パルス範囲、UUID、期限、教材用の公開設定 |
 | [src/main.cpp](src/main.cpp) | 指令キュー、停止、サーボ補間、IMU・距離通知、超音波測定タスクとBLE/Wi-Fi連携 |
 | [include/control_transport.h](include/control_transport.h)・[src/control_transport.cpp](src/control_transport.cpp) | 通常通信の接続照合とStatus・Telemetryの共通配送 |
+| [include/control_session.h](include/control_session.h) | BLE／Wi-Fiの受信元と接続世代の共通識別子 |
 | [include/bytecode_receiver.h](include/bytecode_receiver.h)・[src/bytecode_receiver.cpp](src/bytecode_receiver.cpp) | 分割バイトコードの検証・RAM保持・確定世代の更新 |
 | [include/bytecode_vm.h](include/bytecode_vm.h)・[src/bytecode_vm.cpp](src/bytecode_vm.cpp) | 値スロットVMとネイティブ呼出しの登録API。loop()から最大128命令ずつ実行 |
-| [include/bytecode_debugger.h](include/bytecode_debugger.h)・[src/bytecode_debugger.cpp](src/bytecode_debugger.cpp) | BLEのブレークポイント一覧と停止Snapshotの通信 |
+| [include/bytecode_debugger.h](include/bytecode_debugger.h)・[src/bytecode_debugger.cpp](src/bytecode_debugger.cpp) | BLE／Wi-Fiのブレークポイント一覧と停止Snapshotの通信 |
 | [include/device_api.generated.h](include/device_api.generated.h)・[src/device_api.generated.cpp](src/device_api.generated.cpp) | device.pyiから生成する型・スタブ・ABIハッシュ・ID表 |
 | [include/device_native.h](include/device_native.h)・[src/device_native.cpp](src/device_native.cpp) | 既存ドライバーを使うPython機器APIの実装 |
 | [include/network.h](include/network.h)・[src/network.cpp](src/network.cpp) | WifiNetworkへ設定・カメラ処理を渡す |
@@ -21,6 +22,8 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 `.h`に宣言、`.cpp`に実装を置く。`imu.available`や`servos.states[ch]`を直接参照し、通信状態は`connected.load()`・`generation.load()`で読む。カメラも`cameraReady.load()`で参照し、値を返すだけの`cameraAvailable()`は作らない。
 
 ## Pythonバイトコードの実行
+
+プログラム転送・VM操作・デバッグの両経路の分担は[bytecode-transfer.ts](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、受信元への配送は[ControlTransport](include/control_transport.h)、Wi-Fiの独立したRead窓口は[uroa_wifi.cppのcontrolValueHTTP()](../../lib/wifi/src/uroa_wifi.cpp)を参照する。
 
 デバッグ通信の入口と担当範囲は[bytecode_debugger.cpp](src/bytecode_debugger.cpp)、通信仕様の正本はuroaの[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、呼出し例は[ble.tsのsendBreakpoints()](../../../uroa/diagram/ts/ble-wifi/ble.ts)を参照する。エディタの行から命令PCへの変換とデバッガ画面・再開／ステップ操作は後続実装。ビルドと未確認の通信・実機境界は[検証記録](../../docs/build-and-test.md)に置く。
 

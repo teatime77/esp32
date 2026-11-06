@@ -1,6 +1,6 @@
 /**
  * @file bytecode_receiver.h
- * @brief BLEの分割バイトコードをキュー経由で受け取り、検証後にRAMへ保持する。
+ * @brief BLE／Wi-Fiの分割バイトコードをキュー経由で受け取り、検証後にRAMへ保持する。
  */
 #pragma once
 #include <Arduino.h>
@@ -9,10 +9,11 @@
 #include <memory>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include "control_session.h"
 
 /**
  * @brief loop()が転送状態・確定プログラムを管理する受信器。VMやFlash保存は行わない。
- * @details BLEタスクはenqueue()だけを呼び、接続世代の検査と動的確保はprocess()で行う。
+ * @details 通信タスクはenqueue()だけを呼び、接続世代の検査と動的確保はprocess()で行う。
  */
 class BytecodeReceiver {
     public:
@@ -31,12 +32,12 @@ class BytecodeReceiver {
      * @param publish 受付結果20バイトの出力先。setup()とloop()から呼ぶ。
      * @param current 確定直前にも接続世代を再照合する関数。loop()から呼ぶ。
      */
-    void begin(const std::function<void(const uint8_t *, size_t)> &publish,
-        const std::function<bool(uint32_t)> &current);
-    /** @brief BLEタスクからコピーする。@param data フレーム。@param length 長さ。@param session 接続世代。 */
-    void enqueue(const uint8_t *data, size_t length, uint32_t session);
-    /** @brief 現接続のフレームと期限を処理する。@param connected BLE利用中か。@param session 接続世代。 */
-    void process(bool connected, uint32_t session);
+    void begin(const std::function<void(const uint8_t *, size_t, const ControlSession &)> &publish,
+        const std::function<bool(const ControlSession &)> &current);
+    /** @brief 通信タスクからコピーする。@param data フレーム。@param length 長さ。@param session 受信元と接続世代。 */
+    void enqueue(const uint8_t *data, size_t length, ControlSession session);
+    /** @brief 現接続のフレームと期限を処理する。@param connected 現接続が有効か。@param session 受信元と接続世代。 */
+    void process(bool connected, ControlSession session);
     /** @brief サービス公開前にも呼べる、現在の受付結果の再公開。 */
     void publishResult();
 
@@ -57,9 +58,9 @@ class BytecodeReceiver {
         Timeout = 7,
         Busy = 8
     };
-    /** @brief BLEタスクからloop()へ渡す固定長コピー。 */
+    /** @brief 通信タスクからloop()へ渡す固定長コピー。 */
     struct Frame {
-        uint32_t session = 0;
+        ControlSession session{};
         uint8_t length = 0;
         uint8_t data[20]{};
     };
@@ -74,12 +75,12 @@ class BytecodeReceiver {
     Code validate(const uint8_t *data, size_t length);
 
     QueueHandle_t frames_ = nullptr; ///< setup()で確保し、稼働中は保持する。
-    std::atomic<bool> overflow_{false}; ///< BLEタスクが設定し、loop()が解除する。
-    std::function<void(const uint8_t *, size_t)> publish_;
-    std::function<bool(uint32_t)> current_;
+    std::atomic<bool> overflow_{false}; ///< 通信タスクが設定し、loop()が解除する。
+    std::function<void(const uint8_t *, size_t, const ControlSession &)> publish_;
+    std::function<bool(const ControlSession &)> current_;
     std::unique_ptr<uint8_t[]> pending_;
     uint8_t result_[20]{};
-    uint32_t session_ = 0;
+    ControlSession session_{};
     bool connected_ = false;
     bool receiving_ = false;
     uint16_t transferId_ = 0;
