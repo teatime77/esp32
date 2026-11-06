@@ -34,7 +34,7 @@ namespace uroa {
             return Result::NoMemory;
         }
         display_.clearDisplay();
-        display_.setTextColor(SSD1306_WHITE);
+        display_.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
         display_.setTextSize(1);
         display_.setCursor(0, 0);
         display_.setTextWrap(true);
@@ -68,13 +68,14 @@ namespace uroa {
         return Result::Ok;
     }
 
-    /** @brief 後続の文字色を設定する。@param color 色。@return 操作結果。 */
+    /** @brief 後続の文字色を設定する。白文字は背景を黒で上書きし、黒・反転は字形だけを描く。@param color 色。@return 操作結果。 */
     Ssd1306Display::Result Ssd1306Display::setTextColor(int32_t color) {
         const Result status = drawable(color);
         if (status != Result::Ok) {
             return status;
         }
-        display_.setTextColor(uint16_t(color));
+        const uint16_t background = color == SSD1306_WHITE ? SSD1306_BLACK : uint16_t(color);
+        display_.setTextColor(uint16_t(color), background);
         return Result::Ok;
     }
 

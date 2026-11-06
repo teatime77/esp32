@@ -634,7 +634,9 @@ bool BytecodeVM::allocateText(size_t length, Value &value, char *&bytes) {
  * @details
  * FORMAT_VALUE/BUILD_STRINGは表示引数だけの一時文字列を作る。
  * 書式は意味解析の数値書式（幅、精度、b/c/d/e/E/f/F/g/G/n/o/x/X/%）を扱う。
- * ロケールはC固定、無指定floatはfloat32を9桁のg形式で表示する（CPythonの最短表現とは異なる）。
+ * ロケールはC固定。floatの精度省略時は3桁とし、型も省略した場合はf形式（.3f）で表示する。
+ * 例: f"{value}"は-0.2を-0.200と表示する。幅・ゼロ埋め・明示された型と精度は保持する。
+ * 型だけを指定したfloatのf/e/g/%等も精度の既定値は3。整数の書式規約は変更しない。
  * 幅は1024、精度は32まで。整数形式とcへの精度指定、不正Unicodeのcはエラー18。
  */
 void BytecodeVM::formatValue(uint16_t format) {
@@ -752,9 +754,15 @@ void BytecodeVM::formatValue(uint16_t format) {
             fail(Error::NonFinite);
             return;
         }
-        const char conversion = type == '%' ? 'f' : type == '\0' || type == 'n' ? 'g' : type;
+        char conversion = type == '%' ? 'f' : type == '\0' || type == 'n' ? 'g' : type;
+        int digits = precision >= 0 ? precision : 6;
+        if (input.type == Type::Float && precision < 0) {
+            digits = 3;
+            if (type == '\0') {
+                conversion = 'f';
+            }
+        }
         const char pattern[] = {'%', '.', '*', conversion, '\0'};
-        const int digits = precision >= 0 ? precision : type == '\0' ? 9 : 6;
         const int count = std::snprintf(buffer, sizeof buffer, pattern, digits, type == '%' ? number * 100 : number);
         if (count < 0 || size_t(count) > MaxStringLength - (type == '%' ? 1 : 0)) {
             fail(Error::StringLimit);

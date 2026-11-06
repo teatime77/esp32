@@ -1,5 +1,17 @@
 # ビルドと検証
 
+## SSD1306の白文字の再描画（2026-11-06）
+
+同じ位置へ数値を繰り返し描くと古い字形が重なるため、白文字の背景設定を修正した。文字セル・空白・短い文字列へ更新する場合の消去、および黒・反転色の扱いは[uroa_display.hのprint()/setTextColor()仕様コメント](../lib/display/include/uroa_display.h)を参照する。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e xiao_esp32s3 -j 2`を実行し、コンパイル・リンク・`firmware.bin`生成に成功した。直前のVMの既定精度変更を含む作業ツリーで、静的RAMは63136/327680バイト、Flashは1106613/3342336バイト。PlatformIOキャッシュへの書込み権限を使用した。テスト・Upload・SSD1306の実機表示確認は行っていない。
+
+## Python浮動小数点数の既定精度（2026-11-06）
+
+f文字列の既定精度を変更した。書式省略・明示指定・整数との分担は[bytecode_vm.cppのformatValue()仕様コメント](../app/diagram-control/src/bytecode_vm.cpp)を参照する。
+
+現行のビルド案内に合わせ、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e xiao_esp32s3 -j 2`を実行し、コンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは63136/327680バイト、Flashは1106613/3342336バイト。PlatformIOキャッシュへの書込み権限を使用した。テスト・Upload・SSD1306とシリアルの実機表示確認は行っていない。
+
 ## Wi-Fiの結果Read応答のCORS重複（2026-11-06）
 
 `controlValueHTTP()`と`respond()`によるCORSヘッダーの二重追加を修正した。成功・認証失敗・404・503の各経路の担当とOriginの寿命は[uroa_wifi.cppのCorsHeaders/controlValueHTTP()の仕様コメント](../lib/wifi/src/uroa_wifi.cpp)を参照する。対象は`/bytecode-result`と、同じ処理を共有する`/debug-result`・`/debug-event`・`/debug-data`。

@@ -42,7 +42,7 @@ namespace uroa {
         Ssd1306Display &operator=(const Ssd1306Display &) = delete;
         /**
          * @brief 応答を検査し、内部昇圧電源で初期化する。@return 初期化結果。
-         * @details 白・標準GFXフォント・倍率1・折返しあり・カーソル(0,0)・空バッファへ戻す。
+         * @details 白文字・黒背景・標準GFXフォント・倍率1・折返しあり・カーソル(0,0)・空バッファへ戻す。
          * 画面への送信はdisplayStep()で行う。Adafruitの初期化コマンド個別のACKは取得できない。
          */
         Result begin();
@@ -50,13 +50,16 @@ namespace uroa {
         void reset();
         /** @brief RAMの全画素を消し、カーソルを(0,0)へ戻す。@return 操作結果。 */
         Result clear();
-        /** @brief 文字色を設定する。@param color 0=黒、1=白、2=反転。@return 操作結果。 */
+        /** @brief 文字色を設定する。白文字は黒背景、黒・反転は背景透明。@param color 0=黒、1=白、2=反転。@return 操作結果。 */
         Result setTextColor(int32_t color);
         /** @brief 文字の開始位置を設定する。@param x 横座標。@param y 縦座標。@return 操作結果。 */
         Result setCursor(int32_t x, int32_t y);
         /**
          * @brief 長さ付きバイト列をRAMへ描く。改行は追加しない。@param text 文字列。@param length バイト数。@return 操作結果。
          * @details NUL終端に依存しない。標準GFXフォントを使い、日本語フォント・UTF-8変換は行わない。
+         * 白文字は空白を含む各6×8画素の文字セルを黒背景で上書きし、以前の字形との重なりを防ぐ。
+         * 改行・setCursor()は消去しない。短い文字列へ更新して余る部分は、末尾の空白かclear()で消す。
+         * 黒・反転は従来どおり字形の画素だけへ作用する。
          * 全バイトを同期処理するため、VM側は1呼出し64バイト以下へ分割する。
          */
         Result print(const char *text, size_t length);

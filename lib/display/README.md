@@ -68,4 +68,12 @@ screen.display()
 
 文字は標準GFXフォントを使用し、日本語の表示には対応しない。描画後に`display()`を呼ぶと画面へ反映する。複数の`Display()`は同じ物理表示器とバッファを共有する。VMの文字列処理・停止・分割転送の接続仕様はDeviceNativeのコメントを参照する。
 
+同じ位置の数値を更新する例。白文字の再描画と消去の仕様はヘッダーの`print()`を参照する。以前より短い文字列へ更新する場合は、必要な数の空白を末尾へ追加して残った文字を消す。
+
+```python
+screen.set_cursor(0, 0)
+screen.print(f"acc.y = {val.acc.y}ABC  ")
+screen.display()
+```
+
 ビルド結果と未確認範囲は[検証記録](../../docs/build-and-test.md)を参照する。
