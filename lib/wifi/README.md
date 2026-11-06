@@ -6,6 +6,8 @@
 
 BLE設定時のJSON作業領域と応答生成は[uroa_wifi.cppのconfigure()/jsonReply()の仕様コメント](src/uroa_wifi.cpp)を参照する。BLEホストタスクのスタック使用量を抑える実装とする。
 
+HTTP応答のCORS設定とOrigin文字列の寿命は[uroa_wifi.cppのCorsHeadersの仕様コメント](src/uroa_wifi.cpp)を参照する。結果・デバッグのRead窓口でも1応答に同じヘッダーを重複追加しない。
+
 | API／コールバック | 使用方法 |
 |---|---|
 | `configure(json)` | 認証済みBLE窓口からのみ呼ぶ。info/listは結果JSONを返し、scan/configure/forgetは専用タスクへ送る |

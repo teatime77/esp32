@@ -209,6 +209,9 @@ namespace uroa {
     /**
      * @brief 応答送信が終わるまでOrigin文字列を保持するCORSヘッダー設定。
      * @details ESP-IDFはヘッダー文字列への参照を保持する。応答送信が終わるまでOriginを保持する。
+     * httpd_resp_set_hdr()は同名ヘッダーも追加するため、1応答につき1回だけ構築する。
+     * respond()とauthorizeHTTP()の認証失敗応答は内部で構築する。
+     * controlValueHTTP()は認証成功後に自分で構築し、respond()を経由せず送信する。
      */
     class WifiNetwork::CorsHeaders {
         const String origin;
@@ -521,13 +524,14 @@ namespace uroa {
      * resourceはbytecode-result/debug-result/debug-event/debug-data。要求番号と窓口を署名へ含める。
      * 値と世代はstateLock下でコピーし、切断済み・別世代・未公開は503で拒否する。
      * 各バイト形式と完了の範囲はWebのbytecode-transfer.ts/debug-protocol.tsを正本とする。
+     * 認証失敗時のCORSはauthorizeHTTP()、認証成功後の全応答はこの関数が1回だけ設定する。
      */
     esp_err_t WifiNetwork::controlValueHTTP(httpd_req_t *req) {
-        const CorsHeaders headers(req);
         uint32_t sessionGeneration = 0;
         if (!authorizeHTTP(req, "", &sessionGeneration)) {
             return ESP_OK;
         }
+        const CorsHeaders headers(req);
         const String path = req->uri;
         const ControlValue *value = nullptr;
         if (path == "/bytecode-result") {
@@ -562,7 +566,8 @@ namespace uroa {
         xSemaphoreGive(stateLock);
         String result;
         serializeJson(doc, result);
-        return respond(req, result);
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_send(req, result.c_str(), result.length());
     }
 
     /**

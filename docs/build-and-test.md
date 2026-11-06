@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## Wi-Fiの結果Read応答のCORS重複（2026-11-06）
+
+`controlValueHTTP()`と`respond()`によるCORSヘッダーの二重追加を修正した。成功・認証失敗・404・503の各経路の担当とOriginの寿命は[uroa_wifi.cppのCorsHeaders/controlValueHTTP()の仕様コメント](../lib/wifi/src/uroa_wifi.cpp)を参照する。対象は`/bytecode-result`と、同じ処理を共有する`/debug-result`・`/debug-event`・`/debug-data`。
+
+ユーザー指定に従い、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e xiao_esp32s3 -j 2`だけをビルドし、成功した。静的RAMは63136/327680バイト、Flashは1106597/3342336バイト。PlatformIOキャッシュへの書込み権限を使用した。テスト・Upload・ブラウザーからのPython Startと実Wi-Fi通信の再確認は行っていない。
+
 ## Wi-Fi設定情報取得時のBLEホストスタック消費（2026-11-06）
 
 ユーザー報告の`nimble_host`スタックカナリー異常を、報告ELFハッシュ`55341021441d730e`と一致する手元のELFで解析した。`Configuration::onWrite()` → `WifiNetwork::configure()` → `jsonReply()` → ArduinoJson直列化 → String再確保の経路だった。認証ログは暗号化・MITM認証・ボンド成立を示しており、このクラッシュをペアリング不足として扱わない。
