@@ -56,7 +56,7 @@ Displayの公開APIと転送仕様は[uroa_display.h](../lib/display/include/uro
 
 VM開始・停止・実行元セッションの照合・バッファの借用は[main.cppのrunBytecode()/handle()](../app/diagram-control/src/main.cpp)、PythonBlockとの連携は[python-block.ts](../../uroa/diagram/ts/python/python-block.ts)を参照する。
 
-命令・値・機器スタブ・実行制限・エラーは[VM仕様](../app/diagram-control/src/bytecode_vm.cpp)、ブレークポイントと停止値は[BytecodeDebugger](../app/diagram-control/src/bytecode_debugger.cpp)を正本とする。
+命令・値・機器スタブ・実行制限・エラーと再開・ステップ制御は[VM仕様](../app/diagram-control/src/bytecode_vm.cpp)、ブレークポイント・ステップ用停止点・停止値と要求受付は[BytecodeDebugger](../app/diagram-control/src/bytecode_debugger.cpp)を正本とする。
 
 ## 呼び出し例
 

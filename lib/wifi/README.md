@@ -4,6 +4,8 @@
 
 `begin(config, callbacks)`はsetupで1回呼ぶ。オブジェクトはグローバルまたはstaticに1個置き、稼働中ずっと保持する。専用タスク・サーバーの終了／破棄APIは今回提供しない。
 
+BLE設定時のJSON作業領域と応答生成は[uroa_wifi.cppのconfigure()/jsonReply()の仕様コメント](src/uroa_wifi.cpp)を参照する。BLEホストタスクのスタック使用量を抑える実装とする。
+
 | API／コールバック | 使用方法 |
 |---|---|
 | `configure(json)` | 認証済みBLE窓口からのみ呼ぶ。info/listは結果JSONを返し、scan/configure/forgetは専用タスクへ送る |

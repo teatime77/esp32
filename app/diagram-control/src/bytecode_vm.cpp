@@ -42,6 +42,9 @@ bool BytecodeVM::fail(Error code) {
  * 数値の大域値はstop後も参照できる。
  */
 void BytecodeVM::stop() {
+    debugAction_ = DebugAction::Continue;
+    skipDebugArrival_ = false;
+    nativePending_ = false;
     if (state != State::Idle) {
         state = State::Stopped;
     }
@@ -111,6 +114,9 @@ bool BytecodeVM::start(const uint8_t *image, size_t length) {
     sp = 0;
     bp = 0;
     instructions = 0;
+    pauseReason = 1;
+    frameId_ = 1;
+    nextFrameId_ = 1;
     globals.reset();
     globalCount = 0;
     floor_ = 0;
@@ -384,7 +390,12 @@ void BytecodeVM::call(uint16_t entry) {
     for (uint32_t index = 0; index < locals; ++index) {
         stack_[base + 2 + args + index] = Value{};
     }
-    frames_[depth_++] = {base_, end_, floor_, resultSlots_};
+    if (nextFrameId_ == UINT32_MAX) {
+        fail(Error::Limit);
+        return;
+    }
+    frames_[depth_++] = {base_, end_, floor_, resultSlots_, frameId_};
+    frameId_ = ++nextFrameId_;
     bp = base;
     base_ = entry;
     end_ = entry + read16(record + 2);
@@ -431,6 +442,7 @@ void BytecodeVM::ret() {
     floor_ = caller.floor;
     pc = returnPc;
     resultSlots_ = caller.results;
+    frameId_ = caller.id;
     --depth_;
 }
 
@@ -519,6 +531,7 @@ void BytecodeVM::callNative(uint16_t id) {
     const Error result = entry.invoke(call);
     yielded_ = true;
     if (result == Error::NativePending) {
+        nativePending_ = true;
         pc = errorPc;
         return;
     }
@@ -831,10 +844,23 @@ void BytecodeVM::step() {
         fail(Error::Format);
         return;
     }
-    if ((instruction & 0x80) != 0) {
+    // 再開直後の到達とNativePendingの再試行だけを除外する。ループの次周は同じPCでも再判定する。
+    const bool arrival = !skipDebugArrival_ && !nativePending_;
+    const bool breakpoint = arrival && (instruction & 0x80) != 0;
+    const bool point = debugPoints_ && pc < debugCodeLength_ && (debugPoints_[pc / 8] & (1U << (pc % 8))) != 0;
+    const bool returned = depth_ < debugDepth_;
+    const bool stepped = arrival && opcode != 0x18 && (
+        (debugAction_ == DebugAction::In && (point || returned)) ||
+        (debugAction_ == DebugAction::Over && ((frameId_ == debugFrameId_ && point) || returned)) ||
+        (debugAction_ == DebugAction::Out && returned));
+    if (breakpoint || stepped) {
+        pauseReason = breakpoint ? 1 : 2;
+        debugAction_ = DebugAction::Continue;
         state = State::Paused;
         return;
     }
+    skipDebugArrival_ = false;
+    nativePending_ = false;
     const uint16_t operand = size == 3 ? read16(code_ + pc + 1) : 0;
     const uint32_t bits = size == 5 ? read32(code_ + pc + 1) : 0;
     pc += size;
@@ -978,6 +1004,69 @@ void BytecodeVM::tick(uint32_t budget) {
     }
 }
 
+/** @brief 停止点を命令境界と照合し、1PC=1bitの表を作る。
+ * @param points 昇順PC。@param count 個数。@param code 命令列。@param length 命令列長。
+ * @return 全検証と確保に成功したらtrue。
+ * @details バイナリを変更せず、通常の行ブレークポイントとは別に保持する。0件は設定解除。
+ */
+bool BytecodeVM::configureDebugPoints(const uint16_t *points, uint32_t count, const uint8_t *code, uint32_t length) {
+    if (state == State::Running || !code || length == 0 || length > 65536 || count > length || (count && !points)) {
+        return false;
+    }
+    std::unique_ptr<uint8_t[]> bits(new (std::nothrow) uint8_t[(length + 7) / 8]{});
+    if (!bits) {
+        return false;
+    }
+    uint32_t selected = 0;
+    for (uint32_t at = 0; at < length;) {
+        const uint8_t opcode = code[at] & 0x7F;
+        const uint32_t size = opcode == 0x03 || opcode == 0x04 ? 5 :
+            opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ? 3 : 1;
+        if (opcode < 1 || opcode > 0x1D || size > length - at || (selected < count && points[selected] < at)) {
+            return false;
+        }
+        if (selected < count && points[selected] == at) {
+            bits[at / 8] |= uint8_t(1U << (at % 8));
+            ++selected;
+        }
+        at += size;
+    }
+    if (selected != count) {
+        return false;
+    }
+    debugPoints_ = std::move(bits);
+    debugCodeLength_ = length;
+    return true;
+}
+
+/** @brief 接続・プログラム世代変更でデバッグ設定を失効させる。VMの値は変更しない。 */
+void BytecodeVM::clearDebugPoints() {
+    debugPoints_.reset();
+    debugCodeLength_ = 0;
+    debugAction_ = DebugAction::Continue;
+    skipDebugArrival_ = false;
+}
+
+/** @brief 現在のフレームを対象に再開・ステップを開始する。
+ * @param action 実行方法。@return Pausedかつ有効な操作ならtrue。
+ * @details 閲覧中のフレーム選択は影響しない。Outはモジュールでは拒否する。
+ * Over/Outは現在フレームの識別子と深さを保持し、復帰直後はCALLの次の命令の実行前に止める。
+ * In/Overは文開始・条件評価・関数入口・暗黙returnで停止する。HALTは通常終了させる。
+ */
+bool BytecodeVM::resumeDebug(DebugAction action) {
+    if (state != State::Paused || uint8_t(action) > uint8_t(DebugAction::Out) ||
+        (action != DebugAction::Continue && (!debugPoints_ || debugCodeLength_ != codeLength_)) ||
+        (action == DebugAction::Out && depth_ == 0)) {
+        return false;
+    }
+    debugAction_ = action;
+    debugFrameId_ = frameId_;
+    debugDepth_ = depth_;
+    skipDebugArrival_ = true;
+    state = State::Running;
+    return true;
+}
+
 /** @brief 文字列IDを初出の1回だけ送るため使用スロットを比較する。
  * @param index 大域に続けてスタックを並べた添字。@return 初出Stringならtrue。
  * @details loop()だけが呼ぶ。補助配列やC++ポインターの公開は行わない。
@@ -1032,7 +1121,7 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
     }
     std::memset(data, 0, length);
     data[0] = 2;
-    data[1] = 1;
+    data[1] = pauseReason;
     data[2] = 8;
     const uint32_t header[] = {pc, bp, sp, globalCount, sp};
     for (size_t index = 0; index < 5; ++index) {

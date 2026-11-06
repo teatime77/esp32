@@ -147,12 +147,18 @@ namespace uroa {
 
     /**
      * @brief 設定操作への情報応答または検索結果のページを組み立てる。
+     * @details configure()からBLEホストタスク上でも呼ばれるため、JSON領域はヒープへ確保する。
+     * 確保失敗・容量不足はエラーJSONを返す。応答長を測定してからStringを一括確保し、
+     * JSONの直列化中にStringの拡張とメモリー再確保を繰り返さない。
      * @param operation 設定操作名。
      * @param page Wi-Fi検索結果のページ番号。
      * @return 512バイト以内のJSON応答。超過時はエラーJSON。
      */
     String WifiNetwork::jsonReply(const String &operation, int page) {
-        StaticJsonDocument<768> doc;
+        DynamicJsonDocument doc(768);
+        if (doc.capacity() == 0) {
+            return "{\"error\":\"Out of memory\"}";
+        }
         if (operation != "list") {
             metadata(doc.to<JsonObject>(), operation == "info");
         }
@@ -167,10 +173,19 @@ namespace uroa {
                 item["open"] = WiFi.encryptionType(i) == WIFI_AUTH_OPEN;
             }
         }
-        String result;
-        serializeJson(doc, result);
-        if (result.length() > 512) {
+        if (doc.overflowed()) {
             return "{\"error\":\"Response too large\"}";
+        }
+        const size_t length = measureJson(doc);
+        if (length > 512) {
+            return "{\"error\":\"Response too large\"}";
+        }
+        String result;
+        if (!result.reserve(length)) {
+            return "{\"error\":\"Out of memory\"}";
+        }
+        if (serializeJson(doc, result) != length) {
+            return "{\"error\":\"Response incomplete\"}";
         }
         return result;
     }
@@ -1108,18 +1123,29 @@ namespace uroa {
     /**
      * @brief 認証済み窓口からの設定JSONを検査し、変更要求を専用タスクへ渡す。
      * @details 認証済みの設定窓口から呼ぶJSON操作。変更要求はネットワークタスクへ送る。
+     * BLE側のuroa_ble.cppのConfiguration::onWrite()から直接呼ばれるため、
+     * JSON解析領域はヒープへ確保し、応答を作るjsonReply()の呼出し前に解放する。
+     * BLEホストタスクのスタックへ要求・応答のJSON領域を同時に積まない。
      * @param input 認証済み窓口で受信した設定JSON。
      * @return 接続情報、受付結果またはエラーのJSON。
      */
     String WifiNetwork::configure(const String &input) {
-        StaticJsonDocument<512> doc;
-        if (deserializeJson(doc, input)) {
-            return "{\"error\":\"Invalid request\"}";
+        String op;
+        int page = 0;
+        {
+            DynamicJsonDocument doc(512);
+            if (doc.capacity() == 0) {
+                return "{\"error\":\"Out of memory\"}";
+            }
+            if (deserializeJson(doc, input)) {
+                return "{\"error\":\"Invalid request\"}";
+            }
+            op = doc["op"] | "";
+            page = constrain(doc["page"] | 0, 0, 64);
         }
-        String op = doc["op"] | "";
         if (op == "info" || op == "list") {
             xSemaphoreTake(stateLock, portMAX_DELAY);
-            String reply = jsonReply(op, constrain(doc["page"] | 0, 0, 64));
+            String reply = jsonReply(op, page);
             xSemaphoreGive(stateLock);
             return reply;
         }

@@ -21,7 +21,14 @@ class BytecodeVM {
         Halted,
         Stopped,
         Error,
-        Paused ///< 5: ブレークポイントの命令を未実行のまま値と機器ハンドルを保持する。
+        Paused ///< 5: ブレークポイント／ステップの次の命令を未実行のまま値と機器ハンドルを保持する。
+    };
+    /** @brief 一時停止からの実行方法。通信の10〜13に対応する。 */
+    enum class DebugAction : uint8_t {
+        Continue,
+        Over,
+        In,
+        Out
     };
     /** @brief 実行エラー。0〜13は従来通り。errorPcが失敗命令を示す。 */
     enum class Error : uint8_t {
@@ -99,6 +106,7 @@ class BytecodeVM {
     uint32_t sp = 0;
     uint32_t bp = 0;
     uint32_t instructions = 0;
+    uint8_t pauseReason = 1; ///< VMが更新する。1=ブレークポイント、2=ステップ。
     std::unique_ptr<Value[]> globals; ///< stopではString/Objectを無効化し、数値は保持する。
     uint32_t globalCount = 0;
 
@@ -119,6 +127,15 @@ class BytecodeVM {
     size_t debugSnapshotLength() const;
     /** @brief 一時停止中の値を通信形式へコピーする。@param data 出力。@param length debugSnapshotLength()の値。@return 成功時true。 */
     bool copyDebugSnapshot(uint8_t *data, size_t length) const;
+    /** @brief 文・関数入口・暗黙returnのPCを検証し停止点bitsetへ全置換する。
+     * @param points 昇順のPC。@param count 個数。@param code 検証済み命令列。@param length 命令列長。
+     * @return 成功時true。Runningでは変更不可。旧設定は失敗時も維持する。
+     */
+    bool configureDebugPoints(const uint16_t *points, uint32_t count, const uint8_t *code, uint32_t length);
+    /** @brief 接続・プログラム世代変更時に停止点と保留ステップを破棄する。loop()だけが呼ぶ。 */
+    void clearDebugPoints();
+    /** @brief Pausedから値・機器を保持して実行する。@param action 実行方法。@return 設定済みの有効な操作ならtrue。 */
+    bool resumeDebug(DebugAction action);
 
     private:
     /** @brief 使用スロット順で文字列IDの初出か調べる。@param index 大域、スタックの順の添字。@return 初出Stringならtrue。 */
@@ -129,6 +146,7 @@ class BytecodeVM {
         uint32_t end;
         uint32_t floor;
         uint32_t results;
+        uint32_t id; ///< 呼出し元フレームの識別子。再帰と同じ深さの別呼出しを区別する。
     };
     /** @brief プール内の文字列。Valueは添字だけを保持する。 */
     struct Text {
@@ -167,6 +185,15 @@ class BytecodeVM {
     const NativeApi *nativeApi_ = nullptr;
     bool nativeActive_ = false;
     bool yielded_ = false; ///< ネイティブ呼出し後はloop()へ戻す。tick()が更新する。
+    bool nativePending_ = false; ///< 同じnative命令の再試行は新しい停止点到達ではない。
+    bool skipDebugArrival_ = false; ///< 再開直後の1回の到達だけを消費する。
+    DebugAction debugAction_ = DebugAction::Continue;
+    std::unique_ptr<uint8_t[]> debugPoints_;
+    uint32_t debugCodeLength_ = 0;
+    uint32_t frameId_ = 1;
+    uint32_t nextFrameId_ = 1;
+    uint32_t debugFrameId_ = 0;
+    uint32_t debugDepth_ = 0;
     uint8_t abiHash_[32]{};
     uint16_t version_ = 0;
     size_t recordLength_ = 8;

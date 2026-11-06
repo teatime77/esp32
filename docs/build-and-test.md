@@ -1,5 +1,25 @@
 # ビルドと検証
 
+## Wi-Fi設定情報取得時のBLEホストスタック消費（2026-11-06）
+
+ユーザー報告の`nimble_host`スタックカナリー異常を、報告ELFハッシュ`55341021441d730e`と一致する手元のELFで解析した。`Configuration::onWrite()` → `WifiNetwork::configure()` → `jsonReply()` → ArduinoJson直列化 → String再確保の経路だった。認証ログは暗号化・MITM認証・ボンド成立を示しており、このクラッシュをペアリング不足として扱わない。
+
+JSON作業領域・確保失敗・応答生成の修正は[uroa_wifi.cppのconfigure()/jsonReply()の仕様コメント](../lib/wifi/src/uroa_wifi.cpp)を参照する。ユーザー指定に従い、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e xiao_esp32s3 -j 2`だけをビルドし、成功した。静的RAMは63136/327680バイト、Flashは1106561/3342336バイト。JSONのヒープ確保は静的RAM値に含まない。PlatformIOキャッシュへの書込み権限を使用した。テスト・Upload・Wi-Fi設定時の実機再確認は行っていない。
+
+## BLE接続後のWi-Fi設定認証（2026-11-06）
+
+認証開始と状態検査は[uroa_ble.cppの仕様コメント](../lib/ble/src/uroa_ble.cpp)、Not pairedの案内は[robot-wifi.ts](../../uroa/diagram/ts/ble-wifi/robot-wifi.ts)を参照する。
+
+ユーザー指定に従い、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e xiao_esp32s3 -j 2`でビルドし、成功した。静的RAMは63136/327680バイト、Flashは1105365/3342336バイト。既存PlatformIOキャッシュへの書込み権限を使用した。テスト・uroaのビルド・Upload・WindowsでのペアリングとWi-Fi接続の実機確認は行っていない。
+
+## Pythonの再開・ステップ操作（2026-11-06）
+
+VMの停止点設定・再開・フレーム識別・ネイティブ再試行は[bytecode_vm.cpp](../app/diagram-control/src/bytecode_vm.cpp)、停止IDの検証と要求受付は[bytecode_debugger.cpp](../app/diagram-control/src/bytecode_debugger.cpp)、通信形式の正本はuroaの[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を参照する。
+
+この会話の指定に合わせ、リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e esp32dev -j 2`だけを実行した。PlatformIOの既存キャッシュへの書込み権限を使用し、コンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは62832/327680バイト、Flashは1207325/1310720バイト。ステップ用PC表やVM・Snapshotの動的確保は静的RAMに含まない。
+
+uroaの変更ソースは`noEmit`の静的型診断0件を確認した。テストは作成・実行していない。XIAO・SuperMini・Web公開ビルド、Upload、ブラウザー操作、実BLE／Wi-Fi、各ステップ・ブレークポイント優先・再帰・ループ・ネイティブ待機・Stop競合・同一要求の再送・最大長の実機動作と空きRAMは未確認。
+
 ## 基板固有番号付きの表示名（2026-11-06）
 
 表示名の生成とBLE／Wi-Fiへの反映は[device_name.cppの仕様コメント](../app/diagram-control/src/device_name.cpp)を参照する。今後のビルド確認はユーザー指定により`xiao_esp32s3`を対象とし、テストは行わない。

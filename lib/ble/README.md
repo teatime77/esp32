@@ -6,6 +6,8 @@
 
 `begin(config, callbacks)`へ名前・サービスと各CharacteristicのUUID・ペアリングコードを渡す。コールバックの責任と公開状態の読み方は[設計](../../docs/architecture.md)を参照する。
 
+接続時のペアリング開始と、通常接続・Wi-Fi設定認証の分担は[uroa_ble.cppの仕様コメント](src/uroa_ble.cpp)を参照する。認証結果は`BLE security: encrypted=... authenticated=... bonded=...`で確認する。
+
 `Config::telemetryMaxLength`はTelemetry Characteristicの最大長、`preferredMtu`は希望するATT MTUで、既定は20バイト／23。大きい通知を使う教材は両方を設定する。実際の合意値は公開atomicの`mtu.load()`で参照し、接続・MTU交渉で更新、切断・停止で23へ戻す。希望値の設定だけでは相手との合意を保証しない。`publishTelemetry()`は最大長と合意MTUから3バイトを引いた上限を超える通知を拒否する。分割通知は行わない。
 
 `Config::deviceInfoUuid`を指定すると、同じServiceへDeviceInfoのWrite用Characteristicを追加する。空なら追加しない。公開定数`DeviceInfoMaxLength`は1回の書込上限20バイトで、`start()`で登録し、`stop()`で参照を解除する。受信内容は専用の`Callbacks::deviceInfo`へ渡し、既存Commandのコールバックへは渡さない。分割転送とアプリ側の受付結果の通知は実装していない。

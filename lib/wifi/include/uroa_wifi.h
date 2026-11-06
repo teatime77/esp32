@@ -74,6 +74,7 @@ namespace uroa {
         /**
          * @brief 認証済み窓口からの設定JSONを検査し、変更要求を専用タスクへ渡す。
          * @details 必須コールバック: command/session/startBLE/stopBLE。カメラは省略できる。 configure()はBLE等の認証済み窓口だけから呼ぶ。Wi-Fiには公開しない。
+         * BLEホストタスクでのJSON作業領域と確保失敗の扱いはuroa_wifi.cppのconfigure()/jsonReply()を参照する。
          * @param input 認証済み窓口で受信した設定JSON。
          * @return 接続情報、受付結果またはエラーのJSON。
          */

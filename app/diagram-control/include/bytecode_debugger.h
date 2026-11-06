@@ -38,7 +38,7 @@ class BytecodeDebugger {
     };
     /** @brief 要求を検査して処理する。@param request 現接続の要求。 */
     void handle(const Request &request);
-    /** @brief 検証済み一覧へ命令フラグを全置換する。@return 全検証成功時true。 */
+    /** @brief 一覧を検証し、行ブレークポイントまたはステップ用停止点を全置換する。@return 全検証成功時true。 */
     bool applyBreakpoints();
     /** @brief 現在の保持イメージから命令列を求める。@param length 命令列長の出力。@return 命令列。 */
     uint8_t *code(uint32_t &length);
@@ -63,6 +63,7 @@ class BytecodeDebugger {
     uint8_t result_[20]{};
     uint8_t event_[20]{};
     bool receiving_ = false;
+    bool pointsTransfer_ = false; ///< 7/8/9ではステップ停止点、それ以外は行ブレークポイント。
     std::unique_ptr<uint16_t[]> pending_;
     uint32_t count_ = 0;
     uint32_t received_ = 0;

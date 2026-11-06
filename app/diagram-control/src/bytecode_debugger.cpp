@@ -3,9 +3,9 @@
  * @details バイト単位の共通仕様はuroa/diagram/ts/ble-wifi/debug-protocol.tsを参照する。
  * lib/bleとlib/wifiはコピーだけ、main.cppはloop()の順序、bytecode_vm.cppは停止と値の直列化を担当する。
  * 受信器のCRCはフラグ設定前のイメージを識別する。変更するのは検証済み命令先頭のbit7だけで、
- * プログラム世代は変えない。切断・Wi-Fi切替ではフラグを戻す。動的文字列本体は送らない。
+ * プログラム世代は変えない。切断・Wi-Fi切替ではフラグとステップ用停止点を失効させる。
  * PausedはVMだけを止め、既存の出力・補間は維持する。既存Stop・切断・通信期限の停止は優先する。
- * 再開・ステップ・行番号からPCへの変換はこの通信実装に含めない。
+ * 再開・ステップ要求は停止IDと世代を検証し、VMへ委譲する。行からPCへの変換はdiagramの生成器が担当する。
  */
 #include "bytecode_debugger.h"
 #include <cstring>
@@ -72,6 +72,7 @@ void BytecodeDebugger::enqueue(const uint8_t *data, size_t length, ControlSessio
 /** @brief 段階受信だけを破棄する。 */
 void BytecodeDebugger::cancelTransfer() {
     receiving_ = false;
+    pointsTransfer_ = false;
     pending_.reset();
     count_ = 0;
     received_ = 0;
@@ -121,6 +122,7 @@ void BytecodeDebugger::process(bool enabled, ControlSession session) {
     const bool changedSession = session.source != session_.source || session.generation != session_.generation;
     if (enabled != enabled_ || changedSession || revision_ != receiver_.programRevision) {
         clearFlags();
+        vm_.clearDebugPoints();
         cancelTransfer();
         invalidateSnapshot();
         if (changedSession) {
@@ -175,6 +177,9 @@ bool BytecodeDebugger::applyBreakpoints() {
     if (selected != count_ || !transport_.isCurrent(session_)) {
         return false;
     }
+    if (pointsTransfer_) {
+        return vm_.configureDebugPoints(pending_.get(), count_, bytes, length);
+    }
     clearFlags();
     for (uint32_t index = 0; index < count_; ++index) {
         bytes[pending_[index]] |= 0x80;
@@ -212,7 +217,7 @@ void BytecodeDebugger::handle(const Request &request) {
     requestId_ = id;
     operation_ = data[1];
     lastRequest_ = request;
-    if (data[0] != 1 || operation_ < 1 || operation_ > 6) {
+    if (data[0] != 1 || operation_ < 1 || operation_ > 13) {
         reply(Format);
         return;
     }
@@ -257,17 +262,39 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Ok);
         return;
     }
+    if (operation_ >= 10) {
+        if (request.length != 12) {
+            reply(Format);
+            return;
+        }
+        const uint32_t selectedStop = read32(data + 8);
+        if (receiving_ || vm_.state != BytecodeVM::State::Paused || !snapshot_ || selectedStop != stopId_) {
+            reply(Stale);
+            return;
+        }
+        const auto action = static_cast<BytecodeVM::DebugAction>(operation_ - 10);
+        if (!vm_.resumeDebug(action)) {
+            reply(Invalid);
+            return;
+        }
+        invalidateSnapshot();
+        reply(Ok, selectedStop);
+        // 同じ周回で再停止しても新しいstopIdを発行し、旧Snapshotと区別する。
+        publishState();
+        return;
+    }
     if (vm_.state == BytecodeVM::State::Running) {
         reply(Busy);
         return;
     }
-    if (operation_ == 1) {
+    const uint8_t transferOperation = operation_ >= 7 ? operation_ - 6 : operation_;
+    if (transferOperation == 1) {
         if (request.length != 20 || read32(data + 16) != receiver_.programCrc32) {
             reply(Invalid);
             return;
         }
         const uint32_t count = read32(data + 8);
-        if (count > 4096) {
+        if (count > (operation_ == 7 ? 65536U : 4096U)) {
             reply(Range);
             return;
         }
@@ -280,6 +307,7 @@ void BytecodeDebugger::handle(const Request &request) {
             }
         }
         cancelTransfer();
+        pointsTransfer_ = operation_ == 7;
         pending_ = std::move(pending);
         count_ = count;
         expectedCrc_ = read32(data + 12);
@@ -288,11 +316,11 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Ok);
         return;
     }
-    if (!receiving_) {
+    if (!receiving_ || pointsTransfer_ != (operation_ >= 7)) {
         reply(Order);
         return;
     }
-    if (operation_ == 2) {
+    if (transferOperation == 2) {
         if (request.length < 14 || request.length > 20 || (request.length - 12) % 2 != 0) {
             reply(Format);
             return;

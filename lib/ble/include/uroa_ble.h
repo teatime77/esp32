@@ -149,6 +149,11 @@ namespace uroa {
          * @brief 接続世代を更新して接続を通知する。
          */
         void onConnect(NimBLEServer *, NimBLEConnInfo &) override;
+        /**
+         * @brief 非同期の認証結果をログへ記録する。接続と認証の分担はuroa_ble.cppを参照する。
+         * @param info 認証完了時の接続情報。
+         */
+        void onAuthenticationComplete(NimBLEConnInfo &info) override;
         /** @brief ATT MTU交渉の結果を公開状態へ反映する。@param value 合意したMTU。 */
         void onMTUChange(uint16_t value, NimBLEConnInfo &) override;
         /**

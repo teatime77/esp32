@@ -1,6 +1,11 @@
 /**
  * @file uroa_ble.cpp
  * @brief BLE接続、指令受信、状態通知と認証済み設定転送を管理する。
+ * @details Wi-Fi設定コールバックがある場合はonConnect()でstartSecurity()を非同期開始する。
+ * 通常指令の接続成立とWi-Fi設定に必要な暗号化・MITM認証の成立は別に扱う。
+ * 設定Characteristicの暗号化・認証要件とConfigurationの状態検査は維持し、
+ * onAuthenticationComplete()で認証結果だけをログへ記録する。保存済みボンドは自動削除しない。
+ * Web側robot-wifi.tsはNot pairedを操作案内へ変換し、設定データを自動再送しない。
  */
 #include "uroa_ble.h"
 
@@ -144,6 +149,21 @@ namespace uroa {
         }
         Serial.println("BLE connected");
         Serial.printf("BLE setup pairing code: %06lu\n", static_cast<unsigned long>(config_.passkey));
+        if (callbacks_.configure && !info.isAuthenticated()) {
+            if (!NimBLEDevice::startSecurity(info.getConnHandle())) {
+                Serial.println("BLE pairing start FAILED");
+            }
+        }
+    }
+
+    /**
+     * @brief 非同期に完了した認証の結果を診断ログへ記録する。
+     * @param info 暗号化・MITM認証・ボンドの成立状態。
+     * @details 通常BLE接続の公開状態は変更しない。Wi-Fi設定の保護要件も緩和しない。
+     */
+    void BleTransport::onAuthenticationComplete(NimBLEConnInfo &info) {
+        Serial.printf("BLE security: encrypted=%d authenticated=%d bonded=%d\n",
+            info.isEncrypted(), info.isAuthenticated(), info.isBonded());
     }
 
     /**
