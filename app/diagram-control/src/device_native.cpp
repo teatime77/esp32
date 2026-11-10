@@ -2,6 +2,7 @@
  * @brief Python機器APIを共有ドライバーへ接続する。VMとの型・ID変換はdevice_api.generated.cppが担当する。
  * @details Displayの描画・I2C転送はlib/display、VMハンドル・分割文字列の寿命と結果変換は本ファイルが担当する。
  * time()の起点と精度、main.cpp・生成APIとの分担はfunction_timeの仕様コメントを参照する。
+ * 三角関数と生成APIの分担・数値の制約はfunction_sinの仕様コメントを参照する。
  */
 #include "device_native.h"
 #include "config.h"
@@ -432,4 +433,50 @@ DeviceNative::Error DeviceNative::function_time(float &result) {
     const int64_t elapsedUs = esp_timer_get_time() - programStartedUs_;
     result = float(double(elapsedUs) / 1000000.0);
     return Error::None;
+}
+
+/**
+ * @brief ラジアン単位の角度の正弦を返す。
+ * @param angle 有限の角度。単位はラジアン。
+ * @param result 正弦をVMのfloat32で返す。
+ * @return 成功はNone、入力または結果が非有限ならOperand。
+ * @details
+ * sin・cos・tanに共通する契約。uroa/diagram/python/device.pyiの宣言を生成器が
+ * device-api.jsonとdevice_api.generated.h/.cppへ反映し、生成スタブが各function_*へ接続する。
+ * PythonBlockからimportなしで呼び出す。整数の引数はコンパイラーがfloatへ変換する。
+ * 引数・戻り値は既存VMのfloat32とし、C++標準ライブラリーのstd::sin/cos/tanのfloat版を使う。
+ * 度からラジアンへの変換や、入力角度の制限・独自の周期丸めは行わない。
+ * NaN・無限大の入力と非有限の計算結果はOperandとし、VMへ非有限値を返さない。
+ * tanは丸められたfloat32の角度に対して計算する。特異点の近傍でも独自のしきい値で拒否せず、
+ * 結果が有限ならそのまま返す。数学上のπ/2等を指定してもfloat32の丸めにより大きな有限値になり得る。
+ * 機器の状態やプログラムの起点に依存せず、待機・NativePendingは使わない。
+ */
+DeviceNative::Error DeviceNative::function_sin(float angle, float &result) {
+    if (!std::isfinite(angle)) {
+        return Error::Operand;
+    }
+    result = std::sin(angle);
+    return std::isfinite(result) ? Error::None : Error::Operand;
+}
+
+/** @brief 余弦を返す。共通契約はfunction_sinを参照する。
+ * @param angle ラジアン。@param result 余弦。@return 成功はNone、非有限値はOperand。
+ */
+DeviceNative::Error DeviceNative::function_cos(float angle, float &result) {
+    if (!std::isfinite(angle)) {
+        return Error::Operand;
+    }
+    result = std::cos(angle);
+    return std::isfinite(result) ? Error::None : Error::Operand;
+}
+
+/** @brief 正接を返す。共通契約はfunction_sinを参照する。
+ * @param angle ラジアン。@param result 正接。@return 成功はNone、非有限値はOperand。
+ */
+DeviceNative::Error DeviceNative::function_tan(float angle, float &result) {
+    if (!std::isfinite(angle)) {
+        return Error::Operand;
+    }
+    result = std::tan(angle);
+    return std::isfinite(result) ? Error::None : Error::Operand;
 }

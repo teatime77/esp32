@@ -66,6 +66,12 @@ class DeviceNative : public device_api::Backend {
     Error function_sleep(float seconds) override;
     /** @brief Pythonプログラム開始からの経過時間を返す。@param result 秒。起点・精度は実装コメントを参照。@return 実行結果。 */
     Error function_time(float &result) override;
+    /** @brief 正弦を返す。@param angle ラジアン。@param result 正弦。@return 実行結果。 */
+    Error function_sin(float angle, float &result) override;
+    /** @brief 余弦を返す。@param angle ラジアン。@param result 余弦。@return 実行結果。 */
+    Error function_cos(float angle, float &result) override;
+    /** @brief 正接を返す。@param angle ラジアン。@param result 正接。@return 実行結果。 */
+    Error function_tan(float angle, float &result) override;
 
     private:
     /** @brief バックエンド内の機器種別。JSONのクラスIDとは独立。 */

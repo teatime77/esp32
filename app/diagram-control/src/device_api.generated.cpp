@@ -559,9 +559,75 @@ namespace device_api {
             return Error::None;
         }
 
+        /** @brief function_sinの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke22(BytecodeVM::NativeCall &call) {
+            using Type = BytecodeVM::Type;
+            using Error = BytecodeVM::Error;
+            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
+                return Error::Operand;
+            }
+            float arg_angle{};
+            if (call.arguments[0].type != Type::Float) {
+                return Error::Type;
+            }
+            arg_angle = call.arguments[0].real;
+            float result{};
+            const Error status = static_cast<Backend *>(call.context)->function_sin(arg_angle, result);
+            if (status != Error::None) {
+                return status;
+            }
+            call.results[0].type = Type::Float;
+            call.results[0].real = result;
+            return Error::None;
+        }
+
+        /** @brief function_cosの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke23(BytecodeVM::NativeCall &call) {
+            using Type = BytecodeVM::Type;
+            using Error = BytecodeVM::Error;
+            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
+                return Error::Operand;
+            }
+            float arg_angle{};
+            if (call.arguments[0].type != Type::Float) {
+                return Error::Type;
+            }
+            arg_angle = call.arguments[0].real;
+            float result{};
+            const Error status = static_cast<Backend *>(call.context)->function_cos(arg_angle, result);
+            if (status != Error::None) {
+                return status;
+            }
+            call.results[0].type = Type::Float;
+            call.results[0].real = result;
+            return Error::None;
+        }
+
+        /** @brief function_tanの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke24(BytecodeVM::NativeCall &call) {
+            using Type = BytecodeVM::Type;
+            using Error = BytecodeVM::Error;
+            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
+                return Error::Operand;
+            }
+            float arg_angle{};
+            if (call.arguments[0].type != Type::Float) {
+                return Error::Type;
+            }
+            arg_angle = call.arguments[0].real;
+            float result{};
+            const Error status = static_cast<Backend *>(call.context)->function_tan(arg_angle, result);
+            if (status != Error::None) {
+                return status;
+            }
+            call.results[0].type = Type::Float;
+            call.results[0].real = result;
+            return Error::None;
+        }
+
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
         const uint8_t abiHash[32] = {
-            0x10, 0xCE, 0x8A, 0x16, 0x6F, 0x34, 0xA6, 0xBA, 0x8C, 0xB1, 0xC2, 0xE7, 0x17, 0x24, 0x5A, 0x4A, 0xAD, 0xC2, 0xD8, 0x90, 0xB5, 0xC7, 0x7E, 0x2F, 0xE4, 0xAF, 0x7F, 0xE6, 0xCB, 0x0C, 0x88, 0xF1
+            0x9F, 0x04, 0x40, 0xFB, 0xC4, 0x04, 0x0F, 0xC6, 0x29, 0xC6, 0x04, 0x14, 0x77, 0x6D, 0xDC, 0xA1, 0x36, 0xF3, 0x84, 0x61, 0x55, 0x24, 0x69, 0xC9, 0x48, 0x5E, 0x57, 0x77, 0xEF, 0x96, 0x6D, 0xC9
         };
         // nativeIdの昇順。引数と戻り値の幅はrecord展開後のスロット数。
         const BytecodeVM::NativeEntry entries[] = {
@@ -586,6 +652,9 @@ namespace device_api {
             {19, 1, 1, invoke19},
             {20, 1, 1, invoke20},
             {21, 0, 1, invoke21},
+            {22, 1, 1, invoke22},
+            {23, 1, 1, invoke23},
+            {24, 1, 1, invoke24},
         };
 
         /** @brief VM停止時に機器の出力とハンドルを解放する。@param context 登録バックエンド。 */
@@ -596,6 +665,6 @@ namespace device_api {
 
     /** @brief VM登録表を構築する。@param backend 登録中保持する機器操作。@return 静的なID表を参照する登録情報。 */
     BytecodeVM::NativeApi makeNativeApi(Backend &backend) {
-        return {abiHash, entries, 21, &backend, resetBackend};
+        return {abiHash, entries, 24, &backend, resetBackend};
     }
 }

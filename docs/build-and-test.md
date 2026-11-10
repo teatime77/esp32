@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## Pythonのsin・cos・tan（2026-11-10）
+
+単位・精度・不正値・生成APIとの分担は[DeviceNative::function_sinの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。device.pyiからJSON・C++の3成果物を再生成し、`--check`による一致確認は成功した。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、`platformio.ini`の`default_envs`に従う`supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59068/327680バイト、Flashは1069065/1310720バイト。PlatformIOの既存キャッシュ・ロックファイルへの書込み権限を使用した。uroaの`npm.cmd run verify`も成功し、配信されたdevice-api.jsonのSHA-256は生成元と一致した。テスト・Upload・ブラウザー操作・実BLE／Wi-Fi・VMからの三角関数実行と実機の戻り値確認は行っていない。
+
 ## Pythonのtimeを経過時間へ変更（2026-11-10）
 
 起点・精度・再実行とVMの分担は[DeviceNative::function_timeの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。APIのシグネチャは維持し、生成済みJSON・C++の`--check`は成功した。

@@ -171,6 +171,24 @@ namespace device_api {
          * @return None=成功、NativePending=再試行、その他は実行エラー。
          */
         virtual BytecodeVM::Error function_time(float &result) = 0;
+        /** @brief function_sinを実行する。
+         * @param arg_angle 検査済み引数。recordは値コピー、deviceは不透明ハンドル。
+         * @param result 成功時の戻り値。
+         * @return None=成功、NativePending=再試行、その他は実行エラー。
+         */
+        virtual BytecodeVM::Error function_sin(float arg_angle, float &result) = 0;
+        /** @brief function_cosを実行する。
+         * @param arg_angle 検査済み引数。recordは値コピー、deviceは不透明ハンドル。
+         * @param result 成功時の戻り値。
+         * @return None=成功、NativePending=再試行、その他は実行エラー。
+         */
+        virtual BytecodeVM::Error function_cos(float arg_angle, float &result) = 0;
+        /** @brief function_tanを実行する。
+         * @param arg_angle 検査済み引数。recordは値コピー、deviceは不透明ハンドル。
+         * @param result 成功時の戻り値。
+         * @return None=成功、NativePending=再試行、その他は実行エラー。
+         */
+        virtual BytecodeVM::Error function_tan(float arg_angle, float &result) = 0;
     };
 
     /** @brief 生成したABIハッシュとID表をバックエンドへ接続する。@param backend 登録中保持する機器操作。@return VM登録表。 */
