@@ -22,6 +22,8 @@ class DeviceNative : public device_api::Backend {
     DeviceNative(TwoWire &wire, uroa::Pca9685Servos &servos, uroa::Mpu6050 &imu, DistanceCallbacks distance);
     /** @brief VMの出力を停止し、機器ハンドルを無効化する。 */
     void reset() override;
+    /** @brief main.cppがVMの開始成功直後に呼び、経過時間の起点を記録する。 */
+    void startProgramClock();
     /** @brief サーボのCH・モードを保持する。@param channel CH0〜15。@param mode 0=角度、1=速度。@param result ハンドル。@return 実行結果。 */
     Error Servo_construct(int32_t channel, int32_t mode, uint32_t &result) override;
     /** @brief 選択モードで出力を有効にする。@param receiver ハンドル。@return 実行結果。 */
@@ -62,6 +64,8 @@ class DeviceNative : public device_api::Backend {
     Error function_print(device_api::StringView text) override;
     /** @brief Pythonだけを秒単位で待機させる。@param seconds 非負の秒数。@return 完了またはNativePending。 */
     Error function_sleep(float seconds) override;
+    /** @brief Pythonプログラム開始からの経過時間を返す。@param result 秒。起点・精度は実装コメントを参照。@return 実行結果。 */
+    Error function_time(float &result) override;
 
     private:
     /** @brief バックエンド内の機器種別。JSONのクラスIDとは独立。 */
@@ -96,4 +100,5 @@ class DeviceNative : public device_api::Backend {
     bool sleepPending_ = false; ///< function_sleepとresetがloop()だけで更新する待機状態。
     uint32_t sleepStartedMs_ = 0; ///< 最初の呼出し時のmillis。再試行で更新しない。
     uint32_t sleepDurationMs_ = 0; ///< 切り上げた待機時間。最大0x7FFFFFFFミリ秒。
+    int64_t programStartedUs_ = -1; ///< startProgramClockがloop()で記録し、resetが-1へ無効化する起点。
 };

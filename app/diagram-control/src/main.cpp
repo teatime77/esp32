@@ -625,6 +625,10 @@ namespace {
             }
             vmSession = session;
             const bool started = bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
+            // time()の起点はVMの開始成功直後。仕様はdevice_native.cppのfunction_timeを参照する。
+            if (started) {
+                nativeDevices.startProgramClock();
+            }
             status(started ? Protocol::CODE_OK : Protocol::CODE_FORMAT, sequence);
             return;
         }

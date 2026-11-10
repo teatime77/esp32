@@ -1,5 +1,19 @@
 # ビルドと検証
 
+## Pythonのtimeを経過時間へ変更（2026-11-10）
+
+起点・精度・再実行とVMの分担は[DeviceNative::function_timeの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。APIのシグネチャは維持し、生成済みJSON・C++の`--check`は成功した。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、`platformio.ini`の`default_envs`に従う`supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59068/327680バイト、Flashは1063873/1310720バイト。PlatformIOの既存キャッシュ・ロックファイルへの書込み権限を使用した。テスト・Upload・実機での経過時間・再実行・sleep・デバッガー停止中の戻り値確認は行っていない。Web側は宣言コメントだけの変更で、今回の公開ビルドは行っていない。
+
+## Pythonのtimeの初回実装（2026-11-10、経過時間への変更前）
+
+UNIX時刻を返す初回実装の検証記録。ユーザー指定により既存のfloat32を維持し、device.pyiからJSON・C++を再生成した。現在の仕様は[DeviceNative::function_timeの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -e xiao_esp32s3 -j 2`を実行し、コンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは63136/327680バイト、Flashは1106853/3342336バイト。PlatformIOの既存キャッシュ・ロックファイルへの書込み権限を使用した。uroaの生成物の`--check`と`npm.cmd run verify`も成功し、配信されたdevice-api.jsonのSHA-256は生成元と一致した。テスト・Upload・ブラウザー操作・時計の設定と実機の戻り値確認は行っていない。
+
+この初回ビルド完了後、ユーザーから今後は`app/diagram-control/platformio.ini`の`default_envs`だけをビルド確認する指定を受けた。以降は`platformio.exe run --project-dir app/diagram-control -j 2`を使い、`-e`で環境を固定・追加しない。
+
 ## SSD1306の白文字の再描画（2026-11-06）
 
 同じ位置へ数値を繰り返し描くと古い字形が重なるため、白文字の背景設定を修正した。文字セル・空白・短い文字列へ更新する場合の消去、および黒・反転色の扱いは[uroa_display.hのprint()/setTextColor()仕様コメント](../lib/display/include/uroa_display.h)を参照する。

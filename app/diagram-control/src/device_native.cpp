@@ -1,12 +1,14 @@
 /** @file device_native.cpp
  * @brief Python機器APIを共有ドライバーへ接続する。VMとの型・ID変換はdevice_api.generated.cppが担当する。
  * @details Displayの描画・I2C転送はlib/display、VMハンドル・分割文字列の寿命と結果変換は本ファイルが担当する。
+ * time()の起点と精度、main.cpp・生成APIとの分担はfunction_timeの仕様コメントを参照する。
  */
 #include "device_native.h"
 #include "config.h"
 #include <Arduino.h>
 #include <algorithm>
 #include <cmath>
+#include <esp_timer.h>
 
 namespace {
     /** @brief 教材の表示設定を共有ライブラリーへ渡す。@return config.hの画面と100kHzの共有バス設定。 */
@@ -44,6 +46,12 @@ void DeviceNative::reset() {
     sleepPending_ = false;
     sleepStartedMs_ = 0;
     sleepDurationMs_ = 0;
+    programStartedUs_ = -1;
+}
+
+/** @brief Pythonプログラムの経過時間の起点を記録する。呼出し時点はfunction_timeの仕様を参照。 */
+void DeviceNative::startProgramClock() {
+    programStartedUs_ = esp_timer_get_time();
 }
 
 /** @brief 生存ハンドルと種別を照合する。@param handle 対象。@param kind 必要種別。@return 情報またはnull。 */
@@ -398,5 +406,30 @@ DeviceNative::Error DeviceNative::function_sleep(float seconds) {
     sleepPending_ = false;
     sleepStartedMs_ = 0;
     sleepDurationMs_ = 0;
+    return Error::None;
+}
+
+/**
+ * @brief Pythonプログラム開始からの経過時間を秒単位で返す。
+ * @param result 経過秒数をVMのfloat32へ丸めた値。
+ * @return 取得成功はNone、プログラムの起点が未設定ならNativeFailure。
+ * @details
+ * uroa/diagram/python/device.pyiのtime() -> floatをdevice_api.generated.cppがここへ接続し、
+ * BytecodeVMのFloatスロットへ値を返す。main.cppはVM_STARTによるBytecodeVM::start()の
+ * 成功直後、最初のtick()より前にstartProgramClock()をloop()で呼ぶ。起点は最初のtime()呼出しではない。
+ * 再実行では起点を記録し直し、reset()は起点を無効化する。ESP32の起動からの時間やUNIX時刻は返さない。
+ * esp_timer_get_time()の64bitマイクロ秒カウンター同士を整数で減算し、doubleで秒へ換算してから
+ * float32へ丸める。32bitのmicros()の周回や、大きな起動時刻を先にfloatへ丸める精度低下を避ける。
+ * 実時間を計測し、sleep・通信待ち・デバッガーの一時停止中も経過時間に含める。再開で起点を変更しない。
+ * カウンターの単位は1マイクロ秒だが、float32の表現間隔は経過時間とともに広がる。
+ * 例として開始1時間後は約0.244ミリ秒、24時間後は約7.813ミリ秒刻みになる。
+ * システム時計・タイムゾーン・時刻同期には依存せず、待機・delay・NativePendingは使わない。
+ */
+DeviceNative::Error DeviceNative::function_time(float &result) {
+    if (programStartedUs_ < 0) {
+        return Error::NativeFailure;
+    }
+    const int64_t elapsedUs = esp_timer_get_time() - programStartedUs_;
+    result = float(double(elapsedUs) / 1000000.0);
     return Error::None;
 }

@@ -166,6 +166,11 @@ namespace device_api {
          * @return None=成功、NativePending=再試行、その他は実行エラー。
          */
         virtual BytecodeVM::Error function_sleep(float arg_seconds) = 0;
+        /** @brief function_timeを実行する。
+         * @param result 成功時の戻り値。
+         * @return None=成功、NativePending=再試行、その他は実行エラー。
+         */
+        virtual BytecodeVM::Error function_time(float &result) = 0;
     };
 
     /** @brief 生成したABIハッシュとID表をバックエンドへ接続する。@param backend 登録中保持する機器操作。@return VM登録表。 */

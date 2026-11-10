@@ -542,9 +542,26 @@ namespace device_api {
             return Error::None;
         }
 
+        /** @brief function_timeの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke21(BytecodeVM::NativeCall &call) {
+            using Type = BytecodeVM::Type;
+            using Error = BytecodeVM::Error;
+            if (!call.context || call.argumentSlots != 0 || call.resultSlots != 1) {
+                return Error::Operand;
+            }
+            float result{};
+            const Error status = static_cast<Backend *>(call.context)->function_time(result);
+            if (status != Error::None) {
+                return status;
+            }
+            call.results[0].type = Type::Float;
+            call.results[0].real = result;
+            return Error::None;
+        }
+
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
         const uint8_t abiHash[32] = {
-            0x1C, 0x68, 0x5B, 0x6E, 0x13, 0x6B, 0xE4, 0x03, 0x72, 0x3B, 0x0F, 0xA6, 0x37, 0x70, 0xD7, 0x08, 0x98, 0x1D, 0xA8, 0x76, 0x88, 0x9F, 0x99, 0x15, 0xB2, 0x32, 0x86, 0x04, 0xE1, 0xF3, 0xDD, 0x67
+            0x10, 0xCE, 0x8A, 0x16, 0x6F, 0x34, 0xA6, 0xBA, 0x8C, 0xB1, 0xC2, 0xE7, 0x17, 0x24, 0x5A, 0x4A, 0xAD, 0xC2, 0xD8, 0x90, 0xB5, 0xC7, 0x7E, 0x2F, 0xE4, 0xAF, 0x7F, 0xE6, 0xCB, 0x0C, 0x88, 0xF1
         };
         // nativeIdの昇順。引数と戻り値の幅はrecord展開後のスロット数。
         const BytecodeVM::NativeEntry entries[] = {
@@ -568,6 +585,7 @@ namespace device_api {
             {18, 1, 1, invoke18},
             {19, 1, 1, invoke19},
             {20, 1, 1, invoke20},
+            {21, 0, 1, invoke21},
         };
 
         /** @brief VM停止時に機器の出力とハンドルを解放する。@param context 登録バックエンド。 */
@@ -578,6 +596,6 @@ namespace device_api {
 
     /** @brief VM登録表を構築する。@param backend 登録中保持する機器操作。@return 静的なID表を参照する登録情報。 */
     BytecodeVM::NativeApi makeNativeApi(Backend &backend) {
-        return {abiHash, entries, 20, &backend, resetBackend};
+        return {abiHash, entries, 21, &backend, resetBackend};
     }
 }
