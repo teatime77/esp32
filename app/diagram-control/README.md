@@ -30,9 +30,9 @@ BLE／Wi-Fiの表示名と基板固有番号の形式は[device_name.cppの仕�
 
 デバッグ通信の入口と担当範囲は[bytecode_debugger.cpp](src/bytecode_debugger.cpp)、通信仕様の正本はuroaの[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、呼出し例は[device-connection.tsのsendBreakpoints()](../../../uroa/diagram/ts/ble-wifi/device-connection.ts)を参照する。行と命令PCの対応は[bytecode.ts](../../../uroa/diagram/ts/python/bytecode.ts)、停止時の最大化・所有権・操作は[PythonBlock](../../../uroa/diagram/ts/python/python-block.ts)、変数・構造体・Call Stackの表示は[debugger-view.ts](../../../uroa/diagram/ts/python/debugger-view.ts)、再開と3種のステップ制御は[BytecodeVM::resumeDebug()](src/bytecode_vm.cpp)を参照する。ビルドと未確認の通信・実機境界は[検証記録](../../docs/build-and-test.md)に置く。
 
-uroaの機器接続ブロックから「a.pyを送信」すると、受信器がCRCとバイナリ構造を検証し、正常COMMITでRAMへ保持する。VMはバイナリversion=1・2・3に対応する。受信ACKはVM実行や、ABI・ネイティブIDとスタブ表の互換性確認の成功を表さない。受信範囲は[受信器の仕様コメント](src/bytecode_receiver.cpp)、呼出し・値コピー・スタブの登録APIは[VM仕様](src/bytecode_vm.cpp)を参照する。
+PythonBlockのStartによる一括転送・検証後開始、受信領域と通信サイズの正本は[Web側の転送仕様コメント](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[受信器](src/bytecode_receiver.cpp)を参照する。旧開発用送信ボタンは削除済み。VMはバイナリversion=1・2・3に対応し、ABI・登録API・呼出しと値コピーの検査は[VM仕様](src/bytecode_vm.cpp)を参照する。
 
-PythonBlockと開発用送信ボタンは保持完了後に開始指令を送る。受信と開始・停止の分担、再実行とACKの範囲は[main.cppのrunBytecode・handleの仕様コメント](src/main.cpp)を参照する。HALT時に大域変数の先頭16スロットまで、エラー時にエラー番号とPCをシリアルへ出力する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNativeの各メソッド](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
+開始・停止と最終状態の担当は[main.cpp](src/main.cpp)、停止値・ステップ操作は[BytecodeDebugger](src/bytecode_debugger.cpp)を参照する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNative](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
 
 API変更後はuroaルートで`python diagram/python/generate-device-api.py`を実行し、JSONとC++の3成果物を一緒に更新する。生成物の一致確認は`--check`、JSONだけの生成は`--json-only`。ESP32のビルドは生成済みC++を使うため、ESP32リポジトリーだけでも可能。入力・生成の仕様は[生成プログラム](../../../uroa/diagram/python/generate-device-api.py)と[変換処理](../../../uroa/diagram/python/device_api_cpp.py)を参照する。
 

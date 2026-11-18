@@ -1,31 +1,9 @@
-/**
- * @file bytecode_receiver.cpp
- * @brief 分割受信・CRC・バイナリの構造を検証し、正常なプログラムだけをRAMへ確定する。
- * @details
- * 転送version=1の20バイトフレームで、バイナリversion=1・2・3を受信する。
- * 形式の共通仕様はuroa/diagram/ts/python/bytecode.ts先頭、送信側の仕様は
- * uroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭を参照する。
- * version=1は16バイトヘッダー・関数表・命令列、version=2は24バイトヘッダー・
- * 関数表・命令列・文字列表・UTF-8データ。文字列表のレコードはoffset:uint32と
- * length:uint32で、データ先頭からの位置とバイト長を持つ。全数値はlittle endian。
- * 全体は128KiB以内、命令列は1〜65536バイト。version=2の予約位置18も0を必須とする。
- * version=3は56バイトヘッダー、12バイト関数表、命令列、文字列表、UTF-8データの順。
- * ヘッダー位置14の呼出し規約版と位置18のAPI形式版はともに2。位置24の32バイトは
- * ABI指紋としてイメージ内に保持する。関数表は従来の8バイトに戻り値スロット数:uint16
- * （1以上）と予約:uint16（0）を追加する。引数・局所・戻り値は構造体を展開したスロット数。
- * 文字列はID順の連続配置を検証し、過長表現・サロゲート・範囲外を含む不正UTF-8を拒否する。
- * 空文字列と埋め込みNULは許可し、DATAの途中では文字列を解釈しない。
- * PUSH_STRING(0x19)はversion=2・3で許可する3バイト命令で、IDが文字列数未満か検査する。
- * version=3だけの追加命令はCALL_NATIVE(0x1A、uint16の非0 ID)、TO_FLOAT(0x1B、1バイト)、
- * FORMAT_VALUE(0x1C、文字列数未満のuint16 ID)、BUILD_STRING(0x1D、uint16の断片数)。
- * 追加命令のうちオペランドを持つものは3バイト。BUILD_STRINGの断片数0は許可する。これらの命令を
- * version=1・2で使用した場合は形式不正にする。
- * 文字列表・データは命令走査と分岐先の範囲に含めない。既存命令と関数フレームの検証は維持する。
- * CRC・順序・接続世代・期限・確定前の全件検証に成功した場合だけRAMの確定バッファを置換する。
- * readyは保持完了だけを表す。main.cppは自動開始せず、別途VM_START指令でVM開始を試みる。
- * この受信段階ではABI指紋の一致とnativeIdの存在・引数型は照合しない。
- * 登録スタブ表との照合・呼出し・実行時の値と寿命の検査はbytecode_vm.cppが担当する。
- * readyはスタブ互換性や実行成功を表さない。機器のスタブはdevice_api.generated.cppで接続する。
+/** @file bytecode_receiver.cpp
+ * @brief 一括転送version=2を蓄積しloop()でコード・PCを検証する。
+ * @details 通信の中心契約はuroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭。
+ * 受信領域の確保・コピーは通信タスクでmutex排他し、CRC・命令検証・確定はloop()で行う。
+ * 新旧コードとPC一覧を同時保持できるRAMが必要。確保失敗はエラーにし、部分コードを実行しない。
+ * 確定バッファ先頭へコードを移し、末尾PC列も同じ所有領域に保持する。Flash保存は行わない。
  */
 #include "bytecode_receiver.h"
 #include <cstring>
@@ -94,12 +72,6 @@ namespace {
         return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
     }
 
-    /** @brief uint16をlittle endianで書く。@param p 出力先。@param value 数値。 */
-    void write16(uint8_t *p, uint16_t value) {
-        p[0] = uint8_t(value);
-        p[1] = uint8_t(value >> 8);
-    }
-
     /** @brief uint32をlittle endianで書く。@param p 出力先。@param value 数値。 */
     void write32(uint8_t *p, uint32_t value) {
         p[0] = uint8_t(value);
@@ -107,225 +79,292 @@ namespace {
         p[2] = uint8_t(value >> 16);
         p[3] = uint8_t(value >> 24);
     }
+    /** @brief CRC-32/ISO-HDLC。@param data 入力。@param length 長さ。@return CRC。 */
+    uint32_t crc32(const uint8_t *data, size_t length) {
+        uint32_t crc = 0xFFFFFFFF;
+        for (size_t i = 0; i < length; ++i) {
+            crc ^= data[i];
+            for (int bit = 0; bit < 8; ++bit) {
+                crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
+            }
+        }
+        return crc ^ 0xFFFFFFFF;
+    }
 }
 
-/**
- * @brief 受信キューとコールバックを準備する。
- * @param publish setup()・loop()から呼ぶ結果の出力先。
- * @param current loop()で確定直前に接続世代を再照合する関数。
- */
+/** @brief mutexと配送先を準備する。@param publish Result配送。@param current 世代照合。 */
 void BytecodeReceiver::begin(const std::function<void(const uint8_t *, size_t, const ControlSession &)> &publish,
     const std::function<bool(const ControlSession &)> &current) {
     publish_ = publish;
     current_ = current;
-    frames_ = xQueueCreate(4, sizeof(Frame));
-    result_[0] = 1;
-    reply(frames_ == nullptr ? Memory : Ok);
+    lock_ = xSemaphoreCreateMutex();
 }
 
-/** @brief 通信タスクでフレームをコピーする。@param data 入力。@param length 長さ。@param session 受信元と接続世代。
- *
- * @details
- * ## ESP32の受信と保持
- *
- * BleTransportとWifiNetworkは20バイト以内のフレームをCallbacks::bytecodeへ渡す。
- * enqueue()は受信元と接続世代をControlSessionとして4件の専用FreeRTOSキューへコピーする。
- * 通信コールバックで動的確保・CRC・バイナリの解析を行わない。ResultはControlTransportを通じて
- * 受信元の現接続だけへ返す。完全な配送・署名・保持の契約はWebのbytecode-transfer.tsを参照する。
- */
-void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSession session) {
-    Frame frame;
-    frame.session = session;
-    if (length <= sizeof frame.data) {
-        frame.length = uint8_t(length);
-        if (length > 0) {
-            std::memcpy(frame.data, data, length);
-        }
+/** @brief 最初のエラーを保持する。@param code 結果。 */
+void BytecodeReceiver::reject(Code code) {
+    if (error_ == Ok) {
+        error_ = code;
     }
-    if (frames_ == nullptr || xQueueSend(frames_, &frame, 0) != pdTRUE) {
-        overflow_.store(true);
-    }
-}
-
-/** @brief 未完了の受信だけを破棄し、確定済みプログラムを残す。 */
-void BytecodeReceiver::cancel() {
     pending_.reset();
     receiving_ = false;
+    sealed_ = false;
+    state_ = 3;
+    dirty_ = true;
 }
 
-/** @brief 最新の受付結果を再公開する。 */
-void BytecodeReceiver::publishResult() {
-    if (publish_) {
-        publish_(result_, sizeof result_, session_);
+/**
+ * @brief 通信タスクでヘッダーを検査して専用領域へコピーする。
+ * @param data フレーム。@param length 長さ。@param session 接続世代。
+ * @details BEGINで最大MaxBundleまで確保する。DATAは順序・範囲だけを検査し、CRCやVMを処理しない。
+ * mutex内のメモリ確保失敗もResultで保持する。キュー4件という受信容量の制限は使用しない。
+ */
+void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSession session) {
+    if (!lock_ || !data || !current_ || !current_(session)) {
+        return;
+    }
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    if (session.source != session_.source || session.generation != session_.generation) {
+        pending_.reset();
+        session_ = session;
+        transferId_ = 0;
+        error_ = Ok;
+        receiving_ = false;
+        sealed_ = false;
+        state_ = 0;
+    }
+    if (length < 10 || length > MaxFrame || data[0] != 2) {
+        reject(Format);
+        xSemaphoreGive(lock_);
+        return;
+    }
+    const uint8_t op = data[1];
+    const uint16_t id = read16(data + 2);
+    const uint16_t seq = read16(data + 4);
+    const uint32_t pos = read32(data + 6);
+    if (op == 1 && id > transferId_ && seq == 1 && !deploymentPending) {
+        pending_.reset();
+        transferId_ = id;
+        sequence_ = 1;
+        operation_ = 1;
+        error_ = Ok;
+        received_ = 0;
+        total_ = pos;
+        state_ = 1;
+        sealed_ = false;
+        receiving_ = false;
+        if (length != 14 || pos < 40 || pos > MaxBundle) {
+            reject(Range);
+        }
+        else {
+            expectedCrc_ = read32(data + 10);
+            pending_.reset(new (std::nothrow) uint8_t[pos]);
+            if (!pending_) {
+                reject(Memory);
+            }
+            else {
+                receiving_ = true;
+                lastReceive_ = millis();
+            }
+        }
+        dirty_ = true;
+        xSemaphoreGive(lock_);
+        return;
+    }
+    // 古い転送と同じCOMMITの重複は処理せず、確定した結果を維持する。
+    if (id != transferId_ || error_ != Ok || (!receiving_ && op == 3) || sealed_) {
+        xSemaphoreGive(lock_);
+        return;
+    }
+    if (!receiving_ || seq != uint16_t(sequence_ + 1)) {
+        reject(Order);
+    }
+    else {
+        sequence_ = seq;
+        operation_ = op;
+        if (op == 2 && length > 10 && pos == received_ && length - 10 <= total_ - received_) {
+            std::memcpy(pending_.get() + received_, data + 10, length - 10);
+            received_ += length - 10;
+            lastReceive_ = millis();
+        }
+        else if (op == 3 && length == 10 && pos == total_ && received_ == total_) {
+            sealed_ = true;
+            receiving_ = false;
+        }
+        else if (op == 4 && length == 10 && pos == 0) {
+            reject(Start);
+        }
+        else {
+            reject(Order);
+        }
+    }
+    dirty_ = true;
+    xSemaphoreGive(lock_);
+}
+
+/** @brief 接続・期限・全体検証をloop()で処理する。@param connected 接続。@param session 世代。 */
+void BytecodeReceiver::process(bool connected, ControlSession session) {
+    if (!lock_) {
+        return;
+    }
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    if (!connected || session.source != session_.source || session.generation != session_.generation) {
+        pending_.reset();
+        receiving_ = false;
+        sealed_ = false;
+        deploymentPending = false;
+        session_ = session;
+        transferId_ = 0;
+        sequence_ = 0;
+        error_ = Ok;
+        state_ = 0;
+        operation_ = 0;
+        received_ = 0;
+        total_ = 0;
+        dirty_ = true;
+    }
+    else if (receiving_ && uint32_t(millis() - lastReceive_) > 15000) {
+        reject(Timeout);
+    }
+    else if (sealed_) {
+        sealed_ = false;
+        const Code result = adopt();
+        if (result != Ok) {
+            reject(result);
+        }
+        else {
+            deploymentPending = true;
+        }
+        dirty_ = true;
+    }
+    const bool publish = dirty_;
+    xSemaphoreGive(lock_);
+    if (publish) {
+        publishResult();
     }
 }
 
-/** @brief 結果20バイトを更新する。@param code 結果。@param frame 対象フレーム。nullなら直前の番号を維持する。 */
-void BytecodeReceiver::reply(Code code, const Frame *frame) {
-    result_[0] = 1;
-    result_[1] = code;
-    if (frame != nullptr) {
-        write16(result_ + 2, frame->length >= 4 ? read16(frame->data + 2) : 0);
-        write16(result_ + 4, frame->length >= 6 ? read16(frame->data + 4) : 0);
-        result_[6] = frame->length >= 2 ? frame->data[1] : 0;
+/** @brief 検証済みコードとPC列を照合する。@param image コード。@param pcs little endian列。@param count 個数。@return 全一致。 */
+bool BytecodeReceiver::validatePcs(const uint8_t *image, const uint8_t *pcs, uint32_t count) {
+    const uint16_t version = read16(image + 2);
+    const size_t offset = (version == 1 ? 16 : version == 2 ? 24 : 56) + size_t(read16(image + 6)) * (version == 3 ? 12 : 8);
+    const uint32_t length = read32(image + 8);
+    uint32_t selected = 0;
+    for (uint32_t pc = 0; pc < length;) {
+        if (selected < count && read16(pcs + selected * 2) < pc) {
+            return false;
+        }
+        if (selected < count && read16(pcs + selected * 2) == pc) {
+            if (selected && read16(pcs + selected * 2) <= read16(pcs + (selected - 1) * 2)) {
+                return false;
+            }
+            ++selected;
+        }
+        const uint8_t opcode = image[offset + pc];
+        pc += opcode == 3 || opcode == 4 ? 5 : opcode <= 9 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ? 3 : 1;
     }
-    result_[7] = code != Ok ? 3 : receiving_ ? 1 : program ? 2 : 0;
-    write32(result_ + 8, received_);
-    write32(result_ + 12, total_);
-    write32(result_ + 16, expectedCrc_);
+    return selected == count;
+}
+
+/** @brief 全件検証後だけコードとPC一覧の所有領域を置換する。@return 検証結果。 */
+BytecodeReceiver::Code BytecodeReceiver::adopt() {
+    const uint8_t *p = pending_.get();
+    if (!p || total_ < 40 || crc32(p, total_) != expectedCrc_) {
+        return Crc;
+    }
+    const uint32_t length = read32(p + 8);
+    const uint32_t bpCount = read32(p + 12);
+    const uint32_t pointsCount = read32(p + 16);
+    const size_t pcOffset = 24 + size_t(length) + length % 2;
+    if (read32(p) != 0x32525055 || read16(p + 4) != 1 || read16(p + 6) > 1 || length < 16 || length > MaxLength ||
+        bpCount > 4096 || pointsCount > 65536 || uint64_t(pcOffset) + uint64_t(bpCount + pointsCount) * 2 != total_) {
+        return Format;
+    }
+    if ((length % 2 && p[24 + length] != 0) || crc32(p + 24, length) != read32(p + 20)) {
+        return Crc;
+    }
+    const Code valid = validate(p + 24, length);
+    if (valid != Ok || !validatePcs(p + 24, p + pcOffset, bpCount) ||
+        !validatePcs(p + 24, p + pcOffset + bpCount * 2, pointsCount)) {
+        return Invalid;
+    }
+    if (!current_(session_) || programRevision == UINT32_MAX) {
+        return Start;
+    }
+    startRequested = (read16(p + 6) & 1) != 0;
+    programCrc32 = read32(p + 20);
+    programLength = length;
+    breakpointCount = bpCount;
+    stepCount = pointsCount;
+    // ESP32はlittle endian。new[]先頭+偶数offsetのPC列はuint16_tとして整列する。
+    std::memmove(pending_.get(), p + 24, length);
+    program = std::move(pending_);
+    breakpoints = reinterpret_cast<const uint16_t *>(program.get() + pcOffset);
+    stepPoints = breakpoints + bpCount;
+    ++programRevision;
+    return Ok;
+}
+
+/** @brief PC設定と必要なVM開始の結果を確定する。@param success 成否。 */
+void BytecodeReceiver::completeDeployment(bool success) {
+    if (!lock_) {
+        return;
+    }
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    if (deploymentPending) {
+        deploymentPending = false;
+        if (!success || !current_(session_)) {
+            reject(Start);
+        }
+        else {
+            state_ = startRequested ? 4 : 2;
+            dirty_ = true;
+        }
+    }
+    xSemaphoreGive(lock_);
     publishResult();
 }
 
-/** @brief 現在の受信元・接続世代のフレームと受信期限を処理する。@param connected 現接続が有効か。@param session 世代。
- *
- * @details
- * 切断・BLE停止・Wi-Fi切替・接続世代の変更、受信キュー飽和、受信待ち15秒超過、ABORT、不正フレームでは未完了の受信を破棄する。キュー飽和やタイミングによっては対象sequenceの結果が返らず、Web側の2.5秒タイムアウトから再接続が必要になる。
- */
-void BytecodeReceiver::process(bool connected, ControlSession session) {
-    if (connected != connected_ || session.source != session_.source || session.generation != session_.generation) {
-        connected_ = connected;
-        session_ = session;
-        cancel();
-        if (frames_ != nullptr) {
-            xQueueReset(frames_);
-        }
-        std::memset(result_, 0, sizeof result_);
-        received_ = 0;
-        total_ = 0;
-        expectedCrc_ = 0;
-        reply(frames_ == nullptr ? Memory : Ok);
-    }
-    if (overflow_.exchange(false)) {
-        cancel();
-        if (frames_ != nullptr) {
-            xQueueReset(frames_);
-        }
-        reply(Busy);
-    }
-    if (receiving_ && uint32_t(millis() - lastReceive_) > 15000) {
-        cancel();
-        reply(Timeout);
-    }
-    if (frames_ == nullptr) {
+/** @brief 未完了転送・開始待ちを取り消す。 */
+void BytecodeReceiver::cancelDeployment() {
+    if (!lock_) {
         return;
     }
-    Frame frame;
-    for (int count = 0; count < 4 && xQueueReceive(frames_, &frame, 0) == pdTRUE; ++count) {
-        if (connected_ && frame.session.source == session_.source && frame.session.generation == session_.generation) {
-            handle(frame);
-        }
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    if (receiving_ || sealed_ || deploymentPending) {
+        deploymentPending = false;
+        reject(Start);
     }
+    xSemaphoreGive(lock_);
 }
 
-/** @brief 現接続のフレームを解釈する。@param frame キューから取り出したコピー。
- *
- * @details
- * `loop()`の`process()`は現受信元・接続世代のデータだけを処理する。BEGINで受信バッファを確保し、DATAのID・sequence・連続位置・全体長を検査してコピーする。COMMIT時に受信長・CRCと次の構造を全件検査する。
- *
- * 全件に成功し、確定直前にも現在の受信元・接続世代を再照合できたときだけ、公開メンバー`program`・`programLength`・`programCrc32`を置き換え、readyを返す。公開メンバーはloop()だけが更新し、VMは確定バッファを借用し、loop()が実行前に確定世代を照合する。受信中・検証失敗時は以前の確定済みプログラムを保持するため、新旧2個分のRAMが必要になる場合がある。確保に失敗したら以前のプログラムを残して拒否する。
- *
- * 確定済みデータは切断後もRAMに残るが再起動で失われる。受信完了時はシリアルに`Bytecode received: bytes=... crc32=...`を出す。
- */
-void BytecodeReceiver::handle(const Frame &frame) {
-    const uint8_t *p = frame.data;
-    auto reject = [&](Code code) {
-        cancel();
-        reply(code, &frame);
-    };
-    if (frame.length < 10 || p[0] != 1 || read16(p + 2) == 0 || read16(p + 4) == 0) {
-        reject(Format);
-        return;
+/** @brief 排他して結果をコピーした後、排他外で配送する。 */
+void BytecodeReceiver::publishResult() {
+    uint8_t result[20]{};
+    result[0] = 2;
+    ControlSession session;
+    if (lock_) {
+        xSemaphoreTake(lock_, portMAX_DELAY);
+        result[1] = error_;
+        result[2] = uint8_t(transferId_);
+        result[3] = uint8_t(transferId_ >> 8);
+        result[6] = operation_;
+        result[7] = state_;
+        write32(result + 8, received_);
+        write32(result + 12, programRevision);
+        write32(result + 16, programCrc32);
+        session = session_;
+        dirty_ = false;
+        xSemaphoreGive(lock_);
     }
-    const uint8_t operation = p[1];
-    const uint16_t id = read16(p + 2);
-    const uint16_t sequence = read16(p + 4);
-    const uint32_t position = read32(p + 6);
-    if (operation == 1) {
-        if (frame.length != 14 || sequence != 1) {
-            reject(Format);
-            return;
-        }
-        if (position < 16 || position > MaxLength) {
-            reject(Range);
-            return;
-        }
-        cancel();
-        transferId_ = id;
-        sequence_ = sequence;
-        total_ = position;
-        received_ = 0;
-        expectedCrc_ = read32(p + 10);
-        crc_ = 0xFFFFFFFF;
-        pending_.reset(new (std::nothrow) uint8_t[total_]);
-        if (!pending_) {
-            reject(Memory);
-            return;
-        }
-        receiving_ = true;
-        lastReceive_ = millis();
-        reply(Ok, &frame);
-        return;
+    else {
+        result[1] = Memory;
+        result[7] = 3;
     }
-    if (id != transferId_ || sequence != uint16_t(sequence_ + 1) || (!receiving_ && operation != 4)) {
-        reject(Order);
-        return;
+    result[4] = uint8_t(MaxFrame);
+    result[5] = uint8_t(MaxFrame >> 8);
+    if (publish_) {
+        publish_(result, sizeof result, session);
     }
-    sequence_ = sequence;
-    if (operation == 4 && frame.length == 10 && position == 0) {
-        cancel();
-        received_ = 0;
-        total_ = 0;
-        expectedCrc_ = 0;
-        reply(Ok, &frame);
-        return;
-    }
-    if (operation == 2 && frame.length > 10) {
-        const size_t length = frame.length - 10;
-        if (position != received_ || length > total_ - received_) {
-            reject(Order);
-            return;
-        }
-        std::memcpy(pending_.get() + received_, p + 10, length);
-        for (size_t index = 10; index < frame.length; ++index) {
-            crc_ ^= p[index];
-            for (int bit = 0; bit < 8; ++bit) {
-                crc_ = (crc_ >> 1) ^ ((crc_ & 1) != 0 ? 0xEDB88320 : 0);
-            }
-        }
-        received_ += length;
-        lastReceive_ = millis();
-        reply(Ok, &frame);
-        return;
-    }
-    if (operation != 3 || frame.length != 10) {
-        reject(Format);
-        return;
-    }
-    if (position != total_ || received_ != total_) {
-        reject(Order);
-        return;
-    }
-    if ((crc_ ^ 0xFFFFFFFF) != expectedCrc_) {
-        reject(Crc);
-        return;
-    }
-    const Code valid = validate(pending_.get(), total_);
-    if (valid != Ok) {
-        reject(valid);
-        return;
-    }
-    if (!current_ || !current_(session_)) {
-        cancel();
-        return;
-    }
-    program = std::move(pending_);
-    programLength = total_;
-    programCrc32 = expectedCrc_;
-    ++programRevision;
-    receiving_ = false;
-    reply(Ok, &frame);
-    Serial.printf("Bytecode received: bytes=%u crc32=%08lx\n", unsigned(programLength),
-        static_cast<unsigned long>(programCrc32));
 }
 
 /** @brief ヘッダー・関数表・命令境界・オペランドを検証する。@param data 全体。@param length 長さ。@return 結果。

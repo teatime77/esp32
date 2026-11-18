@@ -1,7 +1,7 @@
 /**
  * @file main.cpp
  * @brief diagramのBLE/Wi-Fi指令でサーボを操作し、登録されたIMU・距離の測定値を返す。
- * @details 通信タスクは指令をキューへコピーし、I2C・応答・停止・送信はloop()で行う。
+ * @details 通常指令はキュー、一括Python転送はmutex付き受信領域へコピーする。検証・VM・I2Cはloop()で行う。
  * HC-SR04のGPIOと同期測定は専用タスクだけが操作し、測定結果をキューでloop()へ渡す。
  * 通常通信の受信元・接続世代の照合と通知配送はcontrol_transport.h/.cppへ委譲する。
  */
@@ -59,7 +59,7 @@ namespace {
     BytecodeReceiver bytecodeReceiver; ///< loop()で分割受信を検証し、確定後にVMへ渡す。
     BytecodeVM bytecodeVm; ///< loop()だけが操作するVM。受信器の確定バッファを借用する。
     BytecodeDebugger bytecodeDebugger(bytecodeReceiver, bytecodeVm, controlTransport); ///< 両経路のデバッグ要求・命令フラグ・停止値の所有者。
-    ControlSession vmSession{}; ///< 最後のVM_STARTの受信元。loop()が更新し、別接続での実行継続を禁止する。
+    ControlSession vmSession{}; ///< 最後の一括開始またはVM_STARTの受信元。loop()が更新し、別接続での実行継続を禁止する。
     uint32_t vmRevision = 0; ///< VMが照合した確定プログラムの世代。更新だけでは開始しない。
     BytecodeVM::State reportedVmState = BytecodeVM::State::Idle; ///< シリアルへ報告済みの状態。
 
@@ -142,7 +142,8 @@ namespace {
      * @param stopped このloop()でSTOP・接続変更・通信期限切れを処理した場合true。
      * @details 受信器のバッファ置換後は、旧バッファを使うtick()より前にstart()またはstop()する。
      *
-     * 正常COMMITは保持だけを行い、自動実行しない。VM_START=10で保持コードを先頭から開始し、
+     * 一括COMMITの開始フラグがあれば全体検証・PC設定後に開始し、専用Resultへ開始結果を保持する。
+     * 保持専用の転送とVM_START=10による明示開始も利用できる。
      * VM_STOP=11でVMと所有機器を停止する。Command v1のCH=255、value=duration=0を必須とする。
      * Protocolの操作番号とWeb側のpython/python-block.tsが共通契約を持ち、ble-wifi/device-connection.tsが
      * 最後の転送・現在の接続・取消を確認する。開始ACKはstart()の結果までで、終了通知ではない。
@@ -154,7 +155,7 @@ namespace {
      * Pythonのsleep待機でもloop()を継続し、各周回の停止・通信処理を優先する。待機の仕様は
      * device_native.cppのfunction_sleepとbytecode_vm.cppのcallNativeを参照する。
      *
-     * 受信ACKはCRC・形式検証・RAM保持の完了を表し、VMの開始・正常終了を保証しない。開始時のメモリ確保失敗や実行エラーはシリアルで確認する。
+     * 一括転送のResultは保持成功または開始成功を区別する。正常終了・実行時エラーはデバッグEventとシリアルで確認する。
      *
      * ## 所有権と確認範囲
      *
@@ -607,7 +608,7 @@ namespace {
                 return;
             }
             if (operation == Protocol::VM_START &&
-                (!allowVmStart || mustStop.load() || urgentStop.load())) {
+                (!allowVmStart || mustStop.load() || urgentStop.load() || bytecodeReceiver.deploymentPending)) {
                 status(Protocol::CODE_BUSY, sequence);
                 return;
             }
@@ -616,6 +617,7 @@ namespace {
             vmRevision = bytecodeReceiver.programRevision;
             reportedVmState = BytecodeVM::State::Stopped;
             if (operation == Protocol::VM_STOP) {
+                bytecodeReceiver.cancelDeployment();
                 status(Protocol::CODE_OK, sequence);
                 return;
             }
@@ -817,7 +819,9 @@ void setup() {
     bleConfig.debugEventUuid = DEBUG_EVENT_UUID;
     bleConfig.debugDataUuid = DEBUG_DATA_UUID;
     bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
-    bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength;
+    // 大きいTelemetryに必要な既存MTUも維持し、コードは最大244バイトのWriteへ制限する。
+    bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength > 247
+        ? DeviceTelemetryMaxLength + NotificationHeaderLength : 247;
     bleConfig.passkey = PAIRING_CODE;
     bytecodeReceiver.begin([](const uint8_t *data, size_t length, const ControlSession &session) {
         controlTransport.publishBytecodeResult(data, length, session);
@@ -886,6 +890,13 @@ void loop() {
     }
     const ControlSession session = controlTransport.currentSession();
     bytecodeReceiver.process(controlTransport.isCurrent(session), session);
+    if (bytecodeReceiver.deploymentPending) {
+        // 旧イメージを参照するVMを進める前に停止する。新コードの開始はPC設定後に行う。
+        bytecodeVm.stop();
+        vmRevision = bytecodeReceiver.programRevision;
+        // 前回と同じRunning/Errorでも、新しい開始の最初の状態を必ずシリアルへ報告する。
+        reportedVmState = BytecodeVM::State::Idle;
+    }
     Queued queued;
     // 1周4件までに制限し、補間と期限監視の処理時間を残す。
     for (int count = 0; count < 4 && xQueueReceive(commands, &queued, 0) == pdTRUE; ++count) {
@@ -920,6 +931,21 @@ void loop() {
     // デバッグ要求もloop()で処理し、Stopがある周回では設定・値取得を受け付けない。
     // PausedではVMだけを止める。機器出力・補間は維持し、既存のStop・切断・通信期限が停止させる。
     bytecodeDebugger.process(!vmStopRequested && controlTransport.isCurrent(session), session);
+    if (vmStopRequested || mustStop.load() || urgentStop.load()) {
+        bytecodeReceiver.cancelDeployment();
+    }
+    if (bytecodeReceiver.deploymentPending) {
+        // 一括転送のCOMMITだけが開始を要求できる。結果は実行がすぐ終了しても専用Resultに保持する。
+        bool success = controlTransport.isCurrent(session) && bytecodeDebugger.installDeployment();
+        if (success && bytecodeReceiver.startRequested) {
+            vmSession = session;
+            success = bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
+            if (success) {
+                nativeDevices.startProgramClock();
+            }
+        }
+        bytecodeReceiver.completeDeployment(success);
+    }
     runBytecode(vmStopRequested);
     bytecodeDebugger.publishState();
     delay(2);

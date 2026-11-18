@@ -8,6 +8,8 @@
  * Web側robot-wifi.tsはNot pairedを操作案内へ変換し、設定データを自動再送しない。
  */
 #include "uroa_ble.h"
+#include <algorithm>
+#include <cstring>
 
 namespace uroa {
     /**
@@ -70,11 +72,16 @@ namespace uroa {
         status_ = service->createCharacteristic(
             config_.statusUuid.c_str(), NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 12);
         if (config_.bytecodeUuid.length() > 0 && config_.bytecodeResultUuid.length() > 0) {
-            bytecode_ = service->createCharacteristic(config_.bytecodeUuid.c_str(), NIMBLE_PROPERTY::WRITE, 20);
+            bytecode_ = service->createCharacteristic(config_.bytecodeUuid.c_str(), NIMBLE_PROPERTY::WRITE, 244);
             bytecode_->setCallbacks(this);
             bytecodeResult_ = service->createCharacteristic(config_.bytecodeResultUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
             uint8_t initial[20]{};
-            initial[0] = 1;
+            initial[0] = 2;
+            {
+                std::lock_guard<std::mutex> guard(readValueMutex_);
+                std::memcpy(bytecodeResultValue_, initial, sizeof initial);
+            }
+            bytecodeResult_->setCallbacks(this);
             bytecodeResult_->setValue(initial, sizeof initial);
         }
         if (config_.debugControlUuid.length() && config_.debugResultUuid.length() &&
@@ -88,6 +95,11 @@ namespace uroa {
             uint8_t initial[20]{};
             initial[0] = 1;
             debugResult_->setValue(initial, sizeof initial);
+            {
+                std::lock_guard<std::mutex> guard(readValueMutex_);
+                std::memcpy(debugEventValue_, initial, sizeof initial);
+            }
+            debugEvent_->setCallbacks(this);
             debugEvent_->setValue(initial, sizeof initial);
         }
         if (callbacks_.configure) {
@@ -157,6 +169,32 @@ namespace uroa {
     }
 
     /**
+     * @brief 専用コピーからResult/VM状態を設定し、ResultだけMTU上限を反映する。
+     * @param characteristic Read対象。@param info 接続情報。
+     * @details Web Bluetoothは合意MTUを直接取得できないため、Resultの位置4に上限を返す。
+     * loop()は専用コピーだけを更新し、mutexで20バイトを取得した後に通信タスクだけがGATT値を更新する。
+     * NimBLEはonRead復帰後にGATT値を応答へコピーする。この間にloop()がsetValue()すると、
+     * MTU上限を上書きしたり、長さ更新途中の値を読んだりし得るため、GATT値への書込みを一本化する。
+     */
+    void BleTransport::onRead(NimBLECharacteristic *characteristic, NimBLEConnInfo &info) {
+        const bool bytecode = characteristic == bytecodeResult_;
+        if (!bytecode && characteristic != debugEvent_) {
+            return;
+        }
+        uint8_t result[20];
+        {
+            std::lock_guard<std::mutex> guard(readValueMutex_);
+            std::memcpy(result, bytecode ? bytecodeResultValue_ : debugEventValue_, sizeof result);
+        }
+        if (bytecode) {
+            const uint16_t frame = std::min<uint16_t>(244, info.getMTU() - 3);
+            result[4] = uint8_t(frame);
+            result[5] = uint8_t(frame >> 8);
+        }
+        characteristic->setValue(result, sizeof result);
+    }
+
+    /**
      * @brief 非同期に完了した認証の結果を診断ログへ記録する。
      * @param info 暗号化・MITM認証・ボンドの成立状態。
      * @details 通常BLE接続の公開状態は変更しない。Wi-Fi設定の保護要件も緩和しない。
@@ -188,6 +226,7 @@ namespace uroa {
     /** @brief ATT MTU交渉の結果を公開する。@param value 合意したMTU。 */
     void BleTransport::onMTUChange(uint16_t value, NimBLEConnInfo &) {
         mtu = value;
+        Serial.printf("BLE MTU=%u bytecode frame=%u\n", unsigned(value), unsigned(std::min<uint16_t>(244, value - 3)));
     }
 
     /**
@@ -237,13 +276,14 @@ namespace uroa {
     }
 
     /**
-     * @brief バイトコード受付結果を専用Read値へコピーする。
+     * @brief バイトコード受付結果を専用コピーへ保持する。GATTへの反映はonReadに委譲する。
      * @param data loop()で組み立てた20バイトの受付結果。
      * @param length バイト数。20以外は更新しない。
      */
     void BleTransport::publishBytecodeResult(const uint8_t *data, size_t length) {
         if (running_ && !stopping_ && bytecodeResult_ && length == 20) {
-            bytecodeResult_->setValue(data, length);
+            std::lock_guard<std::mutex> guard(readValueMutex_);
+            std::memcpy(bytecodeResultValue_, data, length);
         }
     }
 
@@ -254,10 +294,15 @@ namespace uroa {
         }
     }
 
-    /** @brief 状態をReadへ保持し、接続中は通知する。@param data 状態。@param length 20。 */
+    /** @brief VM状態を専用コピーへ保持し、接続中は同じ内容を通知する。@param data 状態。@param length 20。
+     * @details Read用GATT値はonReadだけが設定する。通知は引数付きnotifyで別コピーとして送る。
+     */
     void BleTransport::publishDebugEvent(const uint8_t *data, size_t length) {
         if (running_ && !stopping_ && debugEvent_ && length == 20) {
-            debugEvent_->setValue(data, length);
+            {
+                std::lock_guard<std::mutex> guard(readValueMutex_);
+                std::memcpy(debugEventValue_, data, length);
+            }
             if (connected) {
                 debugEvent_->notify(data, length);
             }

@@ -3,6 +3,7 @@
  * @brief BLE接続、指令受信、状態通知と認証済み設定転送を管理する。
  */
 #pragma once
+#include <mutex>
 #include <NimBLEDevice.h>
 #include <atomic>
 #include <functional>
@@ -51,7 +52,7 @@ namespace uroa {
             std::function<void(const uint8_t *, size_t, uint32_t)> command;
             /** @brief BLEタスクから機器情報を渡す。データは呼出中にコピーし、解釈は制御ループで行う。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> deviceInfo;
-            /** @brief BLEタスクから20バイト以内の転送フレームを渡す。呼出中にキューへコピーする。 */
+            /** @brief BLEタスクから最大244バイトの一括転送フレームを渡す。受け手が呼出中に専用領域へコピーする。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> bytecode;
             /** @brief デバッグ要求をBLEタスクから渡す。受け手は接続世代と内容を即座にコピーする。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> debug;
@@ -95,7 +96,7 @@ namespace uroa {
          */
         void publishStatus(const uint8_t *data, size_t length);
         /**
-         * @brief バイトコードの受付結果20バイトをRead値へ反映する。通知は行わない。
+         * @brief バイトコードの受付結果20バイトを専用コピーへ反映する。GATT値はReadコールバックだけが更新する。
          * @param data loop()で組み立てた専用の受付結果。
          * @param length 20バイト以外は更新しない。
          */
@@ -165,11 +166,16 @@ namespace uroa {
          * @brief BLE書き込みを受け、指令または認証済み設定転送を処理する。
          */
         void onWrite(NimBLECharacteristic *, NimBLEConnInfo &) override;
+        /** @brief 専用コピーからBytecode ResultとDebug EventのGATT値を設定する。 */
+        void onRead(NimBLECharacteristic *, NimBLEConnInfo &) override;
         Config config_;
         Callbacks callbacks_;
         NimBLECharacteristic *deviceInfo_ = nullptr; ///< 機器情報の書込窓口。専用コールバックへ渡す。
+        std::mutex readValueMutex_; ///< Bytecode ResultとDebug Eventの専用コピーだけを排他する。
+        uint8_t debugEventValue_[20]{}; ///< loop()が更新し、onReadがGATTへ反映するVM状態。
+        uint8_t bytecodeResultValue_[20]{}; ///< loop()が更新し、onReadがコピーする。GATT値との同時書換えを避ける。
         NimBLECharacteristic *bytecode_ = nullptr; ///< バイトコード分割転送の書込窓口。
-        NimBLECharacteristic *bytecodeResult_ = nullptr; ///< loop()で更新する受付結果のRead窓口。
+        NimBLECharacteristic *bytecodeResult_ = nullptr; ///< onReadだけが更新する受付結果のRead窓口。
         NimBLECharacteristic *debugControl_ = nullptr; ///< 要求は専用キューへコピーする。
         NimBLECharacteristic *debugResult_ = nullptr; ///< 要求ACK。停止Notifyで上書きしない。
         NimBLECharacteristic *debugEvent_ = nullptr; ///< 停止情報。Readでも取りこぼしを回復できる。

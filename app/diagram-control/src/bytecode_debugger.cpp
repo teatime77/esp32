@@ -187,6 +187,21 @@ bool BytecodeDebugger::applyBreakpoints() {
     return true;
 }
 
+/** @brief 受信器が全件検証した行PCとステップPCを開始前に設定する。@return 設定成功。 */
+bool BytecodeDebugger::installDeployment() {
+    uint32_t length = 0;
+    uint8_t *bytes = code(length);
+    if (!bytes || !transport_.isCurrent(session_) ||
+        !vm_.configureDebugPoints(receiver_.stepPoints, receiver_.stepCount, bytes, length)) {
+        return false;
+    }
+    clearFlags();
+    for (uint32_t index = 0; index < receiver_.breakpointCount; ++index) {
+        bytes[receiver_.breakpoints[index]] |= 0x80;
+    }
+    return true;
+}
+
 /** @brief 要求ACKをReadへ公開する。@param code 結果。@param value 操作別値。@param extra 操作別値。 */
 void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
     std::memset(result_, 0, sizeof result_);
@@ -355,9 +370,14 @@ void BytecodeDebugger::handle(const Request &request) {
     reply(result, result == Ok ? accepted : 0);
 }
 
-/** @brief 状態変化だけを通知する。文字列込みSnapshotは最大256KiB、読取り中も不変。 */
+/** @brief 状態変化とRunningの進捗を通知する。Event v2の契約はWebのdebug-protocol.ts先頭を参照する。 */
 void BytecodeDebugger::publishState() {
     if (!enabled_) {
+        return;
+    }
+    const uint32_t now = millis();
+    if (vm_.state == BytecodeVM::State::Running && event_[0] == 2 && event_[1] == uint8_t(vm_.state) &&
+        read32(event_ + 8) == receiver_.programRevision && uint32_t(now - lastProgressMs_) < 1000) {
         return;
     }
     if (vm_.state != BytecodeVM::State::Paused) {
@@ -392,15 +412,18 @@ void BytecodeDebugger::publishState() {
         }
     }
     uint8_t event[20]{};
-    event[0] = 1;
+    event[0] = 2;
     event[1] = uint8_t(vm_.state);
     event[2] = snapshotError_;
-    write32(event + 4, vm_.state == BytecodeVM::State::Paused ? stopId_ : 0);
+    const bool paused = vm_.state == BytecodeVM::State::Paused;
+    event[3] = vm_.state == BytecodeVM::State::Error ? uint8_t(vm_.error) : 0;
+    write32(event + 4, paused ? stopId_ : vm_.state == BytecodeVM::State::Error ? vm_.errorPc : 0);
     write32(event + 8, receiver_.programRevision);
-    write32(event + 12, snapshotLength_);
-    write32(event + 16, snapshotCrc_);
+    write32(event + 12, paused ? snapshotLength_ : vm_.instructions);
+    write32(event + 16, paused ? snapshotCrc_ : vm_.pc);
     if (std::memcmp(event_, event, sizeof event_) != 0) {
         std::memcpy(event_, event, sizeof event_);
+        lastProgressMs_ = now;
         transport_.publishDebugEvent(event_, sizeof event_, session_);
     }
 }

@@ -26,6 +26,8 @@ class BytecodeDebugger {
     void publishState();
     /** @brief VMの開始・停止前に旧Snapshotを無効化する。命令フラグは同じプログラムに保持する。 */
     void invalidateSnapshot();
+    /** @brief loop()で一括転送の検証済みPC列を設定する。@return ステップ表の確保と設定に成功したらtrue。 */
+    bool installDeployment();
 
     private:
     /** @brief 専用ACKの結果番号。TypeScript側のdebugProtocol.errorsと共通。 */
@@ -62,6 +64,7 @@ class BytecodeDebugger {
     uint8_t operation_ = 0;
     uint8_t result_[20]{};
     uint8_t event_[20]{};
+    uint32_t lastProgressMs_ = 0; ///< RunningのPC・命令数を最大1秒に1回公開する。
     bool receiving_ = false;
     bool pointsTransfer_ = false; ///< 7/8/9ではステップ停止点、それ以外は行ブレークポイント。
     std::unique_ptr<uint16_t[]> pending_;

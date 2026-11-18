@@ -41,7 +41,7 @@ namespace uroa {
             std::function<void(const uint8_t *, size_t, uint32_t)> command;
             /** @brief 認証済み機器一覧を通信タスクから渡す。受け手は呼出中に内容・世代をキューへコピーする。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> deviceInfo;
-            /** @brief プログラム転送フレームをコピーする配送先。内容検証・動的確保はloop()で行う。 */
+            /** @brief 最大1024バイトの転送フレームを渡す。受け手は専用受信領域の確保・コピーを行い、全体検証はloop()で行う。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> bytecode;
             /** @brief デバッグ要求を世代とともにコピーする配送先。VMへ通信タスクから触れない。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> debug;

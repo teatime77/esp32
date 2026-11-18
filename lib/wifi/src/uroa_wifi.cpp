@@ -7,6 +7,8 @@
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <mbedtls/md.h>
+#include <memory>
+#include <new>
 
 namespace uroa {
     /** @brief 通信開始前のネットワークオブジェクトを構築する。 */
@@ -247,7 +249,7 @@ namespace uroa {
     }
 
     /**
-     * @brief 512バイト未満のHTTP本文を最後まで読み取る。
+     * @brief 通常は512バイト未満、/bytecodeだけは2048バイトまでのHTTP本文を取得する。
      * @param req HTTP要求。
      * @param text 取得したHTTP本文の出力先。
      * @param allowEmpty 空の機器一覧を許可する場合true。
@@ -258,20 +260,24 @@ namespace uroa {
             text = "";
             return true;
         }
-        if (req->content_len <= 0 || req->content_len >= 512) {
+        const size_t limit = String(req->uri) == "/bytecode" ? 2049 : 512;
+        if (req->content_len <= 0 || size_t(req->content_len) >= limit) {
             return false;
         }
-        char buffer[512];
+        std::unique_ptr<char[]> buffer(new (std::nothrow) char[limit]);
+        if (!buffer) {
+            return false;
+        }
         int received = 0;
         while (received < req->content_len) {
-            int n = httpd_req_recv(req, buffer + received, req->content_len - received);
+            int n = httpd_req_recv(req, buffer.get() + received, req->content_len - received);
             if (n <= 0) {
                 return false;
             }
             received += n;
         }
         buffer[received] = 0;
-        text = buffer;
+        text = buffer.get();
         return true;
     }
 
@@ -455,7 +461,8 @@ namespace uroa {
      * @param payload 16進文字列。
      * @param sessionGeneration 認証時にコピーした接続世代。
      * @return 配送できたらtrue。制御ループでの内容検証完了は表さない。
-     * @details /commandは既存の10バイト、/device-infoは0〜20バイトの生一覧。
+     * @details /commandは10バイト、/device-infoは0〜20バイト。/bytecodeだけは1024バイトまで。
+     * 一括転送と開始の契約はuroa/diagram/ts/ble-wifi/bytecode-transfer.tsを参照する。
      * 機器一覧の形式・配送契約はuroa/diagram/ts/ble-wifi/control-connection.tsのsendDeviceInfo()を参照する。
      * 機器レコードは解釈せず、任意のdeviceInfoコールバックへ呼出中だけ有効なバッファーを渡す。
      */
@@ -472,10 +479,16 @@ namespace uroa {
             return true;
         }
         const size_t length = payload.length() / 2;
-        if (payload.length() % 2 != 0 || length > DeviceInfoMaxLength) {
+        // 一括転送だけ1024バイトまで受ける。他の窓口の上限は従来どおり20バイト。
+        const size_t limit = path == "/bytecode" ? 1024 : DeviceInfoMaxLength;
+        if (payload.length() % 2 != 0 || length > limit) {
             return false;
         }
-        uint8_t data[DeviceInfoMaxLength]{};
+        std::unique_ptr<uint8_t[]> storage(new (std::nothrow) uint8_t[limit]{});
+        if (!storage) {
+            return false;
+        }
+        uint8_t *data = storage.get();
         if (!unhex(payload, data, length)) {
             return false;
         }
@@ -738,11 +751,12 @@ namespace uroa {
             sockets.sendTXT(number, result);
             return;
         }
-        if (type != WStype_TEXT || length >= 512) {
+        // 1024バイトの16進本体と署名を収める。JSON作業領域は通信タスクのスタックへ置かない。
+        if (type != WStype_TEXT || length >= 2304) {
             return;
         }
-        StaticJsonDocument<768> doc;
-        if (deserializeJson(doc, payload, length)) {
+        DynamicJsonDocument doc(4096);
+        if (doc.capacity() == 0 || deserializeJson(doc, payload, length)) {
             return;
         }
         String op = doc["op"] | "";

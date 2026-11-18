@@ -1,5 +1,28 @@
 # ビルドと検証
 
+## VM実行状態・進捗の可視化（2026-11-18）
+
+Event v2の実行進捗・エラーと旧版読出しの仕様は[Webのdebug-protocol.ts先頭](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、公開周期は[BytecodeDebugger::publishState()](../app/diagram-control/src/bytecode_debugger.cpp)を参照する。再実行時のシリアル状態報告も修正し、Debug EventのReadは[uroa_ble.cppのonRead()/publishDebugEvent()](../lib/ble/src/uroa_ble.cpp)で専用コピーから通信タスクだけがGATTへ反映する。
+
+`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`をリポジトリールートから実行し、default_envsのsupermini_esp32s3だけで最終ソースのコンパイル・リンク・firmware.bin生成に成功した。静的RAMは59120/327680バイト、Flashは1072205/1310720バイト。既存PlatformIOキャッシュへの書込み権限を使用した。両リポジトリーの差分チェックは成功。Webビルド・他ボード・模擬/単体/ブラウザーテスト・Upload・実機確認は未実施。これは表示と診断の修正であり、ユーザー報告のモーターが動かない原因の確定・解消を実証した結果ではない。
+
+
+## BLE Resultの同時更新と切断診断（2026-11-18）
+
+Resultのloop()/Read間の更新担当を[uroa_ble.cppのonRead()/publishBytecodeResult()](../lib/ble/src/uroa_ble.cpp)へ記載した。変更のきっかけはユーザー報告の送信時切断であり、この競合が実際の切断原因だったとは未確定。
+
+`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`をリポジトリールートで実行し、default_envsのsupermini_esp32s3だけでコンパイル・リンク・firmware.bin生成に成功した。静的RAMは59096/327680バイト、Flashは1071969/1310720バイト。既存PlatformIOキャッシュへの書込み権限を使用した。両リポジトリーの差分チェックは成功。Webビルド・他ボード・模擬テスト・Upload・実BLEでの安定性の確認は実行していない。
+
+
+## Python一括転送と検証後開始（2026-11-18）
+
+通信手順・経路別サイズ・バッファ所有権・最終Resultの正本は[Web側の転送仕様コメント](../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)、受信と検証は[BytecodeReceiver](../app/diagram-control/src/bytecode_receiver.cpp)、PC設定と開始は[main.cpp](../app/diagram-control/src/main.cpp)を参照する。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、変更していない`platformio.ini`の`default_envs = supermini_esp32s3`だけで最終ソースのコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59072/327680バイト、Flashは1071961/1310720バイト。既存PlatformIOキャッシュへの書込み権限を使用した。動的な一括受信領域・VM・PC表等の確保は静的RAM値に含まれない。
+
+両リポジトリーの差分チェックは成功。ユーザー指定によりWeb側ビルドと他ボードのビルドは実行していない。模擬・単体・ブラウザーテスト、Upload、実BLE/Wi-Fi、速度改善、MTU交渉、停止・切断時の実動作は未確認。
+
+
 ## SG90の角度用パルス幅修正（2026-11-10）
 
 受付角度拡張後、ユーザーから実機の可動範囲は約80度との報告を受けた。角度指令からパルス幅への換算設定を修正した。設定値・根拠資料・機種と個体ごとの制約は[config.hのMIN_ANGLE付近の仕様コメント](../app/diagram-control/include/config.h)を参照する。今回の変更対象は同ファイルと本記録のみで、作業中のPythonサンプルは変更していない。

@@ -50,7 +50,7 @@ Displayの公開APIと転送仕様は[uroa_display.h](../lib/display/include/uro
 
 プログラム転送はBLE／Wi-Fiの[共通転送仕様](../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を使う。各通信ライブラリーは要求のコピーと結果保持を担当し、[ControlTransport](../app/diagram-control/include/control_transport.h)が受信元・接続世代を照合して配送する。
 
-受信器のキュー・形式検証・確定と取消は[bytecode_receiver.cpp](../app/diagram-control/src/bytecode_receiver.cpp)、両経路で使う識別子は[control_session.h](../app/diagram-control/include/control_session.h)を正本とする。受信完了・開始・実行終了は別々の状態として扱う。
+受信器の専用領域・排他・全体検証・確定と取消は[bytecode_receiver.cpp](../app/diagram-control/src/bytecode_receiver.cpp)、両経路で使う識別子は[control_session.h](../app/diagram-control/include/control_session.h)を正本とする。受信完了・開始・実行終了は別々の状態として扱う。
 
 ## PythonサブセットVM
 

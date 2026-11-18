@@ -1,5 +1,7 @@
 # UroaBLE
 
+ResultとDebug Eventの通信タスク・loop()間の排他・GATT反映は[uroa_ble.cppのonRead()](src/uroa_ble.cpp)、一括転送のフレーム・サイズ・開始条件は[転送仕様コメント](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)、実行進捗のEventは[デバッグ通信の仕様コメント](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を参照する。
+
 `publishStatus()`と`publishTelemetry()`は、各パケットを`notify(data, length)`へ渡して送信バッファーへコピーする。NimBLE-Arduino 2.3.6の無引数`notify()`はCharacteristicの更新を予約し、送信時にその時点の値を読むため、同じCharacteristicへ連続して書くと先の通知が後の値へ置き換わり得る。倒立教材のBalanceとIMU、連続するStatus応答を別々の内容で送るため、無引数の通知へ戻さない。`setValue()`はStatusのReadで最新値を返すために維持する。通知処理の成功は相手の受信・描画を保証しない。
 
 `uroa_ble.h`の`uroa::BleTransport`はBLEサーバー、接続世代、指令の受信、Status/Telemetry通知と認証済みWi-Fi設定窓口を担当する。NimBLEは基板共通なので稼働するオブジェクトは1個とし、グローバルまたはstaticに置く。

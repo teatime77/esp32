@@ -1,93 +1,75 @@
-/**
- * @file bytecode_receiver.h
- * @brief BLE／Wi-Fiの分割バイトコードをキュー経由で受け取り、検証後にRAMへ保持する。
+/** @file bytecode_receiver.h
+ * @brief 一括転送をmutex付き領域へ蓄積し、loop()で検証・確定する。
  */
 #pragma once
 #include <Arduino.h>
-#include <atomic>
 #include <functional>
 #include <memory>
 #include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include "control_session.h"
 
 /**
- * @brief loop()が転送状態・確定プログラムを管理する受信器。VMやFlash保存は行わない。
- * @details 通信タスクはenqueue()だけを呼び、接続世代の検査と動的確保はprocess()で行う。
+ * @brief 通信タスクは受信領域の確保・コピーだけ、loop()はCRC・コード・PCの検証と確定を行う。
+ * @details 通信仕様の正本はuroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭。
+ * enqueue/process/公開結果はmutexで排他し、I2CとVM操作は通信コールバックで行わない。
+ * programとdeploymentの公開メンバーはloop()だけが更新する。VMはprogramを借用する。
  */
 class BytecodeReceiver {
     public:
-    /**
-     * @details
-     * 転送全体の上限は128KiB（131072バイト）。生成器の「命令列のみ65536バイト」の上限とは別に、ヘッダー・関数表・文字列表・UTF-8データも含めて制限する。128KiB以内でも空きRAM不足なら受信を拒否する。上限内ではフレーム数が65535未満なので、sequenceは転送中に周回しない。版別の形式と検証仕様はbytecode_receiver.cpp先頭を参照する。
-     */
-    static constexpr size_t MaxLength = 128 * 1024; ///< ヘッダー・関数表・文字列領域を含む転送全体の最大バイト数。
-    std::unique_ptr<uint8_t[]> program; ///< loop()の正常COMMITで置換。BytecodeDebuggerだけが命令先頭のbit7を変更できる。
-    size_t programLength = 0; ///< 確定済みプログラム長。切断で消去せず、再起動で失われる。
-    uint32_t programCrc32 = 0; ///< ブレークポイントフラグを設定する前の確定イメージ全体のCRC-32。
-    uint32_t programRevision = 0; ///< 正常COMMITで更新する世代。loop()はVM実行前に照合する。
+    static constexpr size_t MaxLength = 128 * 1024; ///< コード全体の上限。
+    static constexpr size_t MaxBundle = 24 + MaxLength + 4096 * 2 + 65536 * 2; ///< PC一覧込み上限。
+    static constexpr size_t MaxFrame = 1024; ///< Wi-Fiの最大フレーム。BLEは合意MTUに制限する。
+    std::unique_ptr<uint8_t[]> program; ///< loop()が確定するコードと末尾のPC一覧の所有領域。
+    size_t programLength = 0; ///< コード部分だけの長さ。
+    uint32_t programCrc32 = 0; ///< フラグ設定前のコードCRC。
+    uint32_t programRevision = 0; ///< 正常な全体検証で更新する世代。
+    bool deploymentPending = false; ///< loop()がPC設定・開始結果を確定するまでtrue。
+    bool startRequested = false; ///< 今回のバンドルの開始フラグ。
+    uint32_t breakpointCount = 0; ///< 今回確定した行PC数。
+    uint32_t stepCount = 0; ///< 今回確定したステップPC数。
+    const uint16_t *breakpoints = nullptr; ///< program末尾の整列済み行PC列。
+    const uint16_t *stepPoints = nullptr; ///< program末尾の整列済みステップPC列。
 
-    /**
-     * @brief 受信キューを確保する。
-     * @param publish 受付結果20バイトの出力先。setup()とloop()から呼ぶ。
-     * @param current 確定直前にも接続世代を再照合する関数。loop()から呼ぶ。
-     */
+    /** @brief 排他を準備する。@param publish 専用Result出力。@param current 接続世代の照合。 */
     void begin(const std::function<void(const uint8_t *, size_t, const ControlSession &)> &publish,
         const std::function<bool(const ControlSession &)> &current);
-    /** @brief 通信タスクからコピーする。@param data フレーム。@param length 長さ。@param session 受信元と接続世代。 */
+    /** @brief 通信タスクから一括領域へコピーする。@param data フレーム。@param length 長さ。@param session 接続世代。 */
     void enqueue(const uint8_t *data, size_t length, ControlSession session);
-    /** @brief 現接続のフレームと期限を処理する。@param connected 現接続が有効か。@param session 受信元と接続世代。 */
+    /** @brief loop()で受信期限・全体検証・確定を行う。@param connected 接続有効。@param session 現接続。 */
     void process(bool connected, ControlSession session);
-    /** @brief サービス公開前にも呼べる、現在の受付結果の再公開。 */
+    /** @brief loop()から開始成功または保持完了を確定する。@param success PC設定・必要なVM初期化の成否。 */
+    void completeDeployment(bool success);
+    /** @brief loop()のStopで未完了受信と開始待ちを取り消す。確定コードは保持する。 */
+    void cancelDeployment();
+    /** @brief setup/loop()からResultを公開する。通信層のロックとの逆順取得を避け、mutex外で配送する。 */
     void publishResult();
 
     private:
-    /** @brief 受信結果コード。diagramのbytecode-transfer.tsと共通。
-     *
-     * @details
-     * 結果コードは0=成功、1=フレーム形式不正、2=ID・順序・位置不正、3=長さ範囲外、4=メモリ不足、5=CRC不一致、6=バイトコード形式不正、7=受信期限切れ、8=受信キュー混雑。BEGIN／DATA成功の状態はreceiving、COMMIT成功の状態はready。エラー時の各長さは診断情報で、保持完了を表さない。転送前・接続変更時の結果はIDとsequenceが0で、進行中のフレームへのACKとして扱わない。
-     */
-    enum Code : uint8_t {
-        Ok = 0,
-        Format = 1,
-        Order = 2,
-        Range = 3,
-        Memory = 4,
-        Crc = 5,
-        Invalid = 6,
-        Timeout = 7,
-        Busy = 8
-    };
-    /** @brief 通信タスクからloop()へ渡す固定長コピー。 */
-    struct Frame {
-        ControlSession session{};
-        uint8_t length = 0;
-        uint8_t data[20]{};
-    };
-
-    /** @brief フレームを検査して状態を更新する。@param frame 現接続世代のフレーム。 */
-    void handle(const Frame &frame);
-    /** @brief 未完了バッファを破棄する。確定済みプログラムは保持する。 */
-    void cancel();
-    /** @brief 結果を更新する。@param code 受付結果。@param frame 応答対象。nullなら直前の番号を使う。 */
-    void reply(Code code, const Frame *frame = nullptr);
-    /** @brief version=1・2・3のバイナリ形式を検証する。@param data 全データ。@param length 長さ。@return 結果コード。 */
+    enum Code : uint8_t { Ok, Format, Order, Range, Memory, Crc, Invalid, Timeout, Busy, Start }; ///< Result.code。
+    /** @brief コード全体を検証する。@param data コード。@param length コード長。@return 検証結果。 */
     Code validate(const uint8_t *data, size_t length);
-
-    QueueHandle_t frames_ = nullptr; ///< setup()で確保し、稼働中は保持する。
-    std::atomic<bool> overflow_{false}; ///< 通信タスクが設定し、loop()が解除する。
+    /** @brief 一括領域を検証しprogramを置換する。mutexを保持しloop()から呼ぶ。@return 結果。 */
+    Code adopt();
+    /** @brief 昇順PC列を命令境界に照合する。@param image 検証済みコード。@param pcs PC列。@param count 個数。@return 全一致。 */
+    bool validatePcs(const uint8_t *image, const uint8_t *pcs, uint32_t count);
+    /** @brief mutex保持中に受信を破棄して最初のエラーを保持する。@param code 結果。 */
+    void reject(Code code);
+    SemaphoreHandle_t lock_ = nullptr; ///< 受信状態・領域・Resultの排他。
     std::function<void(const uint8_t *, size_t, const ControlSession &)> publish_;
     std::function<bool(const ControlSession &)> current_;
     std::unique_ptr<uint8_t[]> pending_;
-    uint8_t result_[20]{};
     ControlSession session_{};
-    bool connected_ = false;
-    bool receiving_ = false;
     uint16_t transferId_ = 0;
     uint16_t sequence_ = 0;
+    uint8_t operation_ = 0;
+    uint8_t state_ = 0;
+    Code error_ = Ok;
     uint32_t received_ = 0;
     uint32_t total_ = 0;
     uint32_t expectedCrc_ = 0;
-    uint32_t crc_ = 0xFFFFFFFF;
     uint32_t lastReceive_ = 0;
+    bool receiving_ = false;
+    bool sealed_ = false;
+    bool dirty_ = true;
 };

@@ -19,7 +19,7 @@ Wi-Fi設定のJSON操作、分割送信、Wi-Fi上の指令・署名・セッシ
 
 ## バイトコードとVM
 
-Bytecode（f3641407、Write最大20バイト）とBytecode Result（f3641408、Read20バイト）で分割転送する。転送フレームとCRC32は[uroaの転送仕様](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。正常COMMITのACKは形式検証・RAM保持の成功を表し、VMの正常終了を意味しない。
+Bytecode（f3641407、Write）とBytecode Result（f3641408、Read）を使う。経路別サイズ・一括転送・PC一覧・検証後開始・最終結果の正本は[uroaの転送仕様コメント](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。
 
 Wi-Fiのプログラム・デバッグ窓口と認証付きRead、両経路でのResult・Event・Dataの照合は[bytecode-transfer.ts](../../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[debug-protocol.ts](../../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)の共通仕様を正本とする。
 
