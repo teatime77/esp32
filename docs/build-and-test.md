@@ -1,5 +1,17 @@
 # ビルドと検証
 
+## SG90の角度用パルス幅修正（2026-11-10）
+
+受付角度拡張後、ユーザーから実機の可動範囲は約80度との報告を受けた。角度指令からパルス幅への換算設定を修正した。設定値・根拠資料・機種と個体ごとの制約は[config.hのMIN_ANGLE付近の仕様コメント](../app/diagram-control/include/config.h)を参照する。今回の変更対象は同ファイルと本記録のみで、作業中のPythonサンプルは変更していない。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、`default_envs`の`supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59068/327680バイト、Flashは1069085/1310720バイト。PlatformIOの既存キャッシュ・ロックファイルへの書込み権限を使用した。テスト・Upload・実波形測定・実機の回転角と端点確認は行っておらず、180度の実回転を確認した結果ではない。Web側の変更・公開ビルドは行っていない。
+
+## diagram-controlのサーボ角度範囲拡張（2026-11-10）
+
+受付範囲・パルス換算・PythonとBLE/Wi-Fiの分担は[config.hのMIN_ANGLE付近の仕様コメント](../app/diagram-control/include/config.h)を参照する。Web側の入力検査と表示も合わせ、作業中のsin波Pythonサンプルは位相と実行間隔を保って振幅を更新した。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、`default_envs`の`supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59068/327680バイト、Flashは1069077/1310720バイト。PlatformIOの既存キャッシュ・ロックファイルへの書込み権限を使用した。uroaの`npm.cmd run verify`も成功した。テスト・Upload・ブラウザー操作・実BLE／Wi-Fi・実機の回転角と端点確認は行っていない。
+
 ## Pythonのsin・cos・tan（2026-11-10）
 
 単位・精度・不正値・生成APIとの分担は[DeviceNative::function_sinの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。device.pyiからJSON・C++の3成果物を再生成し、`--check`による一致確認は成功した。

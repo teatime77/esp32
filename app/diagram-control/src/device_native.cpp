@@ -141,7 +141,7 @@ DeviceNative::Error DeviceNative::Servo_disable(uint32_t receiver) {
     return status == uroa::Pca9685Servos::Result::Ok ? Error::None : Error::NativeFailure;
 }
 
-/** @brief 有効な角度CHへ即時指令する。@param receiver ハンドル。@param angle 度、設定済み60〜120度の範囲。@return 実行結果。 */
+/** @brief 有効な角度CHへ即時指令する。@param receiver ハンドル。@param angle 度。範囲とパルス換算はconfig.hのMIN_ANGLE付近を参照。@return 実行結果。 */
 DeviceNative::Error DeviceNative::Servo_set_angle(uint32_t receiver, float angle) {
     Object *object = find(receiver, Kind::Servo);
     if (!object || object->mode != 0 || !object->ownsOutput || !std::isfinite(angle)) {

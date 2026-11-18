@@ -77,7 +77,7 @@ SenseのカメラにはPSRAMが必要。画像はJPEG、320×240、品質16、�
 
 1. uroa側で`npm.cmd run dev`を起動し、ChromeなどWeb Bluetooth対応ブラウザーでdiagramを開く。別端末から使う場合はHTTPSが必要。
 2. 機器接続ブロックで、起動ログ`Device name:`に表示された機種名と固有番号付きの名前を選ぶ。名前の生成は[device_name.cpp](src/device_name.cpp)を参照する。サービスUUIDは既存BLE Labと同じで、diagram側の変更は不要。
-3. サーボはServoMotorBlockのCHと角度／速度モードを選ぶ。角度は「90°で有効化」の後に60〜120度を指定し、移動時間は0〜10000ms。速度は「0%で有効化」の後に−100〜100%を指定し、時間補間はしない。CHは0〜15。モード変更はCHを無効化し、再有効化を必要とする。
+3. サーボはServoMotorBlockのCHと角度／速度モードを選ぶ。角度は「90°で有効化」の後に指定し、受付範囲とパルス換算は[config.hのMIN_ANGLE付近の仕様コメント](include/config.h)を参照する。移動時間は0〜10000ms。速度は「0%で有効化」の後に−100〜100%を指定し、時間補間はしない。CHは0〜15。モード変更はCHを無効化し、再有効化を必要とする。
 4. IMUBlockを置くとdiagramがSTREAMを要求する。gyro・accを先頭のIMU出力からPlotBlockへ渡せる。このアプリは倒立用Balance通知を送らない。
 5. 「全サーボ停止」またはdiagramのStopで全PWMと待機指令を止める。センサー通知は継続し、STREAM=0で通知を停止する。
 

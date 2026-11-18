@@ -32,11 +32,24 @@ constexpr uint8_t DISPLAY_WIDTH = 128; ///< SSD1306表示幅。PAGE転送用に�
 constexpr uint8_t DISPLAY_HEIGHT = 64;
 constexpr uint8_t PCA_ADDRESS = 0x40;
 constexpr float SERVO_FREQUENCY = 50.0f;
-// 角度サーボの初期範囲。機構と個体を確認してから調整する。
-constexpr uint16_t MIN_ANGLE = 6000; // 0.01度
-constexpr uint16_t MAX_ANGLE = 12000;
-constexpr uint16_t MIN_PULSE_US = 1000; // 公称0度のパルス幅（µs）
-constexpr uint16_t MAX_PULSE_US = 2000; // 公称180度のパルス幅（µs）
+/**
+ * @brief diagram-controlの角度サーボは全CH共通で0〜180度を受け付ける。
+ * @details
+ * 角度の単位は0.01度。main.cppのservoConfig()が共有ライブラリーの既定範囲を上書きし、
+ * lib/servoの範囲検査をPythonのdevice_native.cppとBLE/Wi-Fi指令の両方へ適用する。
+ * Web側のdevice-connection.tsとhardware/servo.tsも同じ受付範囲を使う。
+ * 90度での明示的な有効化を維持し、範囲外の角度は拒否する。
+ * lib/servoは0度をMIN_PULSE_US、180度をMAX_PULSE_USへ線形換算する。
+ * SG90用の初期校正値は500〜2500µsとし、90度は1500µsになる。全CHの角度モードへ適用する。
+ * KeyestudioのSG90仕様（約180度、500〜2500µs）を初期値の根拠とする。
+ * https://www.keyestudio.com/products/keyestudio-micro-servo-sg90-0-180-degrees-for-arduino-smart-car-robot-aircraft-ce-certification
+ * この値は個体ごとの校正結果ではない。機械的な端点へ当たる場合は、実測に基づいて幅を狭める。
+ * この範囲は指令値であり、個体ごとの実際の回転角や機械的な端点を保証しない。
+ */
+constexpr uint16_t MIN_ANGLE = 0;
+constexpr uint16_t MAX_ANGLE = 18000;
+constexpr uint16_t MIN_PULSE_US = 500; ///< 0度指令に対応するパルス幅（µs）。
+constexpr uint16_t MAX_PULSE_US = 2500; ///< 180度指令に対応するパルス幅（µs）。
 constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 5000;
 constexpr char SERVICE_UUID[] = "f3641400-00b0-4240-ba50-05ca45bf8abc";
 constexpr char COMMAND_UUID[] = "f3641401-00b0-4240-ba50-05ca45bf8abc";
