@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## Python数値関数8個の追加（2026-11-19）
+
+API宣言は[device.pyi](../../uroa/diagram/python/device.pyi)、単項・二項の数値関数と小数部だけを返すmodfの仕様は[生成スタブのinvokeFloatUnary／invokeFloatBinary](../app/diagram-control/src/device_api.generated.cpp)、生成元は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)を参照する。JSONとC++を再生成し、`--check`による一致確認は成功した。API追加でABIハッシュを更新したため、JSONとファームウェアをそろえてバイトコードを再ビルド・送信する。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、変更していない`platformio.ini`の`default_envs = supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59124/327680バイト、Flashは1075829/1310720バイト。PlatformIOの既存キャッシュへの書込み権限を使用した。ユーザー指定によりテストは作成・実行せず、Webビルド・他ボード・Upload・ブラウザー操作・VMからの関数実行と実機の戻り値確認も行っていない。
+
 ## ネイティブスタブの共通化と数学関数の直接接続（2026-11-19）
 
 生成・命名・標準関数への接続は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)、三角関数の仕様は[生成スタブのinvokeFloatUnary](../app/diagram-control/src/device_api.generated.cpp)、有限性の検査は[BytecodeVM::callNative()](../app/diagram-control/src/bytecode_vm.cpp)を参照する。生成済みJSONとABIハッシュは変更なし。生成器の`--check`による一致確認は成功した。

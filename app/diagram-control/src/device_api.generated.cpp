@@ -13,14 +13,21 @@ namespace device_api {
         /**
          * @brief float単項関数の引数を検査し、結果をVMスロットへ格納する。
          * @param call VMの入出力領域。
-         * @param function float版の標準関数。
+         * @param function float版の標準関数またはそのアダプター。
          * @return 成功はNone、スロット数不一致はOperand、型不一致はType。
          * @details
-         * sin・cos・tanの共通仕様。device.pyiの宣言からdevice_api_cpp.pyが
-         * invoke_sin/cos/tanとID表を生成し、BackendやDeviceNativeを介さず標準関数を呼ぶ。
+         * 数学関数の共通仕様。device.pyiの宣言からdevice_api_cpp.pyが
+         * invoke_<関数名>とID表を生成し、BackendやDeviceNativeを介さず標準関数を呼ぶ。
          * PythonBlockからimportなしで呼び出す。整数の引数はコンパイラーがfloatへ変換する。
-         * 引数・戻り値はVMのfloat32で、std::sin/cos/tanのfloat版を使う。角度はラジアン。
-         * 度からの変換、入力角度の制限、独自の周期丸めは行わない。
+         * 引数・戻り値はVMのfloat32で、対応するC++標準関数のfloat版を使う。
+         * floorは入力以下の最大の整数値、ceilは入力以上の最小の整数値をfloatで返す。
+         * Python標準のmath.floor/ceilと異なりintは返さず、int32への変換・範囲制限は行わない。
+         * modfはfractionalPartでstd::modfの整数部を破棄し、小数部だけをfloatで返す。
+         * Python標準のmath.modfと異なりタプルは返さない。小数部は入力と同符号で、
+         * modf(-1.25)は-0.25。整数部はゼロ方向へ切り捨てられ、整数入力の結果は符号付きゼロ。
+         * sin・cos・tanの引数とacos・asinの戻り値の角度はラジアン。
+         * acos・asinの入力範囲は[-1, 1]。範囲外の非有限な計算結果もVMがTypeとして拒否する。
+         * sin・cos・tanでは度からの変換、入力角度の制限、独自の周期丸めは行わない。
          * 有限性の検査はbytecode_vm.cppのcallNative()/validValue()が呼出し前後に行う。
          * NaN・無限大の引数と非有限の計算結果はそこでTypeとなり、VMの実行を停止する。
          * tanは丸められたfloat32の角度に対して計算する。特異点付近でも独自のしきい値で
@@ -40,6 +47,40 @@ namespace device_api {
             call.results[0].type = Type::Float;
             call.results[0].real = function(call.arguments[0].real);
             return Error::None;
+        }
+
+        /**
+         * @brief float二項関数の引数を検査し、結果をVMスロットへ格納する。
+         * @param call VMの入出力領域。
+         * @param function float版の標準関数。
+         * @return 成功はNone、スロット数不一致はOperand、型不一致はType。
+         * @details
+         * float32・整数引数の変換・有限性・実行タスクの共通仕様はinvokeFloatUnaryを参照する。
+         * min/maxは数値2引数だけを受け、std::fmin/fmaxで小さい値/大きい値をfloatで返す。
+         * 整数同士でも戻り値はfloat。可変長引数・反復可能オブジェクト・key/defaultは未対応。
+         * atan2(y, x)はstd::atan2(y, x)で象限を含む角度をラジアンで返す。
+         * ゼロ・符号付きゼロの扱いは標準関数に従い、独自の原点判定は行わない。
+         */
+        BytecodeVM::Error invokeFloatBinary(BytecodeVM::NativeCall &call, float (*function)(float, float)) {
+            using Type = BytecodeVM::Type;
+            using Error = BytecodeVM::Error;
+            if (call.argumentSlots != 2 || call.resultSlots != 1) {
+                return Error::Operand;
+            }
+            if (call.arguments[0].type != Type::Float || call.arguments[1].type != Type::Float) {
+                return Error::Type;
+            }
+            call.results[0].type = Type::Float;
+            call.results[0].real = function(call.arguments[0].real, call.arguments[1].real);
+            return Error::None;
+        }
+
+        /** @brief std::modfの小数部だけを返す。仕様はinvokeFloatUnaryを参照する。
+         * @param value 分解する値。@return 入力と同符号の小数部。
+         */
+        float fractionalPart(float value) {
+            float integerPart{};
+            return std::modf(value, &integerPart);
         }
 
         /** @brief Servo_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
@@ -593,24 +634,64 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief std::sinのfloat版を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /** @brief std::sinを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
         BytecodeVM::Error invoke_sin(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::sin));
         }
 
-        /** @brief std::cosのfloat版を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /** @brief std::cosを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
         BytecodeVM::Error invoke_cos(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::cos));
         }
 
-        /** @brief std::tanのfloat版を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /** @brief std::tanを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
         BytecodeVM::Error invoke_tan(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::tan));
         }
 
+        /** @brief std::fminを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_min(BytecodeVM::NativeCall &call) {
+            return invokeFloatBinary(call, static_cast<float (*)(float, float)>(std::fmin));
+        }
+
+        /** @brief std::fmaxを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_max(BytecodeVM::NativeCall &call) {
+            return invokeFloatBinary(call, static_cast<float (*)(float, float)>(std::fmax));
+        }
+
+        /** @brief std::floorを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_floor(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::floor));
+        }
+
+        /** @brief std::ceilを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_ceil(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::ceil));
+        }
+
+        /** @brief fractionalPartを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_modf(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(fractionalPart));
+        }
+
+        /** @brief std::acosを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_acos(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::acos));
+        }
+
+        /** @brief std::asinを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_asin(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::asin));
+        }
+
+        /** @brief std::atan2を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_atan2(BytecodeVM::NativeCall &call) {
+            return invokeFloatBinary(call, static_cast<float (*)(float, float)>(std::atan2));
+        }
+
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
         const uint8_t abiHash[32] = {
-            0x9F, 0x04, 0x40, 0xFB, 0xC4, 0x04, 0x0F, 0xC6, 0x29, 0xC6, 0x04, 0x14, 0x77, 0x6D, 0xDC, 0xA1, 0x36, 0xF3, 0x84, 0x61, 0x55, 0x24, 0x69, 0xC9, 0x48, 0x5E, 0x57, 0x77, 0xEF, 0x96, 0x6D, 0xC9
+            0x08, 0x62, 0x91, 0xAB, 0xF1, 0x89, 0x34, 0x60, 0xB6, 0xA9, 0xDB, 0xD2, 0xD3, 0x87, 0x86, 0x46, 0xF7, 0x8B, 0xDA, 0x83, 0xB7, 0xB2, 0xEB, 0x91, 0x32, 0xED, 0x07, 0x34, 0x82, 0x47, 0x35, 0x32
         };
         // nativeIdの昇順。引数と戻り値の幅はrecord展開後のスロット数。
         const BytecodeVM::NativeEntry entries[] = {
@@ -638,6 +719,14 @@ namespace device_api {
             {22, 1, 1, invoke_sin},
             {23, 1, 1, invoke_cos},
             {24, 1, 1, invoke_tan},
+            {25, 2, 1, invoke_min},
+            {26, 2, 1, invoke_max},
+            {27, 1, 1, invoke_floor},
+            {28, 1, 1, invoke_ceil},
+            {29, 1, 1, invoke_modf},
+            {30, 1, 1, invoke_acos},
+            {31, 1, 1, invoke_asin},
+            {32, 2, 1, invoke_atan2},
         };
 
         /** @brief VM停止時に機器の出力とハンドルを解放する。@param context 登録バックエンド。 */
@@ -648,6 +737,6 @@ namespace device_api {
 
     /** @brief VM登録表を構築する。@param backend 登録中保持する機器操作。@return 静的なID表を参照する登録情報。 */
     BytecodeVM::NativeApi makeNativeApi(Backend &backend) {
-        return {abiHash, entries, 24, &backend, resetBackend};
+        return {abiHash, entries, 32, &backend, resetBackend};
     }
 }
