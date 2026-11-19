@@ -469,6 +469,8 @@ bool BytecodeVM::validValue(const Value &value) const {
  * メソッドはselfのObjectハンドルを先頭に積み、コンストラクターはselfを受け取らない。
  * 引数は読取専用、結果は別領域を未初期化で用意し、成功後だけ引数と置換する。BPは変更しない。
  * スタブは各引数型・classId・ハンドルの有効性を検査し、全結果を宣言順に設定する責任を持つ。
+ * Floatの有限性は本関数がvalidValue()で呼出し前後に検査し、非有限値はTypeで停止する。
+ * device_api.generated.cppの数学関数は共通変換から標準関数へ直接接続し、この検査を使う。
  * コールバックはloop()で短時間に同期実行し、VM再入は禁止。
  * 未登録・ID欠落はエラー14、ABI不一致は15。スタブの失敗は返却されたErrorで停止する。
  * 生成表はdevice_api.generated.cpp、機器操作はdevice_native.cppが担当する。

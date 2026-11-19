@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## ネイティブスタブの共通化と数学関数の直接接続（2026-11-19）
+
+生成・命名・標準関数への接続は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)、三角関数の仕様は[生成スタブのinvokeFloatUnary](../app/diagram-control/src/device_api.generated.cpp)、有限性の検査は[BytecodeVM::callNative()](../app/diagram-control/src/bytecode_vm.cpp)を参照する。生成済みJSONとABIハッシュは変更なし。生成器の`--check`による一致確認は成功した。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、変更していない`platformio.ini`の`default_envs = supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59120/327680バイト、Flashは1072033/1310720バイト。PlatformIOの既存キャッシュ・ロックファイルへの書込み権限を使用した。ユーザー指定によりテストは作成・実行せず、Webビルド・他ボード・Upload・VMからの三角関数呼出しと実機確認も行っていない。
+
 ## VM実行状態・進捗の可視化（2026-11-18）
 
 Event v2の実行進捗・エラーと旧版読出しの仕様は[Webのdebug-protocol.ts先頭](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、公開周期は[BytecodeDebugger::publishState()](../app/diagram-control/src/bytecode_debugger.cpp)を参照する。再実行時のシリアル状態報告も修正し、Debug EventのReadは[uroa_ble.cppのonRead()/publishDebugEvent()](../lib/ble/src/uroa_ble.cpp)で専用コピーから通信タスクだけがGATTへ反映する。
@@ -37,7 +43,7 @@ Resultのloop()/Read間の更新担当を[uroa_ble.cppのonRead()/publishBytecod
 
 ## Pythonのsin・cos・tan（2026-11-10）
 
-単位・精度・不正値・生成APIとの分担は[DeviceNative::function_sinの仕様コメント](../app/diagram-control/src/device_native.cpp)を参照する。device.pyiからJSON・C++の3成果物を再生成し、`--check`による一致確認は成功した。
+単位・精度・不正値・生成APIとの分担は[生成スタブのinvokeFloatUnary仕様コメント](../app/diagram-control/src/device_api.generated.cpp)を参照する。device.pyiからJSON・C++の3成果物を再生成し、`--check`による一致確認は成功した。
 
 リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、`platformio.ini`の`default_envs`に従う`supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59068/327680バイト、Flashは1069065/1310720バイト。PlatformIOの既存キャッシュ・ロックファイルへの書込み権限を使用した。uroaの`npm.cmd run verify`も成功し、配信されたdevice-api.jsonのSHA-256は生成元と一致した。テスト・Upload・ブラウザー操作・実BLE／Wi-Fi・VMからの三角関数実行と実機の戻り値確認は行っていない。
 

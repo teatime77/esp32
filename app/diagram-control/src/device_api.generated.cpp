@@ -1,15 +1,49 @@
 /** @file device_api.generated.cpp
  * @brief device.pyiから自動生成した型検査・値スロット変換・単一ID登録表。直接編集しない。
+ * @details 数学関数は共通変換から直接呼び、機器操作はBackendへ渡す。有限性はVMが検査する。
  */
 #include "device_api.generated.h"
+#include <cmath>
 
 namespace device_api {
     /** @brief 派生バックエンドを破棄する。 */
     Backend::~Backend() = default;
 
     namespace {
+        /**
+         * @brief float単項関数の引数を検査し、結果をVMスロットへ格納する。
+         * @param call VMの入出力領域。
+         * @param function float版の標準関数。
+         * @return 成功はNone、スロット数不一致はOperand、型不一致はType。
+         * @details
+         * sin・cos・tanの共通仕様。device.pyiの宣言からdevice_api_cpp.pyが
+         * invoke_sin/cos/tanとID表を生成し、BackendやDeviceNativeを介さず標準関数を呼ぶ。
+         * PythonBlockからimportなしで呼び出す。整数の引数はコンパイラーがfloatへ変換する。
+         * 引数・戻り値はVMのfloat32で、std::sin/cos/tanのfloat版を使う。角度はラジアン。
+         * 度からの変換、入力角度の制限、独自の周期丸めは行わない。
+         * 有限性の検査はbytecode_vm.cppのcallNative()/validValue()が呼出し前後に行う。
+         * NaN・無限大の引数と非有限の計算結果はそこでTypeとなり、VMの実行を停止する。
+         * tanは丸められたfloat32の角度に対して計算する。特異点付近でも独自のしきい値で
+         * 拒否せず、有限の結果はそのまま返す。数学上のπ/2等でも丸めにより大きな有限値になり得る。
+         * 機器・プログラムの起点には依存せず、待機・NativePendingは使わない。
+         * loop()からVMを通して呼ぶ。contextは使用しない。
+         */
+        BytecodeVM::Error invokeFloatUnary(BytecodeVM::NativeCall &call, float (*function)(float)) {
+            using Type = BytecodeVM::Type;
+            using Error = BytecodeVM::Error;
+            if (call.argumentSlots != 1 || call.resultSlots != 1) {
+                return Error::Operand;
+            }
+            if (call.arguments[0].type != Type::Float) {
+                return Error::Type;
+            }
+            call.results[0].type = Type::Float;
+            call.results[0].real = function(call.arguments[0].real);
+            return Error::None;
+        }
+
         /** @brief Servo_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke1(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Servo_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 2 || call.resultSlots != 1) {
@@ -37,7 +71,7 @@ namespace device_api {
         }
 
         /** @brief Servo_enableの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke2(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Servo_enable(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
@@ -57,7 +91,7 @@ namespace device_api {
         }
 
         /** @brief Servo_disableの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke3(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Servo_disable(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
@@ -77,7 +111,7 @@ namespace device_api {
         }
 
         /** @brief Servo_set_angleの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke4(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Servo_set_angle(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 2 || call.resultSlots != 1) {
@@ -102,7 +136,7 @@ namespace device_api {
         }
 
         /** @brief Servo_set_speedの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke5(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Servo_set_speed(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 2 || call.resultSlots != 1) {
@@ -127,7 +161,7 @@ namespace device_api {
         }
 
         /** @brief IMU_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke6(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_IMU_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 0 || call.resultSlots != 1) {
@@ -145,7 +179,7 @@ namespace device_api {
         }
 
         /** @brief IMU_get_valueの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke7(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_IMU_get_value(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 1 || call.resultSlots != 6) {
@@ -177,7 +211,7 @@ namespace device_api {
         }
 
         /** @brief UltrasonicDistanceSensor_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke8(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_UltrasonicDistanceSensor_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 0 || call.resultSlots != 1) {
@@ -195,7 +229,7 @@ namespace device_api {
         }
 
         /** @brief UltrasonicDistanceSensor_get_distanceの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke9(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_UltrasonicDistanceSensor_get_distance(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
@@ -217,7 +251,7 @@ namespace device_api {
         }
 
         /** @brief Display_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke10(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 0 || call.resultSlots != 1) {
@@ -235,7 +269,7 @@ namespace device_api {
         }
 
         /** @brief Display_set_text_colorの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke11(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_set_text_color(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 2 || call.resultSlots != 1) {
@@ -260,7 +294,7 @@ namespace device_api {
         }
 
         /** @brief Display_set_cursorの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke12(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_set_cursor(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 3 || call.resultSlots != 1) {
@@ -290,7 +324,7 @@ namespace device_api {
         }
 
         /** @brief Display_printの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke13(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_print(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 2 || call.resultSlots != 1) {
@@ -314,7 +348,7 @@ namespace device_api {
         }
 
         /** @brief Display_draw_lineの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke14(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_draw_line(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 6 || call.resultSlots != 1) {
@@ -359,7 +393,7 @@ namespace device_api {
         }
 
         /** @brief Display_draw_rectの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke15(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_draw_rect(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 6 || call.resultSlots != 1) {
@@ -404,7 +438,7 @@ namespace device_api {
         }
 
         /** @brief Display_draw_circleの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke16(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_draw_circle(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 5 || call.resultSlots != 1) {
@@ -444,7 +478,7 @@ namespace device_api {
         }
 
         /** @brief Display_fill_circleの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke17(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_fill_circle(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 5 || call.resultSlots != 1) {
@@ -484,7 +518,7 @@ namespace device_api {
         }
 
         /** @brief Display_displayの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke18(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_Display_display(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
@@ -504,7 +538,7 @@ namespace device_api {
         }
 
         /** @brief function_printの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke19(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_print(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
@@ -523,7 +557,7 @@ namespace device_api {
         }
 
         /** @brief function_sleepの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke20(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_sleep(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
@@ -543,7 +577,7 @@ namespace device_api {
         }
 
         /** @brief function_timeの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke21(BytecodeVM::NativeCall &call) {
+        BytecodeVM::Error invoke_time(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
             if (!call.context || call.argumentSlots != 0 || call.resultSlots != 1) {
@@ -559,70 +593,19 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief function_sinの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke22(BytecodeVM::NativeCall &call) {
-            using Type = BytecodeVM::Type;
-            using Error = BytecodeVM::Error;
-            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
-                return Error::Operand;
-            }
-            float arg_angle{};
-            if (call.arguments[0].type != Type::Float) {
-                return Error::Type;
-            }
-            arg_angle = call.arguments[0].real;
-            float result{};
-            const Error status = static_cast<Backend *>(call.context)->function_sin(arg_angle, result);
-            if (status != Error::None) {
-                return status;
-            }
-            call.results[0].type = Type::Float;
-            call.results[0].real = result;
-            return Error::None;
+        /** @brief std::sinのfloat版を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_sin(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::sin));
         }
 
-        /** @brief function_cosの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke23(BytecodeVM::NativeCall &call) {
-            using Type = BytecodeVM::Type;
-            using Error = BytecodeVM::Error;
-            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
-                return Error::Operand;
-            }
-            float arg_angle{};
-            if (call.arguments[0].type != Type::Float) {
-                return Error::Type;
-            }
-            arg_angle = call.arguments[0].real;
-            float result{};
-            const Error status = static_cast<Backend *>(call.context)->function_cos(arg_angle, result);
-            if (status != Error::None) {
-                return status;
-            }
-            call.results[0].type = Type::Float;
-            call.results[0].real = result;
-            return Error::None;
+        /** @brief std::cosのfloat版を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_cos(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::cos));
         }
 
-        /** @brief function_tanの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
-        BytecodeVM::Error invoke24(BytecodeVM::NativeCall &call) {
-            using Type = BytecodeVM::Type;
-            using Error = BytecodeVM::Error;
-            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
-                return Error::Operand;
-            }
-            float arg_angle{};
-            if (call.arguments[0].type != Type::Float) {
-                return Error::Type;
-            }
-            arg_angle = call.arguments[0].real;
-            float result{};
-            const Error status = static_cast<Backend *>(call.context)->function_tan(arg_angle, result);
-            if (status != Error::None) {
-                return status;
-            }
-            call.results[0].type = Type::Float;
-            call.results[0].real = result;
-            return Error::None;
+        /** @brief std::tanのfloat版を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_tan(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::tan));
         }
 
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
@@ -631,30 +614,30 @@ namespace device_api {
         };
         // nativeIdの昇順。引数と戻り値の幅はrecord展開後のスロット数。
         const BytecodeVM::NativeEntry entries[] = {
-            {1, 2, 1, invoke1},
-            {2, 1, 1, invoke2},
-            {3, 1, 1, invoke3},
-            {4, 2, 1, invoke4},
-            {5, 2, 1, invoke5},
-            {6, 0, 1, invoke6},
-            {7, 1, 6, invoke7},
-            {8, 0, 1, invoke8},
-            {9, 1, 1, invoke9},
-            {10, 0, 1, invoke10},
-            {11, 2, 1, invoke11},
-            {12, 3, 1, invoke12},
-            {13, 2, 1, invoke13},
-            {14, 6, 1, invoke14},
-            {15, 6, 1, invoke15},
-            {16, 5, 1, invoke16},
-            {17, 5, 1, invoke17},
-            {18, 1, 1, invoke18},
-            {19, 1, 1, invoke19},
-            {20, 1, 1, invoke20},
-            {21, 0, 1, invoke21},
-            {22, 1, 1, invoke22},
-            {23, 1, 1, invoke23},
-            {24, 1, 1, invoke24},
+            {1, 2, 1, invoke_Servo_construct},
+            {2, 1, 1, invoke_Servo_enable},
+            {3, 1, 1, invoke_Servo_disable},
+            {4, 2, 1, invoke_Servo_set_angle},
+            {5, 2, 1, invoke_Servo_set_speed},
+            {6, 0, 1, invoke_IMU_construct},
+            {7, 1, 6, invoke_IMU_get_value},
+            {8, 0, 1, invoke_UltrasonicDistanceSensor_construct},
+            {9, 1, 1, invoke_UltrasonicDistanceSensor_get_distance},
+            {10, 0, 1, invoke_Display_construct},
+            {11, 2, 1, invoke_Display_set_text_color},
+            {12, 3, 1, invoke_Display_set_cursor},
+            {13, 2, 1, invoke_Display_print},
+            {14, 6, 1, invoke_Display_draw_line},
+            {15, 6, 1, invoke_Display_draw_rect},
+            {16, 5, 1, invoke_Display_draw_circle},
+            {17, 5, 1, invoke_Display_fill_circle},
+            {18, 1, 1, invoke_Display_display},
+            {19, 1, 1, invoke_print},
+            {20, 1, 1, invoke_sleep},
+            {21, 0, 1, invoke_time},
+            {22, 1, 1, invoke_sin},
+            {23, 1, 1, invoke_cos},
+            {24, 1, 1, invoke_tan},
         };
 
         /** @brief VM停止時に機器の出力とハンドルを解放する。@param context 登録バックエンド。 */

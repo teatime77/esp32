@@ -46,7 +46,7 @@ while True:
 
 プログラムの経過時間はimportなしの`time()`で取得する。起点・精度・VMとの分担は[function_timeの仕様コメント](src/device_native.cpp)を参照する。API追加後は生成物とファームウェアを更新し、バイトコードを再ビルド・送信する。
 
-三角関数はimportなしの`sin(angle)`・`cos(angle)`・`tan(angle)`で使う。単位・精度・不正値の扱いは[function_sinの仕様コメント](src/device_native.cpp)を参照する。
+三角関数はimportなしの`sin(angle)`・`cos(angle)`・`tan(angle)`で使う。単位・精度・不正値の扱いは[生成スタブのinvokeFloatUnary仕様コメント](src/device_api.generated.cpp)を参照する。
 
 SSD1306は[Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306)とGFXを使用する。配線と寸法の設定は[config.h](include/config.h)、実装上のフォント制限は[Display_print](src/device_native.cpp)を参照する。
 
