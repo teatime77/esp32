@@ -48,7 +48,7 @@ while True:
 
 三角関数はimportなしの`sin(angle)`・`cos(angle)`・`tan(angle)`で使う。単位・精度・不正値の扱いは[生成スタブのinvokeFloatUnary仕様コメント](src/device_api.generated.cpp)を参照する。
 
-数値関数は`min(a, b)`・`max(a, b)`・`floor(value)`・`ceil(value)`・`modf(value)`・`acos(value)`・`asin(value)`・`atan2(y, x)`を使える。引数と戻り値の仕様は[生成スタブのinvokeFloatUnary／invokeFloatBinaryコメント](src/device_api.generated.cpp)、宣言は[device.pyi](../../../uroa/diagram/python/device.pyi)を参照する。API追加後は生成済みJSONとファームウェアを更新し、バイトコードを再ビルド・送信する。
+数値関数は`min(a, b)`・`max(a, b)`・`floor(value)`・`ceil(value)`・`modf(value)`・`acos(value)`・`asin(value)`・`atan2(y, x)`・`abs(value)`を使える。引数と戻り値の仕様は[生成スタブのinvokeFloatUnary／invokeFloatBinaryコメント](src/device_api.generated.cpp)、宣言は[device.pyi](../../../uroa/diagram/python/device.pyi)を参照する。API追加後は生成済みJSONとファームウェアを更新し、バイトコードを再ビルド・送信する。
 
 SSD1306は[Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306)とGFXを使用する。配線と寸法の設定は[config.h](include/config.h)、実装上のフォント制限は[Display_print](src/device_native.cpp)を参照する。
 

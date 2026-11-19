@@ -20,6 +20,7 @@ namespace device_api {
          * invoke_<関数名>とID表を生成し、BackendやDeviceNativeを介さず標準関数を呼ぶ。
          * PythonBlockからimportなしで呼び出す。整数の引数はコンパイラーがfloatへ変換する。
          * 引数・戻り値はVMのfloat32で、対応するC++標準関数のfloat版を使う。
+         * absはstd::fabsで絶対値をfloatで返す。整数引数もfloatへ変換し、負のゼロは正のゼロになる。
          * floorは入力以下の最大の整数値、ceilは入力以上の最小の整数値をfloatで返す。
          * Python標準のmath.floor/ceilと異なりintは返さず、int32への変換・範囲制限は行わない。
          * modfはfractionalPartでstd::modfの整数部を破棄し、小数部だけをfloatで返す。
@@ -689,9 +690,14 @@ namespace device_api {
             return invokeFloatBinary(call, static_cast<float (*)(float, float)>(std::atan2));
         }
 
+        /** @brief std::fabsを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        BytecodeVM::Error invoke_abs(BytecodeVM::NativeCall &call) {
+            return invokeFloatUnary(call, static_cast<float (*)(float)>(std::fabs));
+        }
+
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
         const uint8_t abiHash[32] = {
-            0x08, 0x62, 0x91, 0xAB, 0xF1, 0x89, 0x34, 0x60, 0xB6, 0xA9, 0xDB, 0xD2, 0xD3, 0x87, 0x86, 0x46, 0xF7, 0x8B, 0xDA, 0x83, 0xB7, 0xB2, 0xEB, 0x91, 0x32, 0xED, 0x07, 0x34, 0x82, 0x47, 0x35, 0x32
+            0x53, 0xFD, 0x97, 0xA6, 0x2D, 0xDC, 0x1B, 0x1E, 0xD0, 0x49, 0xAE, 0xFA, 0x27, 0x72, 0x7F, 0x8E, 0xDD, 0x17, 0x5D, 0xD1, 0xF8, 0x67, 0x76, 0x9A, 0x85, 0x89, 0xDF, 0xD5, 0x3C, 0x61, 0x47, 0xE0
         };
         // nativeIdの昇順。引数と戻り値の幅はrecord展開後のスロット数。
         const BytecodeVM::NativeEntry entries[] = {
@@ -727,6 +733,7 @@ namespace device_api {
             {30, 1, 1, invoke_acos},
             {31, 1, 1, invoke_asin},
             {32, 2, 1, invoke_atan2},
+            {33, 1, 1, invoke_abs},
         };
 
         /** @brief VM停止時に機器の出力とハンドルを解放する。@param context 登録バックエンド。 */
@@ -737,6 +744,6 @@ namespace device_api {
 
     /** @brief VM登録表を構築する。@param backend 登録中保持する機器操作。@return 静的なID表を参照する登録情報。 */
     BytecodeVM::NativeApi makeNativeApi(Backend &backend) {
-        return {abiHash, entries, 32, &backend, resetBackend};
+        return {abiHash, entries, 33, &backend, resetBackend};
     }
 }

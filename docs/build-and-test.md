@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## Pythonのabs追加（2026-11-19）
+
+宣言は[device.pyi](../../uroa/diagram/python/device.pyi)、数値型と絶対値の仕様は[生成スタブのinvokeFloatUnary](../app/diagram-control/src/device_api.generated.cpp)、生成元は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)を参照する。JSONとC++を再生成し、`--check`による一致確認は成功した。API追加でABIハッシュを更新したため、JSONとファームウェアをそろえてバイトコードを再ビルド・送信する。
+
+リポジトリールートから`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run --project-dir app/diagram-control -j 2`を実行し、変更していない`platformio.ini`の`default_envs = supermini_esp32s3`だけでコンパイル・リンク・`firmware.bin`生成に成功した。静的RAMは59124/327680バイト、Flashは1075909/1310720バイト。PlatformIOの既存キャッシュへの書込み権限を使用した。テストは作成・実行せず、Webビルド・他ボード・Upload・VMからのabs実行と実機確認も行っていない。
+
 ## Python数値関数8個の追加（2026-11-19）
 
 API宣言は[device.pyi](../../uroa/diagram/python/device.pyi)、単項・二項の数値関数と小数部だけを返すmodfの仕様は[生成スタブのinvokeFloatUnary／invokeFloatBinary](../app/diagram-control/src/device_api.generated.cpp)、生成元は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)を参照する。JSONとC++を再生成し、`--check`による一致確認は成功した。API追加でABIハッシュを更新したため、JSONとファームウェアをそろえてバイトコードを再ビルド・送信する。
