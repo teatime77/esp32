@@ -6,7 +6,7 @@
 #include "camera.h"
 #include "config.h"
 
-uroa::WifiNetwork network;
+uroa::WifiNetwork network; ///< 稼働中保持するWi-Fi窓口。setup()で開始し、loop()と通信タスクで共有する。
 
 /**
  * @brief 教材の設定とカメラ処理を渡し、Wi-Fiタスクを開始する。

@@ -1,12 +1,6 @@
 /**
  * @file device_name.cpp
  * @brief 機種名と工場出荷時のMACアドレスから基板固有の表示名を生成する。
- * @details config.hのDEVICE_NAME_PREFIXに「-」とeFuseの既定ベースMAC全6バイトを
- * 大文字16進12桁で付加する。再起動・再書込み・NVS消去でも同じチップの番号は変わらない。
- * main.cppのsetup()で一度生成し、BleTransportとnetwork.cppのWifiNetworkへ同じ名前を渡す。
- * BLEのScan Responseへ名前全体を格納できるよう、名前はASCIIの最大26バイトとする。
- * MAC取得失敗時は空文字列を返し、setup()が通信開始前に停止する。
- * この番号は表示用で認証情報ではない。Wi-Fiの保存済みdeviceId・hostnameとUUIDは変更しない。
  */
 #include "device_name.h"
 #include "config.h"
@@ -18,6 +12,13 @@ static_assert(sizeof(DEVICE_NAME_PREFIX) - 1 + 1 + 12 <= 26, "Device name exceed
 /**
  * @brief 機種名へ工場出荷時のMAC全体を付加し、表示名を生成する。
  * @return 基板固有の表示名。MAC取得に失敗した場合は空文字列。
+ * @details
+ * config.hのDEVICE_NAME_PREFIXに「-」とeFuseの既定ベースMAC全6バイトを
+ * 大文字16進12桁で付加する。再起動・再書込み・NVS消去でも同じチップの番号は変わらない。
+ * main.cppのsetup()で一度生成し、BleTransportとnetwork.cppのWifiNetworkへ同じ名前を渡す。
+ * BLEのScan Responseへ名前全体を格納できるよう、名前はASCIIの最大26バイトとする。
+ * MAC取得失敗時は空文字列を返し、setup()が通信開始前に停止する。
+ * この番号は表示用で認証情報ではない。Wi-Fiの保存済みdeviceId・hostnameとUUIDは変更しない。
  */
 String makeDeviceName() {
     uint8_t mac[6]{};

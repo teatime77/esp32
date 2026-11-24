@@ -19,13 +19,21 @@
  */
 class ControlTransport {
     public:
-    /** @brief 同じ世代番号のBLEとWi-Fiを区別する受信元。 */
+    /**
+     * @brief 同じ世代番号のBLEとWi-Fiを区別する受信元。
+     */
     using Source = ControlSource;
 
-    /** @brief 通信タスクでコピーし、loop()の実行直前にも照合する受信元と接続世代。 */
+    /**
+     * @brief 通信タスクでコピーし、loop()の実行直前にも照合する受信元と接続世代。
+     */
     using Session = ControlSession;
 
-    /** @brief 稼働中保持する通信先を参照する。@param ble BLE。@param wifi Wi-Fi。 */
+    /**
+     * @brief 稼働中保持する通信先を参照する。
+     * @param ble BLE。
+     * @param wifi Wi-Fi。
+     */
     ControlTransport(uroa::BleTransport &ble, uroa::WifiNetwork &wifi);
 
     /**
@@ -34,15 +42,38 @@ class ControlTransport {
      * @return Wi-Fi制御中のBLE・旧接続・切断済みを除外できたらtrue。
      */
     bool isCurrent(const Session &session) const;
-    /** @brief 制御権から現在の経路と世代を読み出す。@return isCurrent()で再照合する識別子。 */
+    /**
+     * @brief 制御権から現在の経路と世代を読み出す。
+     * @return isCurrent()で再照合する識別子。
+     */
     Session currentSession() const;
-    /** @brief 受信元の現接続だけへプログラム受付結果を渡す。@param data 結果。@param length 20。@param session 受信元。 */
+    /**
+     * @brief 受信元の現接続だけへプログラム受付結果を渡す。
+     * @param data 結果。
+     * @param length 20。
+     * @param session 受信元。
+     */
     void publishBytecodeResult(const uint8_t *data, size_t length, const Session &session);
-    /** @brief デバッグACKを受信元の現接続へ渡す。@param data 内容。@param length 20。@param session 受信元。 */
+    /**
+     * @brief デバッグACKを受信元の現接続へ渡す。
+     * @param data 内容。
+     * @param length 20。
+     * @param session 受信元。
+     */
     void publishDebugResult(const uint8_t *data, size_t length, const Session &session);
-    /** @brief 停止イベントを受信元の現接続へ渡す。@param data 内容。@param length 20。@param session 受信元。 */
+    /**
+     * @brief 停止イベントを受信元の現接続へ渡す。
+     * @param data 内容。
+     * @param length 20。
+     * @param session 受信元。
+     */
     void publishDebugEvent(const uint8_t *data, size_t length, const Session &session);
-    /** @brief 停止データを受信元の現接続へ渡す。@param data 内容。@param length 1〜20。@param session 受信元。 */
+    /**
+     * @brief 停止データを受信元の現接続へ渡す。
+     * @param data 内容。
+     * @param length 1〜20。
+     * @param session 受信元。
+     */
     void publishDebugData(const uint8_t *data, size_t length, const Session &session);
 
     /**
@@ -69,6 +100,6 @@ class ControlTransport {
     void publishTelemetry(const uint8_t *data, size_t length);
 
     private:
-    uroa::BleTransport &ble_;
-    uroa::WifiNetwork &wifi_;
+    uroa::BleTransport &ble_; ///< 稼働中借用するBLE窓口。接続状態・世代・MTUは公開atomicから読む。
+    uroa::WifiNetwork &wifi_; ///< 稼働中借用するWi-Fi窓口。制御権の照合と経路別の結果保持を委譲する。
 };

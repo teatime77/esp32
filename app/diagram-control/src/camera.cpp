@@ -8,7 +8,7 @@
 #include <esp_camera.h>
 #endif
 
-std::atomic<bool> cameraReady{false};
+std::atomic<bool> cameraReady{false}; ///< cameraBegin()が初期化結果を更新し、HTTP側はload()で参照する。
 
 /**
  * @brief XIAO Senseのカメラを初期化する。開始済みなら再初期化しない。

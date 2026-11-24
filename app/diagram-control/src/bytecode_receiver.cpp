@@ -1,11 +1,12 @@
-/** @file bytecode_receiver.cpp
+/**
+ * @file bytecode_receiver.cpp
  * @brief 一括転送version=2を蓄積しloop()でコード・PCを検証する。
  * @details 通信の中心契約はuroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭。
  * 受信領域の確保・コピーは通信タスクでmutex排他し、CRC・命令検証・確定はloop()で行う。
- * 新旧コードとPC一覧を同時保持できるRAMが必要。確保失敗はエラーにし、部分コードを実行しない。
- * 確定バッファ先頭へコードを移し、末尾PC列も同じ所有領域に保持する。Flash保存は行わない。
+ * 確定コードはRAMへ保持し、Flash保存は行わない。
  */
 #include "bytecode_receiver.h"
+#include "bytecode_format.h"
 #include <cstring>
 #include <new>
 
@@ -62,24 +63,41 @@ namespace {
         return true;
     }
 
-    /** @brief 非整列のlittle endian値を読む。@param p 2バイトの先頭。@return uint16値。 */
+    /**
+     * @brief 非整列のlittle endian値を読む。
+     * @param p 2バイトの先頭。
+     * @return uint16値。
+     */
     uint16_t read16(const uint8_t *p) {
         return uint16_t(p[0]) | (uint16_t(p[1]) << 8);
     }
 
-    /** @brief 非整列のlittle endian値を読む。@param p 4バイトの先頭。@return uint32値。 */
+    /**
+     * @brief 非整列のlittle endian値を読む。
+     * @param p 4バイトの先頭。
+     * @return uint32値。
+     */
     uint32_t read32(const uint8_t *p) {
         return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
     }
 
-    /** @brief uint32をlittle endianで書く。@param p 出力先。@param value 数値。 */
+    /**
+     * @brief uint32をlittle endianで書く。
+     * @param p 出力先。
+     * @param value 数値。
+     */
     void write32(uint8_t *p, uint32_t value) {
         p[0] = uint8_t(value);
         p[1] = uint8_t(value >> 8);
         p[2] = uint8_t(value >> 16);
         p[3] = uint8_t(value >> 24);
     }
-    /** @brief CRC-32/ISO-HDLC。@param data 入力。@param length 長さ。@return CRC。 */
+    /**
+     * @brief CRC-32/ISO-HDLC。
+     * @param data 入力。
+     * @param length 長さ。
+     * @return CRC。
+     */
     uint32_t crc32(const uint8_t *data, size_t length) {
         uint32_t crc = 0xFFFFFFFF;
         for (size_t i = 0; i < length; ++i) {
@@ -92,7 +110,11 @@ namespace {
     }
 }
 
-/** @brief mutexと配送先を準備する。@param publish Result配送。@param current 世代照合。 */
+/**
+ * @brief mutexと配送先を準備する。
+ * @param publish Result配送。
+ * @param current 世代照合。
+ */
 void BytecodeReceiver::begin(const std::function<void(const uint8_t *, size_t, const ControlSession &)> &publish,
     const std::function<bool(const ControlSession &)> &current) {
     publish_ = publish;
@@ -100,7 +122,10 @@ void BytecodeReceiver::begin(const std::function<void(const uint8_t *, size_t, c
     lock_ = xSemaphoreCreateMutex();
 }
 
-/** @brief 最初のエラーを保持する。@param code 結果。 */
+/**
+ * @brief 最初のエラーを保持する。
+ * @param code 結果。
+ */
 void BytecodeReceiver::reject(Code code) {
     if (error_ == Ok) {
         error_ = code;
@@ -114,9 +139,12 @@ void BytecodeReceiver::reject(Code code) {
 
 /**
  * @brief 通信タスクでヘッダーを検査して専用領域へコピーする。
- * @param data フレーム。@param length 長さ。@param session 接続世代。
+ * @param data フレーム。
+ * @param length 長さ。
+ * @param session 接続世代。
  * @details BEGINで最大MaxBundleまで確保する。DATAは順序・範囲だけを検査し、CRCやVMを処理しない。
  * mutex内のメモリ確保失敗もResultで保持する。キュー4件という受信容量の制限は使用しない。
+ * 新旧コードとPC一覧を同時保持できるRAMが必要。確保失敗はエラーにし、部分コードを実行しない。
  */
 void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSession session) {
     if (!lock_ || !data || !current_ || !current_(session)) {
@@ -201,7 +229,11 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
     xSemaphoreGive(lock_);
 }
 
-/** @brief 接続・期限・全体検証をloop()で処理する。@param connected 接続。@param session 世代。 */
+/**
+ * @brief 接続・期限・全体検証をloop()で処理する。
+ * @param connected 接続。
+ * @param session 世代。
+ */
 void BytecodeReceiver::process(bool connected, ControlSession session) {
     if (!lock_) {
         return;
@@ -243,11 +275,20 @@ void BytecodeReceiver::process(bool connected, ControlSession session) {
     }
 }
 
-/** @brief 検証済みコードとPC列を照合する。@param image コード。@param pcs little endian列。@param count 個数。@return 全一致。 */
-bool BytecodeReceiver::validatePcs(const uint8_t *image, const uint8_t *pcs, uint32_t count) {
-    const uint16_t version = read16(image + 2);
-    const size_t offset = (version == 1 ? 16 : version == 2 ? 24 : 56) + size_t(read16(image + 6)) * (version == 3 ? 12 : 8);
-    const uint32_t length = read32(image + 8);
+/**
+ * @brief 検証済みコードとPC列を照合する。
+ * @param image コード。
+ * @param imageLength イメージ全長。
+ * @param pcs little endian列。
+ * @param count 個数。
+ * @return 全一致。
+ */
+bool BytecodeReceiver::validatePcs(const uint8_t *image, size_t imageLength, const uint8_t *pcs, uint32_t count) {
+    BytecodeFormat::Image view;
+    if (!BytecodeFormat::parseImage(image, imageLength, view)) {
+        return false;
+    }
+    const uint32_t length = view.codeLength;
     uint32_t selected = 0;
     for (uint32_t pc = 0; pc < length;) {
         if (selected < count && read16(pcs + selected * 2) < pc) {
@@ -259,13 +300,20 @@ bool BytecodeReceiver::validatePcs(const uint8_t *image, const uint8_t *pcs, uin
             }
             ++selected;
         }
-        const uint8_t opcode = image[offset + pc];
-        pc += opcode == 3 || opcode == 4 ? 5 : opcode <= 9 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ? 3 : 1;
+        const uint32_t size = BytecodeFormat::instructionLength(view.code[pc]);
+        if (size == 0 || size > length - pc) {
+            return false;
+        }
+        pc += size;
     }
     return selected == count;
 }
 
-/** @brief 全件検証後だけコードとPC一覧の所有領域を置換する。@return 検証結果。 */
+/**
+ * @brief 全件検証後だけコードとPC一覧の所有領域を置換する。
+ * @return 検証結果。
+ * @details 確定バッファ先頭へコードを移し、末尾PC列も同じ所有領域に保持する。
+ */
 BytecodeReceiver::Code BytecodeReceiver::adopt() {
     const uint8_t *p = pending_.get();
     if (!p || total_ < 40 || crc32(p, total_) != expectedCrc_) {
@@ -283,8 +331,8 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
         return Crc;
     }
     const Code valid = validate(p + 24, length);
-    if (valid != Ok || !validatePcs(p + 24, p + pcOffset, bpCount) ||
-        !validatePcs(p + 24, p + pcOffset + bpCount * 2, pointsCount)) {
+    if (valid != Ok || !validatePcs(p + 24, length, p + pcOffset, bpCount) ||
+        !validatePcs(p + 24, length, p + pcOffset + bpCount * 2, pointsCount)) {
         return Invalid;
     }
     if (!current_(session_) || programRevision == UINT32_MAX) {
@@ -304,7 +352,10 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
     return Ok;
 }
 
-/** @brief PC設定と必要なVM開始の結果を確定する。@param success 成否。 */
+/**
+ * @brief PC設定と必要なVM開始の結果を確定する。
+ * @param success 成否。
+ */
 void BytecodeReceiver::completeDeployment(bool success) {
     if (!lock_) {
         return;
@@ -324,7 +375,9 @@ void BytecodeReceiver::completeDeployment(bool success) {
     publishResult();
 }
 
-/** @brief 未完了転送・開始待ちを取り消す。 */
+/**
+ * @brief 未完了転送・開始待ちを取り消す。
+ */
 void BytecodeReceiver::cancelDeployment() {
     if (!lock_) {
         return;
@@ -337,7 +390,9 @@ void BytecodeReceiver::cancelDeployment() {
     xSemaphoreGive(lock_);
 }
 
-/** @brief 排他して結果をコピーした後、排他外で配送する。 */
+/**
+ * @brief 排他して結果をコピーした後、排他外で配送する。
+ */
 void BytecodeReceiver::publishResult() {
     uint8_t result[20]{};
     result[0] = 2;
@@ -367,54 +422,38 @@ void BytecodeReceiver::publishResult() {
     }
 }
 
-/** @brief ヘッダー・関数表・命令境界・オペランドを検証する。@param data 全体。@param length 長さ。@return 結果。
+/**
+ * @brief ヘッダー・関数表・命令境界・オペランドを検証する。
+ * @param data 全体。
+ * @param length 長さ。
+ * @return 結果。
  *
  * @details
  * - バイナリの識別子・版・開始PC・予約領域・全体長・上限。
  * - 関数範囲の順序・連続性・長さ、フレームのスロット数。
- * - opcode・命令長・所属範囲、各範囲の末尾HALT／RET。
+ * - 共通bytecode_format.cppによるversion=3の固定配置と命令長。
+ * - opcode・所属範囲、各範囲の末尾HALT／RET。
  * - 大域・局所変数の位置、CALL先の関数入口への一致。
  * - 分岐先が同じ所属範囲内の命令先頭であること。
  * - float32リテラルが有限であること。
  */
 BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t length) {
-    if (length < 16 || length > MaxLength || read16(data) != 0xB1C0 || read16(data + 12) != 0) {
+    BytecodeFormat::Image view;
+    if (!BytecodeFormat::parseImage(data, length, view)) {
         return Invalid;
     }
-    const uint16_t version = read16(data + 2);
-    if (version != 1 && version != 2 && version != 3) {
-        return Invalid;
-    }
-    const size_t headerLength = version == 1 ? 16 : version == 2 ? 24 : 56;
-    const size_t functionRecordLength = version == 3 ? 12 : 8;
-    if (length < headerLength || read16(data + 14) != (version == 3 ? 2 : 0) ||
-        (version != 1 && read16(data + 18) != (version == 3 ? 2 : 0))) {
-        return Invalid;
-    }
-    const uint16_t globals = read16(data + 4);
-    const uint16_t functions = read16(data + 6);
-    const uint32_t codeLength = read32(data + 8);
-    const uint16_t strings = version == 1 ? 0 : read16(data + 16);
-    const uint32_t dataLength = version == 1 ? 0 : read32(data + 20);
-    const size_t codeOffset = headerLength + size_t(functions) * functionRecordLength;
-    if (codeOffset > length || codeLength < 1 || codeLength > 65536 || codeLength > length - codeOffset) {
-        return Invalid;
-    }
-    const size_t stringTableOffset = codeOffset + codeLength;
-    if (size_t(strings) > (length - stringTableOffset) / 8) {
-        return Invalid;
-    }
-    const size_t stringDataOffset = stringTableOffset + size_t(strings) * 8;
-    if (dataLength != length - stringDataOffset) {
-        return Invalid;
-    }
+    const uint16_t globals = view.globalCount;
+    const uint16_t functions = view.functionCount;
+    const uint32_t codeLength = view.codeLength;
+    const uint16_t strings = view.stringCount;
+    const uint32_t dataLength = view.stringDataLength;
     uint32_t expectedOffset = 0;
     for (size_t index = 0; index < strings; ++index) {
-        const uint8_t *record = data + stringTableOffset + index * 8;
+        const uint8_t *record = view.strings + index * BytecodeFormat::StringRecordLength;
         const uint32_t offset = read32(record);
         const uint32_t size = read32(record + 4);
         if (offset != expectedOffset || offset > dataLength || size > dataLength - offset ||
-            !validUtf8(data + stringDataOffset + offset, size)) {
+            !validUtf8(view.stringData + offset, size)) {
             return Invalid;
         }
         expectedOffset += size;
@@ -423,7 +462,7 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
         return Invalid;
     }
     auto function = [&](size_t index) {
-        return data + headerLength + index * functionRecordLength;
+        return view.functions + index * BytecodeFormat::FunctionRecordLength;
     };
     uint32_t previousEnd = 0;
     for (size_t index = 0; index < functions; ++index) {
@@ -432,7 +471,7 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
         const uint32_t end = start + read16(record + 2);
         if (start == 0 || end <= start || end > codeLength || (index > 0 && start != previousEnd) ||
             uint32_t(read16(record + 4)) + read16(record + 6) + 2 > 65536 ||
-            (version == 3 && (read16(record + 8) == 0 || read16(record + 10) != 0))) {
+            (read16(record + 8) == 0 || read16(record + 10) != 0)) {
             return Invalid;
         }
         previousEnd = end;
@@ -444,7 +483,7 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
     if (!boundaries) {
         return Memory;
     }
-    const uint8_t *code = data + codeOffset;
+    const uint8_t *code = view.code;
     // 1周目で命令先頭を記録し、2周目で前方への分岐も命令先頭か調べる。
     for (int pass = 0; pass < 2; ++pass) {
         int owner = -1;
@@ -457,17 +496,12 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
             const uint32_t end = owner < 0 ? (functions > 0 ? read16(function(0)) : codeLength)
                                          : base + read16(function(owner) + 2);
             const uint8_t opcode = code[pc];
-            if (opcode < 0x01 || opcode > (version == 1 ? 0x18 : version == 2 ? 0x19 : 0x1D)) {
-                return Invalid;
-            }
-            const bool operand = opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 ||
-                opcode == 0x1A || opcode == 0x1C || opcode == 0x1D;
-            const uint32_t size = opcode == 0x03 || opcode == 0x04 ? 5 : operand ? 3 : 1;
-            if (pc + size > end || (pc + size == end && opcode != (owner < 0 ? 0x18 : 0x15))) {
+            const uint32_t size = BytecodeFormat::instructionLength(opcode);
+            if (size == 0 || pc >= end || size > end - pc || (pc + size == end && opcode != (owner < 0 ? 0x18 : 0x15))) {
                 return Invalid;
             }
             boundaries[pc / 8] |= uint8_t(1U << (pc % 8));
-            const uint16_t value = operand ? read16(code + pc + 1) : 0;
+            const uint16_t value = size == 3 ? read16(code + pc + 1) : 0;
             if ((opcode == 0x19 || opcode == 0x1C) && value >= strings) {
                 return Invalid;
             }

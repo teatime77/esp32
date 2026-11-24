@@ -1,15 +1,17 @@
-/** @file bytecode_vm.cpp
+/**
+ * @file bytecode_vm.cpp
  * @brief 値コピーの構造体・関数フレーム・ネイティブ呼出しを持つPythonサブセットVM。
  *
  * @details
  * # PythonサブセットVM
  *
- * BytecodeReceiverで構造検証済みのversion=1/2/3を実行する。バイナリ規約は
- * uroa/diagram/ts/python/bytecode.ts先頭を参照。bytecode_vm.hは公開状態と登録API、
+ * BytecodeReceiverで構造検証済みのversion=3だけを実行する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
+ * uroa/diagram/ts/python/bytecode.tsのencodeBinary()の仕様コメントを参照。bytecode_vm.hは公開状態と登録API、
  * 本ファイルは実行、main.cppはloop()単位の開始・停止・実行量制御を担当する。
  * テスト・Upload・実機動作はビルドとは別の確認事項とする。
  */
 #include "bytecode_vm.h"
+#include "bytecode_format.h"
 #include <cstring>
 #include <cmath>
 #include <new>
@@ -17,17 +19,28 @@
 #include <cstdio>
 
 namespace {
-    /** @brief 非整列のlittle endian値を読む。@param p 2バイト。@return 数値。 */
+    /**
+     * @brief 非整列のlittle endian値を読む。
+     * @param p 2バイト。
+     * @return 数値。
+     */
     uint16_t read16(const uint8_t *p) {
         return uint16_t(p[0]) | (uint16_t(p[1]) << 8);
     }
-    /** @brief 非整列のlittle endian値を読む。@param p 4バイト。@return 数値。 */
+    /**
+     * @brief 非整列のlittle endian値を読む。
+     * @param p 4バイト。
+     * @return 数値。
+     */
     uint32_t read32(const uint8_t *p) {
         return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
     }
 }
 
-/** @brief エラー状態へ移る。@param code 理由。@return false。
+/**
+ * @brief エラー状態へ移る。
+ * @param code 理由。
+ * @return false。
  * @details 診断用の値と登録状態は、次のstop/startまで保持する。
  */
 bool BytecodeVM::fail(Error code) {
@@ -36,7 +49,8 @@ bool BytecodeVM::fail(Error code) {
     return false;
 }
 
-/** @brief 借用バッファを参照しない状態へ戻す。数値の大域変数は保持する。
+/**
+ * @brief 借用バッファを参照しない状態へ戻す。数値の大域変数は保持する。
  * @details
  * 旧イメージを読まず、文字列・Objectの大域値を無効化し、動的文字列を解放する。
  * 数値の大域値はstop後も参照できる。
@@ -60,6 +74,8 @@ void BytecodeVM::stop() {
         }
     }
     stack_.reset();
+    nativeResults_.reset();
+    nativeResultSlots_ = 0;
     depth_ = 0;
     for (Text &text : texts_) {
         text.bytes.reset();
@@ -72,7 +88,10 @@ void BytecodeVM::stop() {
     nativeActive_ = false;
 }
 
-/** @brief 登録表を検査して接続する。@param api 表またはnull。@return 成功時true。
+/**
+ * @brief 登録表を検査して接続する。
+ * @param api 表またはnull。
+ * @return 成功時true。
  * @details 停止中だけ許可する。登録表は非0 IDの昇順、入出力は展開後の幅。
  */
 bool BytecodeVM::bindNativeApi(const NativeApi *api) {
@@ -98,7 +117,11 @@ bool BytecodeVM::bindNativeApi(const NativeApi *api) {
     return true;
 }
 
-/** @brief 検証済みイメージの開始を準備する。@param image 全体。@param length 長さ。@return 成功時true。
+/**
+ * @brief 検証済みイメージの開始を準備する。
+ * @param image 全体。
+ * @param length 長さ。
+ * @return 成功時true。
  *
  * @details
  * イメージ・文字列表は借用する。置換後は次のtickより前にstop/startするmain.cppの規約を守る。
@@ -122,44 +145,27 @@ bool BytecodeVM::start(const uint8_t *image, size_t length) {
     floor_ = 0;
     base_ = 0;
     resultSlots_ = 1;
-    if (image == nullptr || length < 16 || read16(image) != 0xB1C0 || read16(image + 12) != 0) {
+    BytecodeFormat::Image view;
+    if (!BytecodeFormat::parseImage(image, length, view)) {
         return fail(Error::Format);
     }
-    version_ = read16(image + 2);
-    if (version_ < 1 || version_ > 3) {
-        return fail(Error::Format);
-    }
-    // version=3の呼出し規約/API形式は2、関数表は12バイト、それ以前は8バイト。
-    const size_t headerLength = version_ == 3 ? 56 : version_ == 2 ? 24 : 16;
-    recordLength_ = version_ == 3 ? 12 : 8;
-    if (length < headerLength || read16(image + 14) != (version_ == 3 ? 2 : 0) ||
-        (version_ >= 2 && read16(image + 18) != (version_ == 3 ? 2 : 0))) {
-        return fail(Error::Format);
-    }
-    globalCount = read16(image + 4);
-    functionCount_ = read16(image + 6);
-    codeLength_ = read32(image + 8);
-    stringCount_ = version_ >= 2 ? read16(image + 16) : 0;
-    stringDataLength_ = version_ >= 2 ? read32(image + 20) : 0;
-    const size_t offset = headerLength + size_t(functionCount_) * recordLength_;
-    const uint64_t expectedLength = uint64_t(offset) + codeLength_ + uint64_t(stringCount_) * 8 + stringDataLength_;
-    if (length > 128 * 1024 || codeLength_ == 0 || codeLength_ > 65536 || expectedLength != length) {
-        return fail(Error::Format);
-    }
+    globalCount = view.globalCount;
+    functionCount_ = view.functionCount;
+    codeLength_ = view.codeLength;
+    stringCount_ = view.stringCount;
+    stringDataLength_ = view.stringDataLength;
     if (globalCount > MaxGlobals) {
         return fail(Error::Limit);
     }
-    // 登録済みならABIハッシュ32バイトを照合する。未登録でも純粋な計算は実行できる。
-    if (version_ == 3) {
-        std::memcpy(abiHash_, image + 24, sizeof abiHash_);
-        if (nativeApi_ && std::memcmp(abiHash_, nativeApi_->abiHash, sizeof abiHash_) != 0) {
-            return fail(Error::AbiMismatch);
-        }
+    // 登録済みなら指紋を照合する。未登録でも純粋な計算は実行できる。
+    std::memcpy(abiHash_, view.abiHash, sizeof abiHash_);
+    if (nativeApi_ && std::memcmp(abiHash_, nativeApi_->abiHash, sizeof abiHash_) != 0) {
+        return fail(Error::AbiMismatch);
     }
-    table_ = image + headerLength;
-    code_ = image + offset;
-    strings_ = code_ + codeLength_;
-    stringData_ = strings_ + size_t(stringCount_) * 8;
+    table_ = view.functions;
+    code_ = view.code;
+    strings_ = view.strings;
+    stringData_ = view.stringData;
     uint32_t stringEnd = 0;
     for (size_t index = 0; index < stringCount_; ++index) {
         const uint8_t *record = strings_ + index * 8;
@@ -179,13 +185,13 @@ bool BytecodeVM::start(const uint8_t *image, size_t length) {
         return fail(Error::Format);
     }
     for (size_t index = 0; index < functionCount_; ++index) {
-        const uint8_t *record = table_ + index * recordLength_;
+        const uint8_t *record = table_ + index * BytecodeFormat::FunctionRecordLength;
         const uint32_t begin = read16(record);
         const uint32_t end = begin + read16(record + 2);
         if (begin != previousEnd || end <= begin || end > codeLength_) {
             return fail(Error::Format);
         }
-        if (version_ == 3 && (read16(record + 8) == 0 || read16(record + 10) != 0)) {
+        if (read16(record + 8) == 0 || read16(record + 10) != 0) {
             return fail(Error::Format);
         }
         previousEnd = end;
@@ -203,11 +209,28 @@ bool BytecodeVM::start(const uint8_t *image, size_t length) {
     if (!stack_) {
         return fail(Error::Memory);
     }
+    if (nativeApi_) {
+        for (size_t index = 0; index < nativeApi_->count; ++index) {
+            if (nativeApi_->entries[index].resultSlots > nativeResultSlots_) {
+                nativeResultSlots_ = nativeApi_->entries[index].resultSlots;
+            }
+        }
+    }
+    if (nativeResultSlots_ > 0) {
+        nativeResults_.reset(new (std::nothrow) Value[nativeResultSlots_]);
+        if (!nativeResults_) {
+            return fail(Error::Memory);
+        }
+    }
     state = State::Running;
     return true;
 }
 
-/** @brief 一時値を積む。@param value 値。@return 成功時true。 */
+/**
+ * @brief 一時値を積む。
+ * @param value 値。
+ * @return 成功時true。
+ */
 bool BytecodeVM::push(const Value &value) {
     if (sp >= MaxStack) {
         return fail(Error::StackOverflow);
@@ -216,7 +239,10 @@ bool BytecodeVM::push(const Value &value) {
     return true;
 }
 
-/** @brief 固定領域を侵さず一時値を取り出す。@param value 出力。@return 成功時true。
+/**
+ * @brief 固定領域を侵さず一時値を取り出す。
+ * @param value 出力。
+ * @return 成功時true。
  *
  * @details
  * 関数ごとに一時スタックの下限を持ち、POPや演算で引数・局所変数・管理情報を取り出せないようにする。
@@ -229,12 +255,20 @@ bool BytecodeVM::pop(Value &value) {
     return true;
 }
 
-/** @brief 数値か調べる。@param value 値。@return 数値ならtrue。 */
+/**
+ * @brief 数値か調べる。
+ * @param value 値。
+ * @return 数値ならtrue。
+ */
 bool BytecodeVM::numeric(const Value &value) {
     return value.type == Type::Integer || value.type == Type::Float;
 }
 
-/** @brief 数値とNoneの条件判定。@param value 値。@param result 真偽。@return 有効ならtrue。
+/**
+ * @brief 数値とNoneの条件判定。
+ * @param value 値。
+ * @param result 真偽。
+ * @return 有効ならtrue。
  *
  * @details
  * 数値0とNoneは偽、それ以外の数値は真。
@@ -255,7 +289,9 @@ bool BytecodeVM::truth(const Value &value, bool &result) {
     return true;
 }
 
-/** @brief 四則または比較を計算する。@param opcode 0x0A〜0x13。
+/**
+ * @brief 四則または比較を計算する。
+ * @param opcode 0x0A〜0x13。
  *
  * @details
  * 整数同士のADD・SUB・MULはint64で中間計算し、int32範囲を超えたらエラーにする。floatを含む演算とDIVはfloat32の結果を作り、非有限値になったら停止する。DIVは整数同士でもfloatを返し、0除算はエラー。比較は整数値を先にfloat32へ丸めず、doubleへ拡張して行う。NoneのEQ／NEはバイトコード仕様に従い、Noneの大小比較・四則は型エラー。
@@ -341,7 +377,9 @@ void BytecodeVM::calculate(uint8_t opcode) {
     push(result);
 }
 
-/** @brief 引数の前に管理領域を挿入する。@param entry 関数入口PC。
+/**
+ * @brief 引数の前に管理領域を挿入する。
+ * @param entry 関数入口PC。
  *
  * @details
  * ## 関数フレーム
@@ -354,18 +392,18 @@ void BytecodeVM::call(uint16_t entry) {
     size_t high = functionCount_;
     while (low < high) {
         const size_t middle = (low + high) / 2;
-        if (read16(table_ + middle * recordLength_) < entry) {
+        if (read16(table_ + middle * BytecodeFormat::FunctionRecordLength) < entry) {
             low = middle + 1;
         }
         else {
             high = middle;
         }
     }
-    if (low == functionCount_ || read16(table_ + low * recordLength_) != entry) {
+    if (low == functionCount_ || read16(table_ + low * BytecodeFormat::FunctionRecordLength) != entry) {
         fail(Error::Operand);
         return;
     }
-    const uint8_t *record = table_ + low * recordLength_;
+    const uint8_t *record = table_ + low * BytecodeFormat::FunctionRecordLength;
     const uint32_t args = read16(record + 4);
     const uint32_t locals = read16(record + 6);
     if (sp < floor_ || args > sp - floor_) {
@@ -402,10 +440,11 @@ void BytecodeVM::call(uint16_t entry) {
     floor_ = base + 2 + args + locals;
     sp = floor_;
     pc = entry;
-    resultSlots_ = version_ == 3 ? read16(record + 8) : 1;
+    resultSlots_ = read16(record + 8);
 }
 
-/** @brief 戻り値を残し、引数・局所変数・管理領域を解放する。
+/**
+ * @brief 戻り値を残し、引数・局所変数・管理領域を解放する。
  *
  * @details
  * RETは宣言幅の戻り値を呼出し元の引数位置へ移し、フレームを解放する。再帰と値コピーに対応する。
@@ -446,7 +485,11 @@ void BytecodeVM::ret() {
     --depth_;
 }
 
-/** @brief 外部へ渡せる値か検査する。@param value 対象。@return 有効ならtrue。 */
+/**
+ * @brief 外部へ渡せる値か検査する。
+ * @param value 対象。
+ * @return 有効ならtrue。
+ */
 bool BytecodeVM::validValue(const Value &value) const {
     if (value.type == Type::Integer || value.type == Type::None) {
         return true;
@@ -463,11 +506,14 @@ bool BytecodeVM::validValue(const Value &value) const {
     return stringBytes(value, data, length);
 }
 
-/** @brief 単一IDのスタブへスタック上の引数を渡す。@param id 呼出しID。
+/**
+ * @brief 単一IDのスタブへスタック上の引数を渡す。
+ * @param id 呼出しID。
  * @details
  * CALL_NATIVEは単一IDでNativeApiの表を引く。
  * メソッドはselfのObjectハンドルを先頭に積み、コンストラクターはselfを受け取らない。
- * 引数は読取専用、結果は別領域を未初期化で用意し、成功後だけ引数と置換する。BPは変更しない。
+ * 引数は読取専用、結果はstart()で確保した再利用領域を毎回未初期化へ戻し、成功後だけ引数と置換する。BPは変更しない。
+ * 登録表の最大結果幅だけを確保し、呼出しやNativePendingの再試行ごとにはnew/deleteしない。
  * スタブは各引数型・classId・ハンドルの有効性を検査し、全結果を宣言順に設定する責任を持つ。
  * Floatの有限性は本関数がvalidValue()で呼出し前後に検査し、非有限値はTypeで停止する。
  * device_api.generated.cppの数学関数は共通変換から標準関数へ直接接続し、この検査を使う。
@@ -522,12 +568,14 @@ void BytecodeVM::callNative(uint16_t id) {
             return;
         }
     }
-    std::unique_ptr<Value[]> results(new (std::nothrow) Value[entry.resultSlots]);
-    if (!results) {
-        fail(Error::Memory);
+    if (!nativeResults_ || entry.resultSlots > nativeResultSlots_) {
+        fail(Error::Operand);
         return;
     }
-    NativeCall call{*this, stack_.get() + first, results.get(), entry.argumentSlots,
+    for (uint32_t index = 0; index < entry.resultSlots; ++index) {
+        nativeResults_[index] = Value{};
+    }
+    NativeCall call{*this, stack_.get() + first, nativeResults_.get(), entry.argumentSlots,
         entry.resultSlots, nativeApi_->context};
     nativeActive_ = true;
     const Error result = entry.invoke(call);
@@ -542,16 +590,21 @@ void BytecodeVM::callNative(uint16_t id) {
         return;
     }
     for (uint32_t index = 0; index < entry.resultSlots; ++index) {
-        if (!validValue(results[index])) {
+        if (!validValue(nativeResults_[index])) {
             fail(Error::Type);
             return;
         }
     }
-    std::memcpy(stack_.get() + first, results.get(), entry.resultSlots * sizeof(Value));
+    std::memcpy(stack_.get() + first, nativeResults_.get(), entry.resultSlots * sizeof(Value));
     sp = first + entry.resultSlots;
 }
 
-/** @brief 定数または動的Stringの長さ付き参照を得る。@param value 値。@param data 出力。@param length バイト長。@return 有効ならtrue。
+/**
+ * @brief 定数または動的Stringの長さ付き参照を得る。
+ * @param value 値。
+ * @param data 出力。
+ * @param length バイト長。
+ * @return 有効ならtrue。
  * @details
  * 埋込NULを許す。ネイティブ側で非同期に保持する場合はコピーする。
  * 定数文字列の長さはイメージ上限に従う。
@@ -585,7 +638,12 @@ bool BytecodeVM::stringBytes(const Value &value, const char *&data, size_t &leng
     return true;
 }
 
-/** @brief 生存スロットを走査して空き文字列領域を確保する。@param length バイト長。@param value 結果。@param bytes 書込先。@return 成功時true。
+/**
+ * @brief 生存スロットを走査して空き文字列領域を確保する。
+ * @param length バイト長。
+ * @param value 結果。
+ * @param bytes 書込先。
+ * @return 成功時true。
  * @details
  * 動的文字列は64個・各1024バイトまで。確保前にglobalsと生存スタックを走査し、
  * 到達不能な文字列を回収する。
@@ -632,7 +690,9 @@ bool BytecodeVM::allocateText(size_t length, Value &value, char *&bytes) {
     return true;
 }
 
-/** @brief 数値書式から表示用UTF-8文字列を作る。@param format 定数文字列ID。
+/**
+ * @brief 数値書式から表示用UTF-8文字列を作る。
+ * @param format 定数文字列ID。
  * @details
  * FORMAT_VALUE/BUILD_STRINGは表示引数だけの一時文字列を作る。
  * 書式は意味解析の数値書式（幅、精度、b/c/d/e/E/f/F/g/G/n/o/x/X/%）を扱う。
@@ -795,7 +855,10 @@ void BytecodeVM::formatValue(uint16_t format) {
     push(result);
 }
 
-/** @brief 入力を生存させたまま連結し、その後1値へ置換する。@param count 断片数。 */
+/**
+ * @brief 入力を生存させたまま連結し、その後1値へ置換する。
+ * @param count 断片数。
+ */
 void BytecodeVM::buildString(uint16_t count) {
     if (sp < floor_ || count > sp - floor_) {
         fail(Error::StackUnderflow);
@@ -836,7 +899,9 @@ void BytecodeVM::buildString(uint16_t count) {
     push(result);
 }
 
-/** @brief 現在の範囲内で1命令を実行する。 */
+/**
+ * @brief 現在の範囲内で1命令を実行する。
+ */
 void BytecodeVM::step() {
     errorPc = pc;
     if (pc < base_ || pc >= end_ || end_ > codeLength_) {
@@ -847,10 +912,8 @@ void BytecodeVM::step() {
     // PC・命令数・スタックを更新する前に停止し、通常Stopとは別に値と所有機器を保持する。
     const uint8_t instruction = code_[pc];
     const uint8_t opcode = instruction & 0x7F;
-    const uint32_t size = opcode == 0x03 || opcode == 0x04 ? 5 :
-        opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ? 3 : 1;
-    const uint8_t maximum = version_ == 3 ? 0x1D : version_ == 2 ? 0x19 : 0x18;
-    if (opcode < 0x01 || opcode > maximum || pc + size > end_) {
+    const uint32_t size = BytecodeFormat::instructionLength(opcode);
+    if (size == 0 || size > end_ - pc) {
         fail(Error::Format);
         return;
     }
@@ -1006,7 +1069,10 @@ void BytecodeVM::step() {
     }
 }
 
-/** @brief 停止・通信処理へ制御を返すため実行量を制限する。@param budget 最大命令数。 */
+/**
+ * @brief 停止・通信処理へ制御を返すため実行量を制限する。
+ * @param budget 最大命令数。
+ */
 void BytecodeVM::tick(uint32_t budget) {
     yielded_ = false;
     for (uint32_t count = 0; count < budget && state == State::Running && !yielded_; ++count) {
@@ -1014,8 +1080,12 @@ void BytecodeVM::tick(uint32_t budget) {
     }
 }
 
-/** @brief 停止点を命令境界と照合し、1PC=1bitの表を作る。
- * @param points 昇順PC。@param count 個数。@param code 命令列。@param length 命令列長。
+/**
+ * @brief 停止点を命令境界と照合し、1PC=1bitの表を作る。
+ * @param points 昇順PC。
+ * @param count 個数。
+ * @param code 命令列。
+ * @param length 命令列長。
  * @return 全検証と確保に成功したらtrue。
  * @details バイナリを変更せず、通常の行ブレークポイントとは別に保持する。0件は設定解除。
  */
@@ -1030,9 +1100,8 @@ bool BytecodeVM::configureDebugPoints(const uint16_t *points, uint32_t count, co
     uint32_t selected = 0;
     for (uint32_t at = 0; at < length;) {
         const uint8_t opcode = code[at] & 0x7F;
-        const uint32_t size = opcode == 0x03 || opcode == 0x04 ? 5 :
-            opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ? 3 : 1;
-        if (opcode < 1 || opcode > 0x1D || size > length - at || (selected < count && points[selected] < at)) {
+        const uint32_t size = BytecodeFormat::instructionLength(opcode);
+        if (size == 0 || size > length - at || (selected < count && points[selected] < at)) {
             return false;
         }
         if (selected < count && points[selected] == at) {
@@ -1049,7 +1118,9 @@ bool BytecodeVM::configureDebugPoints(const uint16_t *points, uint32_t count, co
     return true;
 }
 
-/** @brief 接続・プログラム世代変更でデバッグ設定を失効させる。VMの値は変更しない。 */
+/**
+ * @brief 接続・プログラム世代変更でデバッグ設定を失効させる。VMの値は変更しない。
+ */
 void BytecodeVM::clearDebugPoints() {
     debugPoints_.reset();
     debugCodeLength_ = 0;
@@ -1057,8 +1128,10 @@ void BytecodeVM::clearDebugPoints() {
     skipDebugArrival_ = false;
 }
 
-/** @brief 現在のフレームを対象に再開・ステップを開始する。
- * @param action 実行方法。@return Pausedかつ有効な操作ならtrue。
+/**
+ * @brief 現在のフレームを対象に再開・ステップを開始する。
+ * @param action 実行方法。
+ * @return Pausedかつ有効な操作ならtrue。
  * @details 閲覧中のフレーム選択は影響しない。Outはモジュールでは拒否する。
  * Over/Outは現在フレームの識別子と深さを保持し、復帰直後はCALLの次の命令の実行前に止める。
  * In/Overは文開始・条件評価・関数入口・暗黙returnで停止する。HALTは通常終了させる。
@@ -1073,12 +1146,27 @@ bool BytecodeVM::resumeDebug(DebugAction action) {
     debugFrameId_ = frameId_;
     debugDepth_ = depth_;
     skipDebugArrival_ = true;
+    if (nativeApi_) {
+        for (size_t index = 0; index < nativeApi_->count; ++index) {
+            if (nativeApi_->entries[index].resultSlots > nativeResultSlots_) {
+                nativeResultSlots_ = nativeApi_->entries[index].resultSlots;
+            }
+        }
+    }
+    if (nativeResultSlots_ > 0) {
+        nativeResults_.reset(new (std::nothrow) Value[nativeResultSlots_]);
+        if (!nativeResults_) {
+            return fail(Error::Memory);
+        }
+    }
     state = State::Running;
     return true;
 }
 
-/** @brief 文字列IDを初出の1回だけ送るため使用スロットを比較する。
- * @param index 大域に続けてスタックを並べた添字。@return 初出Stringならtrue。
+/**
+ * @brief 文字列IDを初出の1回だけ送るため使用スロットを比較する。
+ * @param index 大域に続けてスタックを並べた添字。
+ * @return 初出Stringならtrue。
  * @details loop()だけが呼ぶ。補助配列やC++ポインターの公開は行わない。
  */
 bool BytecodeVM::firstDebugString(uint32_t index) const {
@@ -1095,7 +1183,8 @@ bool BytecodeVM::firstDebugString(uint32_t index) const {
     return true;
 }
 
-/** @brief 参照中の文字列を重複除去してSnapshotの必要長を計算する。
+/**
+ * @brief 参照中の文字列を重複除去してSnapshotの必要長を計算する。
  * @return Pausedでなければ0。上限256KiB、不正な文字列でも0。
  * @details 定数文字列・動的文字列を切り詰めず送る。確保失敗はDebuggerがMemoryとして通知する。
  */
@@ -1120,8 +1209,11 @@ size_t BytecodeVM::debugSnapshotLength() const {
     return length;
 }
 
-/** @brief Pausedの全使用スロットと文字列をパディングなしで直列化する。
- * @param data 出力領域。@param length 正確な必要長。@return Pausedで正常にコピーしたらtrue。
+/**
+ * @brief Pausedの全使用スロットと文字列をパディングなしで直列化する。
+ * @param data 出力領域。
+ * @param length 正確な必要長。
+ * @return Pausedで正常にコピーしたらtrue。
  * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.tsのSnapshot version=2。
  * BPチェーンはReturnPc/SavedBpとdiagramのCALL表から復元する。値・文字列は同じ停止中のもの。
  */

@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## Python VMの旧形式削除・形式解釈の共通化（2026-11-24）
+
+バイトコード版1・2の実行・受信を削除し、VM・受信器・デバッガーの配置と命令長を[bytecode_format.h](../app/diagram-control/include/bytecode_format.h)・[bytecode_format.cpp](../app/diagram-control/src/bytecode_format.cpp)へまとめた。ネイティブの戻り値領域は実行開始時に必要な最大幅で確保して再利用する。形式と呼出し規約の仕様は[uroaのbytecode.ts](../../uroa/diagram/ts/python/bytecode.ts)と、各C++処理のコメントを正本とする。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。コンパイル・リンク・`firmware.bin`生成に成功。RAMは59124/327680バイト、Flashは1075665/1310720バイト。PlatformIOの既存キャッシュ・ロックへの書込み権限を使用した。他の環境はビルドしていない。
+
+ユーザー指定によりテストは作成・実行していない。Upload、転送、デバッガー操作、VM実行、実機確認は行っていない。Web側の確認は[uroaの記録](../../uroa/docs/build-and-test.md)を参照する。
+
 ## Pythonのabs追加（2026-11-19）
 
 宣言は[device.pyi](../../uroa/diagram/python/device.pyi)、数値型と絶対値の仕様は[生成スタブのinvokeFloatUnary](../app/diagram-control/src/device_api.generated.cpp)、生成元は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)を参照する。JSONとC++を再生成し、`--check`による一致確認は成功した。API追加でABIハッシュを更新したため、JSONとファームウェアをそろえてバイトコードを再ビルド・送信する。

@@ -1,32 +1,48 @@
-/** @file bytecode_debugger.cpp
+/**
+ * @file bytecode_debugger.cpp
  * @brief BLE／Wi-Fiデバッグの段階受信、opcode bit7の設定と停止時の値転送。
  * @details バイト単位の共通仕様はuroa/diagram/ts/ble-wifi/debug-protocol.tsを参照する。
  * lib/bleとlib/wifiはコピーだけ、main.cppはloop()の順序、bytecode_vm.cppは停止と値の直列化を担当する。
- * 受信器のCRCはフラグ設定前のイメージを識別する。変更するのは検証済み命令先頭のbit7だけで、
- * プログラム世代は変えない。切断・Wi-Fi切替ではフラグとステップ用停止点を失効させる。
- * PausedはVMだけを止め、既存の出力・補間は維持する。既存Stop・切断・通信期限の停止は優先する。
- * 再開・ステップ要求は停止IDと世代を検証し、VMへ委譲する。行からPCへの変換はdiagramの生成器が担当する。
+ * 行からPCへの変換はdiagramの生成器が担当する。
  */
 #include "bytecode_debugger.h"
+#include "bytecode_format.h"
 #include <cstring>
 #include <new>
 
 namespace {
-    /** @brief 非整列little endianを読む。@param data 2バイト。@return 値。 */
+    /**
+     * @brief 非整列little endianを読む。
+     * @param data 2バイト。
+     * @return 値。
+     */
     uint16_t read16(const uint8_t *data) {
         return uint16_t(data[0]) | uint16_t(data[1]) << 8;
     }
-    /** @brief 非整列little endianを読む。@param data 4バイト。@return 値。 */
+    /**
+     * @brief 非整列little endianを読む。
+     * @param data 4バイト。
+     * @return 値。
+     */
     uint32_t read32(const uint8_t *data) {
         return uint32_t(data[0]) | uint32_t(data[1]) << 8 | uint32_t(data[2]) << 16 | uint32_t(data[3]) << 24;
     }
-    /** @brief little endianで書く。@param data 出力。@param value 値。 */
+    /**
+     * @brief little endianで書く。
+     * @param data 出力。
+     * @param value 値。
+     */
     void write32(uint8_t *data, uint32_t value) {
         for (size_t index = 0; index < 4; ++index) {
             data[index] = uint8_t(value >> (8 * index));
         }
     }
-    /** @brief CRC-32/ISO-HDLC。@param data 内容。@param length 長さ。@return CRC。 */
+    /**
+     * @brief CRC-32/ISO-HDLC。
+     * @param data 内容。
+     * @param length 長さ。
+     * @return CRC。
+     */
     uint32_t crc32(const uint8_t *data, size_t length) {
         uint32_t crc = 0xFFFFFFFF;
         for (size_t index = 0; index < length; ++index) {
@@ -37,24 +53,31 @@ namespace {
         }
         return crc ^ 0xFFFFFFFF;
     }
-    /** @brief フラグ除去後の命令長。@param opcode 0x01〜0x1D。@return バイト数。 */
-    uint32_t instructionLength(uint8_t opcode) {
-        return opcode == 0x03 || opcode == 0x04 ? 5 :
-            opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ? 3 : 1;
-    }
 }
 
-/** @brief 稼働中の依存先を保持する。@param receiver 受信器。@param vm VM。@param transport 通信共通窓口。 */
+/**
+ * @brief 稼働中の依存先を保持する。
+ * @param receiver 受信器。
+ * @param vm VM。
+ * @param transport 通信共通窓口。
+ */
 BytecodeDebugger::BytecodeDebugger(BytecodeReceiver &receiver, BytecodeVM &vm, ControlTransport &transport)
     : receiver_(receiver), vm_(vm), transport_(transport) {
 }
 
-/** @brief setup()で4件の固定コピー領域を確保する。 */
+/**
+ * @brief setup()で4件の固定コピー領域を確保する。
+ */
 void BytecodeDebugger::begin() {
     requests_ = xQueueCreate(4, sizeof(Request));
 }
 
-/** @brief 通信タスクからコピーする。@param data 入力。@param length 長さ。@param session 受信元と接続世代。 */
+/**
+ * @brief 通信タスクからコピーする。
+ * @param data 入力。
+ * @param length 長さ。
+ * @param session 受信元と接続世代。
+ */
 void BytecodeDebugger::enqueue(const uint8_t *data, size_t length, ControlSession session) {
     if (!requests_ || !data || length < 8 || length > 20) {
         overflow_.store(true);
@@ -69,7 +92,9 @@ void BytecodeDebugger::enqueue(const uint8_t *data, size_t length, ControlSessio
     }
 }
 
-/** @brief 段階受信だけを破棄する。 */
+/**
+ * @brief 段階受信だけを破棄する。
+ */
 void BytecodeDebugger::cancelTransfer() {
     receiving_ = false;
     pointsTransfer_ = false;
@@ -78,23 +103,23 @@ void BytecodeDebugger::cancelTransfer() {
     received_ = 0;
 }
 
-/** @brief 検証済みの現イメージから命令列を取得する。@param length 命令長。@return 命令列。 */
+/**
+ * @brief 検証済みの現イメージから命令列を取得する。
+ * @param length 命令長。
+ * @return 命令列。
+ */
 uint8_t *BytecodeDebugger::code(uint32_t &length) {
-    if (!receiver_.program || receiver_.programLength < 16) {
+    BytecodeFormat::Image view;
+    if (!BytecodeFormat::parseImage(receiver_.program.get(), receiver_.programLength, view)) {
         return nullptr;
     }
-    uint8_t *image = receiver_.program.get();
-    const uint16_t version = read16(image + 2);
-    const size_t offset = (version == 1 ? 16 : version == 2 ? 24 : 56) +
-        size_t(read16(image + 6)) * (version == 3 ? 12 : 8);
-    length = read32(image + 8);
-    if (offset > receiver_.programLength || length > receiver_.programLength - offset) {
-        return nullptr;
-    }
-    return image + offset;
+    length = view.codeLength;
+    return receiver_.program.get() + (view.code - receiver_.program.get());
 }
 
-/** @brief 同じイメージの命令先頭だけを元へ戻す。 */
+/**
+ * @brief 同じイメージの命令先頭だけを元へ戻す。
+ */
 void BytecodeDebugger::clearFlags() {
     if (revision_ != receiver_.programRevision) {
         return;
@@ -103,12 +128,18 @@ void BytecodeDebugger::clearFlags() {
     uint8_t *bytes = code(length);
     for (uint32_t pc = 0; bytes && pc < length;) {
         const uint8_t opcode = bytes[pc] & 0x7F;
+        const uint32_t size = BytecodeFormat::instructionLength(opcode);
+        if (size == 0 || size > length - pc) {
+            return;
+        }
         bytes[pc] = opcode;
-        pc += instructionLength(opcode);
+        pc += size;
     }
 }
 
-/** @brief Snapshotの寿命を終了させる。Stop後は古いデータを返さない。 */
+/**
+ * @brief Snapshotの寿命を終了させる。Stop後は古いデータを返さない。
+ */
 void BytecodeDebugger::invalidateSnapshot() {
     snapshot_.reset();
     snapshotLength_ = 0;
@@ -117,7 +148,12 @@ void BytecodeDebugger::invalidateSnapshot() {
     snapshotError_ = Ok;
 }
 
-/** @brief 接続変更・期限・要求をloop()で処理する。@param enabled 現接続で処理可能。@param session 受信元と接続世代。 */
+/**
+ * @brief 接続変更・期限・要求をloop()で処理する。
+ * @param enabled 現接続で処理可能。
+ * @param session 受信元と接続世代。
+ * @details 切断・Wi-Fi切替では命令フラグとステップ用停止点を失効させる。
+ */
 void BytecodeDebugger::process(bool enabled, ControlSession session) {
     const bool changedSession = session.source != session_.source || session.generation != session_.generation;
     if (enabled != enabled_ || changedSession || revision_ != receiver_.programRevision) {
@@ -154,7 +190,13 @@ void BytecodeDebugger::process(bool enabled, ControlSession session) {
     }
 }
 
-/** @brief 全PCの順序・命令境界を確認した後だけフラグを全置換する。@return 成功時true。 */
+/**
+ * @brief 全PCの順序・命令境界を確認した後だけフラグを全置換する。
+ * @return 成功時true。
+ * @details
+ * 受信器のCRCはフラグ設定前のイメージを識別する。変更するのは検証済み命令先頭のbit7だけで、
+ * プログラム世代は変えない。ステップ用の転送ではVMの独立した停止点表へ設定する。
+ */
 bool BytecodeDebugger::applyBreakpoints() {
     uint32_t length = 0;
     uint8_t *bytes = code(length);
@@ -164,8 +206,8 @@ bool BytecodeDebugger::applyBreakpoints() {
     uint32_t selected = 0;
     for (uint32_t pc = 0; pc < length;) {
         const uint8_t opcode = bytes[pc] & 0x7F;
-        const uint32_t size = instructionLength(opcode);
-        if (opcode < 1 || opcode > 0x1D || size > length - pc ||
+        const uint32_t size = BytecodeFormat::instructionLength(opcode);
+        if (size == 0 || size > length - pc ||
             (selected < count_ && pending_[selected] < pc)) {
             return false;
         }
@@ -187,7 +229,10 @@ bool BytecodeDebugger::applyBreakpoints() {
     return true;
 }
 
-/** @brief 受信器が全件検証した行PCとステップPCを開始前に設定する。@return 設定成功。 */
+/**
+ * @brief 受信器が全件検証した行PCとステップPCを開始前に設定する。
+ * @return 設定成功。
+ */
 bool BytecodeDebugger::installDeployment() {
     uint32_t length = 0;
     uint8_t *bytes = code(length);
@@ -202,7 +247,12 @@ bool BytecodeDebugger::installDeployment() {
     return true;
 }
 
-/** @brief 要求ACKをReadへ公開する。@param code 結果。@param value 操作別値。@param extra 操作別値。 */
+/**
+ * @brief 要求ACKをReadへ公開する。
+ * @param code 結果。
+ * @param value 操作別値。
+ * @param extra 操作別値。
+ */
 void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
     std::memset(result_, 0, sizeof result_);
     result_[0] = 1;
@@ -217,7 +267,11 @@ void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
     transport_.publishDebugResult(result_, sizeof result_, session_);
 }
 
-/** @brief 要求を順番に処理する。@param request 現接続の固定コピー。 */
+/**
+ * @brief 要求を順番に処理する。
+ * @param request 現接続の固定コピー。
+ * @details 再開・ステップ要求は停止IDと世代を検証し、VMへ委譲する。
+ */
 void BytecodeDebugger::handle(const Request &request) {
     const uint8_t *data = request.bytes;
     const uint16_t id = read16(data + 2);
@@ -370,7 +424,12 @@ void BytecodeDebugger::handle(const Request &request) {
     reply(result, result == Ok ? accepted : 0);
 }
 
-/** @brief 状態変化とRunningの進捗を通知する。Event v2の契約はWebのdebug-protocol.ts先頭を参照する。 */
+/**
+ * @brief 状態変化とRunningの進捗を通知する。Event v2の契約はWebのdebug-protocol.ts先頭を参照する。
+ * @details
+ * PausedはVMだけを止め、既存の出力・補間は維持する。既存Stop・切断・通信期限の停止は優先する。
+ * 停止値は一度だけコピーして保持し、再開時はinvalidateSnapshot()で失効させる。
+ */
 void BytecodeDebugger::publishState() {
     if (!enabled_) {
         return;

@@ -34,7 +34,9 @@ namespace {
     constexpr uint16_t NotificationHeaderLength =
         uroa::BleTransport::NotificationHeaderLength; ///< ATT通知のヘッダー長。
 
-    /** @brief diagramのDeviceTypeと共通の機器種別。宣言の受付はドライバーの実装・機器の存在を示さない。 */
+    /**
+     * @brief diagramのDeviceTypeと共通の機器種別。宣言の受付はドライバーの実装・機器の存在を示さない。
+     */
     enum class DeviceType : uint8_t {
         IMU6Axis = 0,
         IMU9Axis = 1,
@@ -43,11 +45,13 @@ namespace {
         ServoMotor = 128,
     };
 
-    /** @brief 受信済み機器情報。channelとmodeはサーボの場合だけ使う。 */
+    /**
+     * @brief 受信済み機器情報。channelとmodeはサーボの場合だけ使う。
+     */
     struct DeviceInfoEntry {
-        DeviceType type;
-        uint8_t channel = 255;
-        uint8_t mode = 0;
+        DeviceType type; ///< Web側のDeviceTypeと共通の種別。handleDeviceInfo()が全件検証する。
+        uint8_t channel = 255; ///< サーボのCH0〜15。他の種別では未使用。
+        uint8_t mode = 0; ///< サーボの0=角度、1=速度。他の種別では未使用。
     };
 
     DeviceInfoEntry deviceInfos[DeviceInfoMaxLength]; ///< loop()だけが更新する、受信順の機器一覧。
@@ -78,11 +82,13 @@ namespace {
 
     uroa::HcSr04 ultrasonic(ultrasonicConfig()); ///< 初期化・測定・公開値の参照はultrasonicTask()だけが行う。
 
-    /** @brief 超音波測定タスクからloop()へ渡す、測定要求の世代と距離。 */
+    /**
+     * @brief 超音波測定タスクからloop()へ渡す、測定要求の世代と距離。
+     */
     struct UltrasonicSample {
-        uint32_t request = 0;
+        uint32_t request = 0; ///< 測定開始時の要求値。loop()が現世代の要求と照合する。
         uint32_t measuredAt = 0; ///< 測定を終えたmillis。VMは古い結果を数値として返さない。
-        uint16_t distanceMm = Protocol::InvalidDistanceMm;
+        uint16_t distanceMm = Protocol::InvalidDistanceMm; ///< 測定した距離（mm）。未測定・失敗では無効値を保持する。
     };
 
     QueueHandle_t ultrasonicSamples = nullptr; ///< setup()が確保する最新1件の測定結果キュー。稼働中は破棄しない。
@@ -106,13 +112,15 @@ namespace {
 
     Pca9685Servos servos(Wire, servoConfig()); ///< 明示的なARMまで出力しない角度サーボ。
 
-    /** @brief 受信指令と、その受信元・接続世代を保持する。 */
+    /**
+     * @brief 受信指令と、その受信元・接続世代を保持する。
+     */
     struct Queued {
-        Protocol::Command command;
-        ControlTransport::Session session{};
-        bool isDeviceInfo = false;
-        uint8_t deviceInfoLength = 0;
-        uint8_t deviceInfoData[DeviceInfoMaxLength]{};
+        Protocol::Command command; ///< 通常指令の固定長コピー。isDeviceInfo=falseのときに使う。
+        ControlTransport::Session session{}; ///< 受信元と接続世代。キュー取出し後も現接続へ照合する。
+        bool isDeviceInfo = false; ///< trueなら通常指令ではなく機器一覧の置換要求。
+        uint8_t deviceInfoLength = 0; ///< deviceInfoDataの有効バイト数。0は一覧消去。
+        uint8_t deviceInfoData[DeviceInfoMaxLength]{}; ///< 通信コールバックでコピーした機器一覧。loop()が検証する。
     };
 
     QueueHandle_t commands = nullptr; ///< 通信タスクからloop()へ渡す16件の指令キュー。
@@ -127,14 +135,24 @@ namespace {
     bool vmDistanceActive = false; ///< VMの距離要求。STREAMの要求とは独立し、loop()だけが更新する。
     uint32_t vmDistanceStarted = 0; ///< 初回測定の待機期限を判定するmillis。
 
-    /** @brief 専用タスクのGPIO初期化結果を読む。@return 測定要求を受け取れるならtrue。 */
+    /**
+     * @brief 専用タスクのGPIO初期化結果を読む。
+     * @return 測定要求を受け取れるならtrue。
+     */
     bool nativeDistanceReady();
-    /** @brief VMの距離要求だけを変更する。@param enabled 有効にするか。 */
+    /**
+     * @brief VMの距離要求だけを変更する。
+     * @param enabled 有効にするか。
+     */
     void enableNativeDistance(bool enabled);
-    /** @brief 最新距離をVMへ渡す。@param result mm。@return 成功・待機・失敗。 */
+    /**
+     * @brief 最新距離をVMへ渡す。
+     * @param result mm。
+     * @return 成功・待機・失敗。
+     */
     BytecodeVM::Error readNativeDistance(float &result);
 
-    DeviceNative nativeDevices(Wire, servos, imu, {nativeDistanceReady, enableNativeDistance, readNativeDistance});
+    DeviceNative nativeDevices(Wire, servos, imu, {nativeDistanceReady, enableNativeDistance, readNativeDistance}); ///< VMが使う機器ハンドル・待機・表示の所有者。setup()/loop()で操作する。
     BytecodeVM::NativeApi nativeApi = device_api::makeNativeApi(nativeDevices); ///< setup()でVMへ登録する静的な表。
 
     /**
@@ -246,7 +264,9 @@ namespace {
         ultrasonicRequest.store(next | (enabled || vmDistanceActive ? 1U : 0U));
     }
 
-    /** @brief loop()から通知と超音波測定要求を停止し、旧サンプルを無効化する。 */
+    /**
+     * @brief loop()から通知と超音波測定要求を停止し、旧サンプルを無効化する。
+     */
     void stopTelemetry() {
         streamHz = 0;
         setUltrasonicSampling(false);
@@ -460,12 +480,17 @@ namespace {
         return false;
     }
 
-    /** @brief VMが使う測定タスクの準備状態を確認する。@return 準備済みならtrue。 */
+    /**
+     * @brief VMが使う測定タスクの準備状態を確認する。
+     * @return 準備済みならtrue。
+     */
     bool nativeDistanceReady() {
         return ultrasonicReady.load() && ultrasonicSamples != nullptr;
     }
 
-    /** @brief VMの距離要求を切り替え、STREAMと合成する。@param enabled 有効にするか。
+    /**
+     * @brief VMの距離要求を切り替え、STREAMと合成する。
+     * @param enabled 有効にするか。
      * @details 同じ値の再設定は世代を変えず、複数の距離オブジェクトで最新1件を共有する。
      */
     void enableNativeDistance(bool enabled) {
@@ -477,7 +502,10 @@ namespace {
         setUltrasonicSampling(streamHz != 0 && hasSensor(DeviceType::UltrasonicDistanceSensor));
     }
 
-    /** @brief 最新の測定値をmmで返す。@param result mm。@return 成功・NativePending・NativeFailure。
+    /**
+     * @brief 最新の測定値をmmで返す。
+     * @param result mm。
+     * @return 成功・NativePending・NativeFailure。
      * @details 初回待ちは最大1秒。未測定・失敗の0xFFFFと1秒を超えた古い値を有効な距離へ変換しない。
      */
     BytecodeVM::Error readNativeDistance(float &result) {
@@ -865,7 +893,9 @@ void setup() {
     Serial.printf("BLE address: %s\n", NimBLEDevice::getAddress().toString().c_str());
 }
 
-/** @brief 停止を優先し、現接続の指令、サーボ補間、期限監視と登録センサーの通知を進める。 */
+/**
+ * @brief 停止を優先し、現接続の指令、サーボ補間、期限監視と登録センサーの通知を進める。
+ */
 void loop() {
     uint32_t now = millis();
     bool vmStopRequested = false;
