@@ -1,6 +1,6 @@
 /**
  * @file bytecode_vm.cpp
- * @brief 値コピーの構造体・関数フレーム・ネイティブ呼出しを持つPythonサブセットVM。
+ * @brief 値スロット・関数フレーム・ネイティブ呼出しとGCヒープを持つPythonサブセットVM。
  *
  * @details
  * # PythonサブセットVM
@@ -8,6 +8,7 @@
  * BytecodeReceiverで構造検証済みのversion=3だけを実行する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
  * uroa/diagram/ts/python/bytecode.tsのencodeBinary()の仕様コメントを参照。bytecode_vm.hは公開状態と登録API、
  * 本ファイルは実行、main.cppはloop()単位の開始・停止・実行量制御を担当する。
+ * ヒープ確保・非再帰マーク＆スイープはbytecode_heap.cpp、根とValue列の走査は本ファイルが担当する。
  * テスト・Upload・実機動作はビルドとは別の確認事項とする。
  */
 #include "bytecode_vm.h"
@@ -19,6 +20,20 @@
 #include <cstdio>
 
 namespace {
+    /**
+     * @brief VMが保持する有効なGC参照だけをマークする。
+     * @param heap 回収中のヒープ。
+     * @param values 初期化済みの値スロット列。
+     * @param count スロット数。管理値・数値・文字列ID・機器ハンドルはたどらない。
+     */
+    void markHeapSlots(BytecodeHeap &heap, const BytecodeVM::Value *values, size_t count) {
+        for (size_t index = 0; index < count; ++index) {
+            if (values[index].type == BytecodeVM::Type::HeapReference) {
+                heap.mark(values[index].reference);
+            }
+        }
+    }
+
     /**
      * @brief 非整列のlittle endian値を読む。
      * @param p 2バイト。
@@ -38,6 +53,123 @@ namespace {
 }
 
 /**
+ * @brief C++側の値をGCの根へ登録する。Valueはこの時点で未初期化でもよい。
+ * @param vm ガードより長く生存するVM。
+ * @param value ガードより長く生存し、C++側が更新する値。
+ */
+BytecodeVM::HeapRoot::HeapRoot(BytecodeVM &vm, Value &value) : vm_(vm), value_(value) {
+    next_ = vm_.heapRoots_;
+    if (next_) {
+        next_->previous_ = this;
+    }
+    vm_.heapRoots_ = this;
+}
+
+/**
+ * @brief C++側の根を一覧から外す。GC本体は次の回収まで保持される。
+ */
+BytecodeVM::HeapRoot::~HeapRoot() {
+    if (previous_) {
+        previous_->next_ = next_;
+    }
+    else {
+        vm_.heapRoots_ = next_;
+    }
+    if (next_) {
+        next_->previous_ = previous_;
+    }
+}
+
+/**
+ * @brief VMのスロットとC++の保持値をGCの根として列挙する。
+ * @param heap 回収中のヒープ。
+ * @param context 実行を止めたBytecodeVM。
+ * @details sp以降の古い局所値と、コールバック終了後のnativeResults_は根に含めない。
+ */
+void BytecodeVM::traceHeapRoots(BytecodeHeap &heap, void *context) {
+    BytecodeVM &vm = *static_cast<BytecodeVM *>(context);
+    markHeapSlots(heap, vm.globals.get(), vm.globalCount);
+    markHeapSlots(heap, vm.stack_.get(), vm.sp);
+    markHeapSlots(heap, vm.nativeResults_.get(), vm.nativeRootSlots_);
+    for (HeapRoot *root = vm.heapRoots_; root; root = root->next_) {
+        markHeapSlots(heap, &root->value_, 1);
+    }
+}
+
+/**
+ * @brief 本体内のValue列だけを走査する。数値配列の生データは探索しない。
+ * @param heap 回収中のヒープ。
+ * @param block allocateHeapValue()が初期化した本体。
+ */
+void BytecodeVM::traceHeapValues(BytecodeHeap &heap, BytecodeHeap::Block &block) {
+    markHeapSlots(heap, static_cast<const Value *>(block.data), block.valueCount);
+}
+
+/**
+ * @brief 有効なVM状態でマーク＆スイープを完了させる。
+ * @return 根の領域が有効で、GCが完了したらtrue。
+ * @details 一時停止・通常終了・エラー時も診断用の値は根に残す。Stopで全解放する。
+ * 回収中のC++処理は再入・スレッド並行実行を行わず、全一時参照をHeapRootで保護する。
+ */
+bool BytecodeVM::collectHeap() {
+    if ((state != State::Running && state != State::Paused && state != State::Halted && state != State::Error) ||
+        sp > MaxStack || globalCount > MaxGlobals || (sp != 0 && !stack_) || (globalCount != 0 && !globals) ||
+        nativeRootSlots_ > nativeResultSlots_ || (nativeRootSlots_ != 0 && !nativeResults_)) {
+        return false;
+    }
+    if (heapStatistics.objects == 0) {
+        return true;
+    }
+    return heap_.collect(traceHeapRoots, this);
+}
+
+/**
+ * @brief Value列と数値バイト列を持つ本体を確保し、GC参照を返す。
+ * @param classId 非0の本体型ID。
+ * @param valueCount 本体先頭のValue数。
+ * @param byteCount Value列の後ろに置く生バイト数。
+ * @param value 結果の値。確保をまたぐC++側の保持にはHeapRootを使う。
+ * @return 成功時true。失敗時は出力値を変えず実行エラーにする。
+ * @details 本体はフレームに属さず、代入・引数・returnは参照を共有する。参照数は更新しない。
+ * 確保失敗時だけ同期GCと再試行を行うため、入力・一時値の根を先に登録する。
+ * 第2段階ではPythonの本体生成命令・型表と本体内Stringの寿命統合はまだ追加しない。
+ */
+bool BytecodeVM::allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t byteCount, Value &value) {
+    if (state != State::Running || !stack_) {
+        return false;
+    }
+    if (classId == 0) {
+        return fail(Error::Type);
+    }
+    const size_t maxPayload = MaxHeapBytes - sizeof(BytecodeHeap::Block);
+    if (byteCount > maxPayload || valueCount > (maxPayload - byteCount) / sizeof(Value)) {
+        return fail(Error::Limit);
+    }
+    const size_t bytes = size_t(valueCount) * sizeof(Value) + byteCount;
+    BytecodeHeap::Block *block = heap_.allocate(bytes, valueCount == 0 ? nullptr : traceHeapValues);
+    if (!block) {
+        if (!collectHeap()) {
+            return fail(Error::Memory);
+        }
+        block = heap_.allocate(bytes, valueCount == 0 ? nullptr : traceHeapValues);
+        if (!block) {
+            return fail(Error::Memory);
+        }
+    }
+    block->classId = classId;
+    block->valueCount = valueCount;
+    Value *values = static_cast<Value *>(block->data);
+    for (uint32_t index = 0; index < valueCount; ++index) {
+        new (values + index) Value{};
+    }
+    value = Value{};
+    value.type = Type::HeapReference;
+    value.classId = classId;
+    value.reference = block;
+    return true;
+}
+
+/**
  * @brief エラー状態へ移る。
  * @param code 理由。
  * @return false。
@@ -52,8 +184,9 @@ bool BytecodeVM::fail(Error code) {
 /**
  * @brief 借用バッファを参照しない状態へ戻す。数値の大域変数は保持する。
  * @details
- * 旧イメージを読まず、文字列・Objectの大域値を無効化し、動的文字列を解放する。
+ * 旧イメージを読まず、文字列・Object・HeapReferenceの大域値を無効化し、動的文字列を解放する。
  * 数値の大域値はstop後も参照できる。
+ * NativeApi.resetの後でC++側の根を失効させ、GC本体を全解放する。GCのピーク・時間診断は保持する。
  */
 void BytecodeVM::stop() {
     debugAction_ = DebugAction::Continue;
@@ -69,13 +202,17 @@ void BytecodeVM::stop() {
     stringCount_ = 0;
     stringDataLength_ = 0;
     for (uint32_t index = 0; globals && index < globalCount; ++index) {
-        if (globals[index].type == Type::String || globals[index].type == Type::Object) {
+        if (globals[index].type == Type::String || globals[index].type == Type::Object ||
+            globals[index].type == Type::HeapReference) {
             globals[index] = Value{};
         }
     }
     stack_.reset();
     nativeResults_.reset();
     nativeResultSlots_ = 0;
+    nativeRootSlots_ = 0;
+    sp = 0;
+    bp = 0;
     depth_ = 0;
     for (Text &text : texts_) {
         text.bytes.reset();
@@ -86,6 +223,10 @@ void BytecodeVM::stop() {
         nativeApi_->reset(nativeApi_->context);
     }
     nativeActive_ = false;
+    for (HeapRoot *root = heapRoots_; root; root = root->next_) {
+        root->value_ = Value{};
+    }
+    heap_.clear();
 }
 
 /**
@@ -130,6 +271,7 @@ bool BytecodeVM::bindNativeApi(const NativeApi *api) {
  */
 bool BytecodeVM::start(const uint8_t *image, size_t length) {
     stop();
+    heapStatistics = BytecodeHeap::Statistics{};
     state = State::Idle;
     error = Error::None;
     errorPc = 0;
@@ -447,8 +589,10 @@ void BytecodeVM::call(uint16_t entry) {
  * @brief 戻り値を残し、引数・局所変数・管理領域を解放する。
  *
  * @details
- * RETは宣言幅の戻り値を呼出し元の引数位置へ移し、フレームを解放する。再帰と値コピーに対応する。
+ * RETは宣言幅の値スロットを呼出し元の引数位置へ移し、フレームを解放する。再帰と値コピーに対応する。
  * 宣言幅ちょうどの一時値を先頭からコピーする。Noneの戻り値は従来通り1スロット。
+ * HeapReferenceは本体をコピー・移動せず共有する。calleeの局所参照はspの縮小で根から外れる。
+ * スロットの移動途中ではGCを実行しない。Pythonからの本体returnは後続段階で接続する。
  */
 void BytecodeVM::ret() {
     if (depth_ == 0 || bp + 1 >= floor_ || stack_[bp].type != Type::ReturnPc ||
@@ -501,6 +645,9 @@ bool BytecodeVM::validValue(const Value &value) const {
     if (value.type == Type::Object) {
         return value.classId != 0;
     }
+    if (value.type == Type::HeapReference) {
+        return heap_.contains(value.reference) && value.classId != 0 && value.classId == value.reference->classId;
+    }
     const char *data = nullptr;
     size_t length = 0;
     return stringBytes(value, data, length);
@@ -526,6 +673,8 @@ bool BytecodeVM::validValue(const Value &value) const {
  * sleepもこの契約を使い、時間判定はdevice_native.cppのfunction_sleepが行う。
  * 待機中のstateはRunningで、tick()はC++のloop()へ戻る。完了後は保持した次の命令へ進み、
  * sleepの引数式や呼出し元の文を最初から実行し直さない。
+ * コールバック中は設定途中の結果もGCの根とし、終了後の再利用領域は根から外す。
+ * 引数・結果以外のC++一時参照は確保前にHeapRootで登録する。未登録の生ポインターを保持しない。
  */
 void BytecodeVM::callNative(uint16_t id) {
     if (!nativeApi_ || id == 0) {
@@ -578,7 +727,9 @@ void BytecodeVM::callNative(uint16_t id) {
     NativeCall call{*this, stack_.get() + first, nativeResults_.get(), entry.argumentSlots,
         entry.resultSlots, nativeApi_->context};
     nativeActive_ = true;
+    nativeRootSlots_ = entry.resultSlots;
     const Error result = entry.invoke(call);
+    nativeRootSlots_ = 0;
     yielded_ = true;
     if (result == Error::NativePending) {
         nativePending_ = true;
@@ -1072,10 +1223,16 @@ void BytecodeVM::step() {
 /**
  * @brief 停止・通信処理へ制御を返すため実行量を制限する。
  * @param budget 最大命令数。
+ * @details GC要求は命令の実行前だけ処理する。命令途中のC++ローカルは自動探索しない。
+ * budgetは命令数で、GC時間を含む経過時間の上限を保証しない。
  */
 void BytecodeVM::tick(uint32_t budget) {
     yielded_ = false;
     for (uint32_t count = 0; count < budget && state == State::Running && !yielded_; ++count) {
+        if (heap_.collectionRequested() && !collectHeap()) {
+            fail(Error::Memory);
+            return;
+        }
         step();
     }
 }
@@ -1187,6 +1344,7 @@ bool BytecodeVM::firstDebugString(uint32_t index) const {
  * @brief 参照中の文字列を重複除去してSnapshotの必要長を計算する。
  * @return Pausedでなければ0。上限256KiB、不正な文字列でも0。
  * @details 定数文字列・動的文字列を切り詰めず送る。確保失敗はDebuggerがMemoryとして通知する。
+ * 第2段階のHeapReferenceはまだSnapshotで表現しない。生ポインターを送らず必要長0で拒否する。
  */
 size_t BytecodeVM::debugSnapshotLength() const {
     if (state != State::Paused || sp > MaxStack || globalCount > MaxGlobals ||
@@ -1195,6 +1353,10 @@ size_t BytecodeVM::debugSnapshotLength() const {
     }
     size_t length = 28 + 8 * (globalCount + sp);
     for (uint32_t index = 0; index < globalCount + sp; ++index) {
+        const Value &current = index < globalCount ? globals[index] : stack_[index - globalCount];
+        if (current.type == Type::HeapReference) {
+            return 0;
+        }
         if (!firstDebugString(index)) {
             continue;
         }
@@ -1269,6 +1431,8 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
                 record[3] = uint8_t(value.classId >> 8);
                 payload = value.address;
                 break;
+            case Type::HeapReference:
+                return false;
         }
         for (size_t byte = 0; byte < 4; ++byte) {
             record[4 + byte] = uint8_t(payload >> (byte * 8));

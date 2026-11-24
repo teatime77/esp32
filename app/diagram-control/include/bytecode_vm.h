@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <memory>
+#include "bytecode_heap.h"
 
 /**
  * @brief loop()だけが操作するVM。機器の実装は外部のNativeApiから接続する。
@@ -17,6 +18,9 @@ class BytecodeVM {
     static constexpr uint32_t MaxFrames = 64; ///< 同時ユーザー関数呼出し上限。
     static constexpr uint32_t MaxStrings = 64; ///< 動的文字列の同時保持上限。
     static constexpr uint32_t MaxStringLength = 1024; ///< 整形・連結結果の最大UTF-8バイト長。
+    static constexpr size_t MaxHeapBytes =
+        128 * 1024; ///< GC本体と管理ヘッダーの合計上限。物理的な確保成功は保証しない。
+    static constexpr size_t HeapCollectionBytes = 32 * 1024; ///< 回収後の累積確保量が達したら次の命令境界でGCを行う。
     /**
      * @brief 実行状態。従来の番号0〜4を維持する。
      */
@@ -73,25 +77,67 @@ class BytecodeVM {
         ReturnPc,
         SavedBp,
         String,
-        Object
+        Object,
+        HeapReference ///< 8: VM内部のGC本体参照。バイトコード型・Snapshotへの公開は後続段階で行う。
     };
+
     /**
-     * @brief 1個の値。構造体は宣言順に複数スロットを並べる。
+     * @brief 1個の値。既存recordは複数スロット、GC本体はポインター1個を保持する。
      */
     struct Value {
-        Type type = Type::Uninitialized; ///< この値スロットの種別。未初期化・数値・管理値・文字列・機器を区別する。
-        uint16_t classId = 0; ///< ObjectのクラスID。ほかの型では使用しない。
+        Type type = Type::Uninitialized; ///< 未初期化・数値・管理値・文字列・機器・GC本体を区別する。
+        uint16_t classId = 0; ///< ObjectまたはHeapReferenceの型ID。ほかの型では使用しない。
         union {
             int32_t integer = 0; ///< Integerの符号付き32bit整数値。初期値は0。
             float real; ///< Floatの単精度値。演算と外部呼出しでは有限性も検査する。
             uint32_t address; ///< 管理値・文字列ID・機器ハンドル。C++ポインターではない。
+            BytecodeHeap::Block *reference; ///< HeapReferenceだけが使うGCヘッダーへのポインター。整数から復元しない。
         };
     };
+
+    /**
+     * @brief C++側のValueをGCの根へ登録するスコープガード。参照カウントではない。
+     * @details 値はガードより長く生存させ、確保APIを呼ぶ前に登録する。VMの生存中にloop()だけで使用する。
+     * Valueの代入後も同じ登録で追跡する。登録前の生ポインター保持や、ガードのコピー・移動は禁止する。
+     * C++が所有するValueだけを登録し、VMスロットやGC本体内のValueは登録しない。文字列プールの根登録は対象外。
+     */
+    class HeapRoot {
+        public:
+        /**
+         * @brief 未初期化の値も含め、C++の一時値を根へ登録する。
+         * @param vm 根を管理するVM。
+         * @param value 根として借用する値。Stop時は未初期化へ戻される。
+         */
+        HeapRoot(BytecodeVM &vm, Value &value);
+        /**
+         * @brief 根から外す。本体はここでは解放しない。
+         */
+        ~HeapRoot();
+        /**
+         * @brief 同じ根の二重登録をコピーで作らない。
+         * @param other コピー元。
+         */
+        HeapRoot(const HeapRoot &other) = delete;
+        /**
+         * @brief 登録済みリンクをコピー代入しない。
+         * @param other コピー元。
+         * @return 使用禁止。
+         */
+        HeapRoot &operator=(const HeapRoot &other) = delete;
+
+        private:
+        friend class BytecodeVM;
+        BytecodeVM &vm_; ///< ガードより長く生存するVM。
+        Value &value_; ///< C++側が更新する根の値。
+        HeapRoot *previous_ = nullptr; ///< 根リストの直前。
+        HeapRoot *next_ = nullptr; ///< 根リストの直後。
+    };
+
     /**
      * @brief スタブ呼出し領域。arguments/resultsは同期コールバック中だけ有効。
      */
     struct NativeCall {
-        BytecodeVM &vm; ///< stringBytes()による文字列参照に使用。再入・VM操作は禁止。
+        BytecodeVM &vm; ///< 文字列参照・GC本体確保・HeapRoot登録に使用。実行・停止等のVM再入は禁止。
         const Value *arguments; ///< self、明示引数の順。構造体は展開済み。
         Value *results; ///< 必ずresultSlots個すべてを設定する。Noneも1個返す。
         uint16_t argumentSlots; ///< selfと明示引数を宣言順に展開した入力スロット数。
@@ -126,7 +172,8 @@ class BytecodeVM {
     uint32_t bp = 0; ///< 現在の関数フレームの先頭スロット。BP+0/1は戻りPCと旧BP。
     uint32_t instructions = 0; ///< step()が加算する実行命令数。NativePendingによる再試行も数える。
     uint8_t pauseReason = 1; ///< VMが更新する。1=ブレークポイント、2=ステップ。
-    std::unique_ptr<Value[]> globals; ///< stopではString/Objectを無効化し、数値は保持する。
+    BytecodeHeap::Statistics heapStatistics; ///< ヒープが更新する確保量とGC診断。外部は参照のみ。start()で初期化する。
+    std::unique_ptr<Value[]> globals; ///< stopではString/Object/HeapReferenceを無効化し、数値は保持する。
     uint32_t globalCount = 0; ///< start()が確保した大域値スロット数。構造体は末端フィールドの幅を含む。
 
     /**
@@ -148,7 +195,25 @@ class BytecodeVM {
      */
     void tick(uint32_t budget = 128);
     /**
-     * @brief 借用参照・動的文字列・機器ハンドルを解放する。数値と診断情報は保持する。
+     * @brief Value列と数値バイト列からなるGC本体を確保する。Pythonからの生成はまだ未対応。
+     * @param classId 非0の本体型ID。
+     * @param valueCount 本体先頭に置くValueの個数。参照型のスロットだけをGCでたどる。
+     * @param byteCount Value列の後ろに置く、走査しない数値等のバイト数。
+     * @param value 結果の参照。出力前の値は変更しない。以後の確保をまたいで使うならHeapRootを先に登録する。
+     * @return 成功時true。型・サイズ・メモリーの失敗は実行エラーにする。
+     * @details Runningで、未登録のC++一時参照がない位置からのみ呼ぶ。失敗時はGC後に一度だけ確保を再試行する。
+     * 本体内Stringの文字列プールとの寿命統合、Pythonの本体型・生成命令は後続段階の対象。
+     */
+    bool allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t byteCount, Value &value);
+    /**
+     * @brief 現在の根から同期GCを実行する。GC自身は本体を移動せず、追加領域も確保しない。
+     * @return 実行中・一時停止・通常終了・エラー状態の有効な値領域で回収できたらtrue。
+     * @details loop()の命令境界か、全一時参照をHeapRootで登録したC++処理だけが呼ぶ。
+     * 関数終了は参照スロットを除くだけで本体を解放しない。停止中の診断値は根として保持する。
+     */
+    bool collectHeap();
+    /**
+     * @brief 借用参照・動的文字列・機器ハンドル・GC本体を解放する。数値と診断情報は保持する。
      */
     void stop();
     /**
@@ -192,6 +257,18 @@ class BytecodeVM {
     bool resumeDebug(DebugAction action);
 
     private:
+    /**
+     * @brief VMの値スタック・大域・ネイティブ結果・C++側の根を列挙する。
+     * @param heap 回収中のヒープ。
+     * @param context BytecodeVMの借用ポインター。
+     */
+    static void traceHeapRoots(BytecodeHeap &heap, void *context);
+    /**
+     * @brief 本体先頭のValue列だけから有効な本体参照をたどる。
+     * @param heap 回収中のヒープ。
+     * @param block VMが初期化した本体。後続の数値バイト列は読まない。
+     */
+    static void traceHeapValues(BytecodeHeap &heap, BytecodeHeap::Block &block);
     /**
      * @brief 使用スロット順で文字列IDの初出か調べる。
      * @param index 大域、スタックの順の添字。
@@ -317,6 +394,10 @@ class BytecodeVM {
     uint16_t functionCount_ = 0; ///< 関数表の件数。call()が入口PCを二分探索するときに使う。
     std::unique_ptr<Value[]> nativeResults_; ///< start()で最大結果幅を確保し、callNative()が初期化・再利用する。
     uint32_t nativeResultSlots_ = 0; ///< 再利用領域のスロット数。stop()で0へ戻す。
+    uint32_t nativeRootSlots_ = 0; ///< 同期ネイティブ処理中だけ根として走査する結果スロット数。
+    HeapRoot *heapRoots_ = nullptr; ///< C++の一時・保持値を根へ登録するガードの一覧。
+    BytecodeHeap heap_{
+        heapStatistics, MaxHeapBytes, HeapCollectionBytes}; ///< VMが所有するGC本体。heapStatisticsより先に破棄する。
     std::unique_ptr<Value[]> stack_; ///< start()が確保する値スタックの所有領域。stop()が解放する。
     Text texts_[MaxStrings]; ///< 動的文字列の所有プール。allocateText()が生存値から未参照領域を回収する。
     Frame frames_[MaxFrames]{}; ///< 呼出し元の実行範囲と戻り値幅を保存する配列。call()/ret()が更新する。

@@ -13,6 +13,7 @@ uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはW
 | [include/control_session.h](include/control_session.h) | BLE／Wi-Fiの受信元と接続世代の共通識別子 |
 | [include/bytecode_receiver.h](include/bytecode_receiver.h)・[src/bytecode_receiver.cpp](src/bytecode_receiver.cpp) | 分割バイトコードの検証・RAM保持・確定世代の更新 |
 | [include/bytecode_vm.h](include/bytecode_vm.h)・[src/bytecode_vm.cpp](src/bytecode_vm.cpp) | 値スロットVMとネイティブ呼出しの登録API。loop()から最大128命令ずつ実行 |
+| [include/bytecode_heap.h](include/bytecode_heap.h)・[src/bytecode_heap.cpp](src/bytecode_heap.cpp) | VMのGCヒープ基盤。確保・根・回収・診断と未対応範囲はVMとヒープの仕様コメントを参照 |
 | [include/bytecode_debugger.h](include/bytecode_debugger.h)・[src/bytecode_debugger.cpp](src/bytecode_debugger.cpp) | BLE／Wi-Fiのブレークポイント一覧と停止Snapshotの通信 |
 | [include/device_api.generated.h](include/device_api.generated.h)・[src/device_api.generated.cpp](src/device_api.generated.cpp) | device.pyiから生成する型・スタブ・ABIハッシュ・ID表 |
 | [include/device_native.h](include/device_native.h)・[src/device_native.cpp](src/device_native.cpp) | 既存ドライバーを使うPython機器APIの実装 |

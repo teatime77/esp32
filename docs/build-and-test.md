@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## オブジェクト・NumPy対応 第2段階：ヒープ管理・GC基盤（2026-11-24）
+
+[bytecode_heap.h](../app/diagram-control/include/bytecode_heap.h)・[bytecode_heap.cpp](../app/diagram-control/src/bytecode_heap.cpp)を追加し、[VM](../app/diagram-control/src/bytecode_vm.cpp)へ接続した。確保・回収・根・診断の契約はソースコメントを参照する。GC方針に合わせた残りの計画は[uroaの変更一覧](../../uroa/docs/diagram/python/object-array-change-map.md)。Pythonのクラス・配列生成、既存recordの参照化、本体内文字列、Snapshotの本体表示は後続段階。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。コンパイル・リンク・`firmware.bin`生成に成功。RAMは59196/327680バイト、Flashは1075133/1310720バイト。PlatformIOのユーザー領域にあるキャッシュ・ロックへの書込み権限を使用した。他の環境はビルドしていない。
+
+新規ファイルとVMの変更箇所を`.clang-format`で整形し、コメントと差分を確認した。生成API・ABI・バイトコード／Snapshotの形式は変更していない。ユーザー指定によりテストは作成・実行せず、Upload・VM実行・GCの回収動作／時間・実機確認は行っていない。この段階で止め、ユーザーの確認・commit・pushを待つ。
+
 ## オブジェクト・NumPy対応 第1段階：共有定義の生成（2026-11-24）
 
 [uroaのdevice.pyi](../../uroa/diagram/python/device.pyi)から[生成ヘッダー](../app/diagram-control/include/device_api.generated.h)へNumPyの関数・引数番号を追加した。生成元は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)の`CppGenerator.module_enums()`。NumPyのネイティブ実行処理は登録せず、既存の機器・数値APIのIDと呼出し規約を維持している。JSONとC++のAPI指紋を同時更新し、生成器の`--check`による一致確認が成功した。
