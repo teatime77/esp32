@@ -1,5 +1,11 @@
 # ビルドと検証
 
+## オブジェクト・NumPy対応 第1段階：共有定義の生成（2026-11-24）
+
+[uroaのdevice.pyi](../../uroa/diagram/python/device.pyi)から[生成ヘッダー](../app/diagram-control/include/device_api.generated.h)へNumPyの関数・引数番号を追加した。生成元は[device_api_cpp.py](../../uroa/diagram/python/device_api_cpp.py)の`CppGenerator.module_enums()`。NumPyのネイティブ実行処理は登録せず、既存の機器・数値APIのIDと呼出し規約を維持している。JSONとC++のAPI指紋を同時更新し、生成器の`--check`による一致確認が成功した。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。コンパイル・リンク・`firmware.bin`生成に成功。RAMは59124/327680バイト、Flashは1075665/1310720バイト。他の環境はビルドしていない。テスト、Upload、VM実行、実機確認は行っていない。
+
 ## Python VMの旧形式削除・形式解釈の共通化（2026-11-24）
 
 バイトコード版1・2の実行・受信を削除し、VM・受信器・デバッガーの配置と命令長を[bytecode_format.h](../app/diagram-control/include/bytecode_format.h)・[bytecode_format.cpp](../app/diagram-control/src/bytecode_format.cpp)へまとめた。ネイティブの戻り値領域は実行開始時に必要な最大幅で確保して再利用する。形式と呼出し規約の仕様は[uroaのbytecode.ts](../../uroa/diagram/ts/python/bytecode.ts)と、各C++処理のコメントを正本とする。

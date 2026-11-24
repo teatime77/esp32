@@ -11,6 +11,57 @@ namespace device_api {
         size_t length;
     };
 
+    /**
+     * @brief 組込みモジュール定義の版。呼出し規約の版とは独立する。
+     */
+    constexpr uint16_t ModuleDefinitionVersion = 1;
+
+    /**
+     * @brief numpyの引数番号。実行処理は第1段階では未登録。
+     */
+    namespace numpy {
+        /**
+         * @brief モジュール内の関数ID。nativeIdとは異なる。
+         */
+        enum class Function : uint16_t {
+            zeros = 1,
+            empty = 2,
+        };
+
+        /**
+         * @brief zerosの必須引数番号。
+         */
+        enum class ZerosArgument : uint16_t {
+            shape = 0,
+        };
+
+        /**
+         * @brief zerosの省略可能な引数番号。
+         */
+        enum class ZerosOption : uint16_t {
+            dtype = 0,
+            order = 1,
+            device = 2,
+            like = 3,
+        };
+
+        /**
+         * @brief emptyの必須引数番号。
+         */
+        enum class EmptyArgument : uint16_t {
+            shape = 0,
+        };
+
+        /**
+         * @brief emptyの省略可能な引数番号。
+         */
+        enum class EmptyOption : uint16_t {
+            dtype = 0,
+            order = 1,
+            device = 2,
+            like = 3,
+        };
+    }
     constexpr uint16_t ClassIdVec3 = 1; ///< device.pyiのクラスID。
     constexpr uint16_t ClassIdIMUValue = 2; ///< device.pyiのクラスID。
     constexpr uint16_t ClassIdServo = 3; ///< device.pyiのクラスID。
