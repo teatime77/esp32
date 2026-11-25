@@ -29,7 +29,7 @@ namespace {
  */
 bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image) {
     if (!data || length < HeaderLength || length > MaxLength || read16(data) != 0xB1C0 || read16(data + 2) != Version ||
-        read16(data + 12) != 0 || read16(data + 14) != 4 || read16(data + 18) != 4 || read16(data + 58) != 0) {
+        read16(data + 12) != 0 || read16(data + 14) != 5 || read16(data + 18) != 5 || read16(data + 58) != 0) {
         return false;
     }
     Image result;
@@ -61,7 +61,8 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
         const uint8_t kind = record[8];
         const uint8_t rank = record[9];
         if (id <= previousId || read32(record + 4) != fieldOffset || bytes > result.typeLength - fieldOffset ||
-            read16(record + 10) != 0 || kind > 2 || (kind == 0 ? rank != 0 : rank < 1 || rank > 4 || bytes != 0)) {
+            record[11] != 0 || read16(record + 14) != 0 || kind > 3 ||
+            (kind == 0 ? rank != 0 : rank < 1 || rank > 4 || bytes != 0)) {
             return false;
         }
         previousId = id;
@@ -69,6 +70,20 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
     }
     if (fieldOffset != result.typeLength) {
         return false;
+    }
+    for (size_t index = 0; index < result.typeCount; ++index) {
+        const uint8_t *record = result.types + index * TypeRecordLength;
+        const uint8_t tag = record[10];
+        const uint16_t id = read16(record + 12);
+        if (record[8] == 3) {
+            if ((tag != 3 && tag != 7 && tag != 8) || (tag == 3 ? id != 0 : id == 0) ||
+                (tag == 8 && !findType(result.types, result.typeCount, id))) {
+                return false;
+            }
+        }
+        else if (tag != 0 || id != 0) {
+            return false;
+        }
     }
     for (uint32_t offset = uint32_t(result.typeCount) * TypeRecordLength; offset < result.typeLength; offset += 4) {
         const uint8_t kind = result.types[offset];
@@ -91,7 +106,7 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
  * @copydoc BytecodeFormat::instructionLength
  */
 uint32_t BytecodeFormat::instructionLength(uint8_t opcode) {
-    if (opcode < 0x01 || opcode > 0x25) {
+    if (opcode < 0x01 || opcode > 0x26) {
         return 0;
     }
     if (opcode == 0x03 || opcode == 0x04) {

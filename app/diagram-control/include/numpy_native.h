@@ -1,12 +1,12 @@
 /**
  * @file numpy_native.h
- * @brief 値スタックVMから使用する数値NumPyサブセット。実行契約はnumpy_native.cppを参照。
+ * @brief 値スタックVMから使用する数値・object NumPyサブセット。実行契約はnumpy_native.cppを参照。
  */
 #pragma once
 #include "bytecode_vm.h"
 
 /**
- * @brief GC本体を共有する数値ndarrayの生成・スカラー操作。
+ * @brief GC本体を共有するndarrayの生成・要素操作。
  */
 namespace numpy_native {
     /**
@@ -14,7 +14,7 @@ namespace numpy_native {
      */
     struct Option {
         uint16_t id = 0; ///< device.pyiから生成した関数ごとのoptionId。
-        BytecodeVM::Value value; ///< 同期実行中の値。dtypeは0=None・1=float32・2=uint8。
+        BytecodeVM::Value value; ///< 同期実行中の値。dtypeは0=None・1=float32・2=uint8・3=object。
     };
 
     /**

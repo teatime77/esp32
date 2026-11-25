@@ -45,7 +45,7 @@ class BytecodeHeap {
         size_t bytes; ///< ヘッダーを除く本体のバイト長。
         uint32_t valueCount = 0; ///< 本体先頭に配置するVMのValueの数。後続の数値バイト列は走査しない。
         uint16_t classId = 0; ///< VMが設定する非0の本体型ID。機器ハンドルとは別の参照種別で扱う。
-        uint8_t arrayKind = 0; ///< 0=通常本体、1=float32、2=uint8。数値配列のdataにはNumericArrayと生バイトを置く。
+        uint8_t arrayKind = 0; ///< 0=通常本体、1=float32、2=uint8、3=object配列。object配列は先頭のValue列を探索する。
         Trace trace; ///< 本体の参照走査。数値だけの本体ではnull。
         Block *next; ///< 全確保領域の単方向リスト。共有参照数の管理表ではない。
         Block *pending = nullptr; ///< GC中だけ使う探索待ちリスト。

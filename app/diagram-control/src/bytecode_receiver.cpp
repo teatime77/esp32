@@ -431,7 +431,7 @@ void BytecodeReceiver::publishResult() {
  * @details
  * - バイナリの識別子・版・開始PC・予約領域・全体長・上限。
  * - 関数範囲の順序・連続性・長さ、フレームのスロット数。
- * - 共通bytecode_format.cppによるversion=5の固定配置・本体型表・命令長。
+ * - 共通bytecode_format.cppによるversion=6の固定配置・本体型表・命令長。
  * - opcode・所属範囲、各範囲の末尾HALT／RET。
  * - 大域・局所変数の位置、CALL先の関数入口への一致。
  * - 分岐先が同じ所属範囲内の命令先頭であること。
@@ -515,6 +515,9 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
                 }
             }
             if (((opcode == 0x23 || opcode == 0x24) && (value < 1 || value > 4)) || (opcode == 0x25 && value > 4)) {
+                return Invalid;
+            }
+            if (opcode == 0x26 && value == 0) {
                 return Invalid;
             }
             if ((opcode == 0x02 || opcode == 0x06) && value >= globals) {

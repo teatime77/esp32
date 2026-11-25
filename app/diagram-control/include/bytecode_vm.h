@@ -67,7 +67,8 @@ class BytecodeVM {
         NativePending, ///< 19: スタブからVMへの待機通知。Error状態にはせず、次のtickで再試行する。
         ArrayIndex, ///< 20: 軸数・整数添字・負の添字補正後の範囲が不正。
         ArrayShape, ///< 21: shape・次元数・要素数・バイト数が不正。
-        ArrayOption ///< 22: 未対応のdtype・order・device・like。
+        ArrayOption, ///< 22: 未対応のdtype・order・device・like。
+        NoneAccess ///< 23: Noneを対象とする属性・メソッド・配列操作。
     };
     /**
      * @brief スロット型。管理用のReturnPc/SavedBpはPythonに公開しない。
@@ -99,14 +100,15 @@ class BytecodeVM {
     };
 
     /**
-     * @brief 数値配列の本体先頭。直後にfloat32またはuint8の連続データを置く。
-     * @details VMが設定し、確保後は形状・dtype・要素数を変更しない。GCは生データを走査しない。
+     * @brief 不変の配列情報。数値配列は本体先頭、object配列はValue要素列の直後に置く。
+     * @details 数値データはこの情報の直後。object要素は本体先頭のValue列をGCでたどる。
+     * VMが設定し、確保後は形状・dtype・要素数を変更しない。数値の生データを参照として走査しない。
      */
-    struct NumericArray {
+    struct Array {
         uint32_t shape[4]{}; ///< 軸長。未使用軸は0。各軸はint32の非負範囲。
         uint32_t elements = 0; ///< 全軸長の積。0長の軸があれば0。
         uint8_t rank = 0; ///< 次元数1～4。
-        uint8_t dtype = 0; ///< 1=float32、2=uint8。
+        uint8_t dtype = 0; ///< 1=float32、2=uint8、3=object。
         uint16_t reserved = 0; ///< 常に0。データをfloat境界へ整列する。
     };
 
@@ -213,7 +215,7 @@ class BytecodeVM {
      * @brief 本体型表に一致するValue列をGCヒープへ確保する。
      * @param classId 非0の本体型ID。
      * @param valueCount 本体先頭に置くValueの個数。参照型のスロットだけをGCでたどる。
-     * @param byteCount 0だけ許可する。数値配列はallocateNumericArray()で確保する。
+     * @param byteCount 0だけ許可する。配列はallocateArray()で確保する。
      * @param value 結果の参照。出力前の値は変更しない。以後の確保をまたいで使うならHeapRootを先に登録する。
      * @return 成功時true。型・サイズ・メモリーの失敗は実行エラーにする。
      * @details Runningで、未登録のC++一時参照がない位置からのみ呼ぶ。失敗時はGC後に一度だけ確保を再試行する。
@@ -221,23 +223,30 @@ class BytecodeVM {
      */
     bool allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t byteCount, Value &value);
     /**
-     * @brief shapeと型表を検査して数値配列をゼロ初期化する。
+     * @brief shapeと型表を検査し、数値をゼロ、object要素をNoneで初期化する。
      * @param classId dtype・rankが一致する本体型ID。
-     * @param dtype 1=float32、2=uint8。
+     * @param dtype 1=float32、2=uint8、3=object。
      * @param shape rank個の非負軸長。
      * @param rank 1～4。
      * @param value 成功時だけ設定する本体参照。
      * @return 成功時true。失敗時はエラー状態にする。
      * @details 確保失敗時は登録済みの根でGC後に一度だけ再試行する。数値データは探索しない。
      */
-    bool allocateNumericArray(uint16_t classId, uint8_t dtype, const uint32_t *shape, uint8_t rank, Value &value);
+    bool allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *shape, uint8_t rank, Value &value);
     /**
-     * @brief 所属・型表・shape・要素数・バイト長が一致する数値配列を借用する。
+     * @brief 所属・型表・shape・要素数・バイト長が一致する配列を借用する。
      * @param value 本体参照。
-     * @param array 成功時の不変ヘッダー。要素データはarray+1にある。
+     * @param array 成功時の不変ヘッダー。数値はarray+1、object要素はvalue.reference->dataにある。
      * @return 有効ならtrue。GCをまたぐ場合はvalueを根に保つ。
      */
-    bool numericArray(const Value &value, const NumericArray *&array) const;
+    bool arrayData(const Value &value, const Array *&array) const;
+    /**
+     * @brief object配列の要素型と、格納・読出しする参照の所属を照合する。
+     * @param receiver object配列。
+     * @param value 同じクラスの機器／GC参照、またはNone。
+     * @return 配列・要素が有効ならtrue。確保やGCを起動しない。
+     */
+    bool arrayElementValue(const Value &receiver, const Value &value) const;
     /**
      * @brief 型・所属・フィールド数を検査して本体のValue列を借用する。
      * @param value 検査対象の参照。
@@ -460,7 +469,7 @@ class BytecodeVM {
     uint32_t nextFrameId_ = 1; ///< call()が増加させるフレーム識別子の採番状態。start()で初期化する。
     uint32_t debugFrameId_ = 0; ///< resumeDebug()時点のフレーム識別子。Overの停止判定に使う。
     uint32_t debugDepth_ = 0; ///< resumeDebug()時点の呼出し深さ。復帰とOutの停止判定に使う。
-    uint8_t abiHash_[32]{}; ///< start()が保持するversion=5イメージの32バイトABI指紋。呼出し直前も照合する。
+    uint8_t abiHash_[32]{}; ///< start()が保持するversion=6イメージの32バイトABI指紋。呼出し直前も照合する。
     const uint8_t *table_ = nullptr; ///< 借用イメージ内の関数表。stop()で参照を解除する。
     const uint8_t *types_ = nullptr; ///< GC本体型とフィールド表。イメージと同じ寿命。
     uint16_t typeCount_ = 0; ///< 本体型レコード数。
