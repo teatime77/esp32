@@ -31,7 +31,7 @@ BLE／Wi-Fiの表示名と基板固有番号の形式は[device_name.cppの仕�
 
 デバッグ通信の入口と担当範囲は[bytecode_debugger.cpp](src/bytecode_debugger.cpp)、通信仕様の正本はuroaの[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)、呼出し例は[device-connection.tsのsendBreakpoints()](../../../uroa/diagram/ts/ble-wifi/device-connection.ts)を参照する。行と命令PCの対応は[bytecode.ts](../../../uroa/diagram/ts/python/bytecode.ts)、停止時の最大化・所有権・操作は[PythonBlock](../../../uroa/diagram/ts/python/python-block.ts)、変数・構造体・Call Stackの表示は[debugger-view.ts](../../../uroa/diagram/ts/python/debugger-view.ts)、再開と3種のステップ制御は[BytecodeVM::resumeDebug()](src/bytecode_vm.cpp)を参照する。ビルドと未確認の通信・実機境界は[検証記録](../../docs/build-and-test.md)に置く。
 
-PythonBlockのStartによる一括転送・検証後開始、受信領域と通信サイズの正本は[Web側の転送仕様コメント](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[受信器](src/bytecode_receiver.cpp)を参照する。旧開発用送信ボタンは削除済み。VMはバイナリversion=1・2・3に対応し、ABI・登録API・呼出しと値コピーの検査は[VM仕様](src/bytecode_vm.cpp)を参照する。
+PythonBlockのStartによる一括転送・検証後開始、受信領域と通信サイズの正本は[Web側の転送仕様コメント](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)と[受信器](src/bytecode_receiver.cpp)を参照する。旧開発用送信ボタンは削除済み。VMはバイナリversion=4に対応し、ABI・登録API・呼出しと参照共有の検査は[VM仕様](src/bytecode_vm.cpp)を参照する。ユーザークラス・既存recordはGC本体で扱い、構築・属性アクセス・ネイティブ変換の仕様は同ソース、循環参照の表示は[debugger-view.ts](../../../uroa/diagram/ts/python/debugger-view.ts)を参照する。NumPy配列の実行は後続段階。
 
 開始・停止と最終状態の担当は[main.cpp](src/main.cpp)、停止値・ステップ操作は[BytecodeDebugger](src/bytecode_debugger.cpp)を参照する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNative](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
 

@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## オブジェクト・NumPy対応 第3段階：オブジェクト・メソッド（2026-11-24）
+
+[VM](../app/diagram-control/src/bytecode_vm.cpp)へ本体型表・オブジェクト生成・属性アクセスを接続し、既存recordとC++バックエンドの変換は[生成スタブ](../app/diagram-control/src/device_api.generated.cpp)へ置いた。構築中の根、文字列保持、Snapshot本体IDの仕様はソースコメント、段階別の作業範囲は[uroaの共有文書](../../uroa/docs/diagram/python/object-array-change-map.md)を参照する。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。コンパイル・リンク・`firmware.bin`生成に成功（53.60秒）。RAMは59212/327680バイト、Flashは1078249/1310720バイト。PlatformIOの既存キャッシュ・ロックへの書込み権限を使用した。他の環境はビルドしていない。
+
+変更箇所を整形し、Doxygenコメント・差分を確認した。生成APIの再生成と`--check`、Web側の型・公開ビルド・静的成果物確認も成功（[uroaの記録](../../uroa/docs/build-and-test.md)）。形式とABIが変わるため、Webとファームウェアを更新し、Pythonバイトコードを再生成・再送信する。テストは作成・実行せず、Upload・通信・VM実行・GC回収動作／時間・実機確認は未実施。この段階で止め、ユーザーの確認・commit・pushを待つ。
+
 ## オブジェクト・NumPy対応 第2段階：ヒープ管理・GC基盤（2026-11-24）
 
 [bytecode_heap.h](../app/diagram-control/include/bytecode_heap.h)・[bytecode_heap.cpp](../app/diagram-control/src/bytecode_heap.cpp)を追加し、[VM](../app/diagram-control/src/bytecode_vm.cpp)へ接続した。確保・回収・根・診断の契約はソースコメントを参照する。GC方針に合わせた残りの計画は[uroaの変更一覧](../../uroa/docs/diagram/python/object-array-change-map.md)。Pythonのクラス・配列生成、既存recordの参照化、本体内文字列、Snapshotの本体表示は後続段階。

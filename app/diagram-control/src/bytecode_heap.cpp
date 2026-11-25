@@ -32,7 +32,7 @@ BytecodeHeap::~BytecodeHeap() {
  * @return 成功時のヘッダー。失敗時nullで既存本体と診断は変更しない。
  */
 BytecodeHeap::Block *BytecodeHeap::allocate(size_t bytes, Trace trace) {
-    if (collecting_ || bytes > SIZE_MAX - sizeof(Block)) {
+    if (collecting_ || nextId_ == UINT32_MAX || bytes > SIZE_MAX - sizeof(Block)) {
         return nullptr;
     }
     const size_t total = sizeof(Block) + bytes;
@@ -44,6 +44,7 @@ BytecodeHeap::Block *BytecodeHeap::allocate(size_t bytes, Trace trace) {
         return nullptr;
     }
     Block *block = new (allocation) Block{};
+    block->id = ++nextId_;
     block->data = block + 1;
     block->bytes = bytes;
     block->trace = trace;
@@ -72,6 +73,17 @@ bool BytecodeHeap::contains(const Block *block) const {
         }
     }
     return false;
+}
+
+/**
+ * @copydoc BytecodeHeap::visit
+ */
+void BytecodeHeap::visit(Visitor visitor, void *context) const {
+    if (visitor) {
+        for (const Block *block = blocks_; block; block = block->next) {
+            visitor(*block, context);
+        }
+    }
 }
 
 /**
@@ -166,4 +178,5 @@ void BytecodeHeap::clear() {
     sinceCollection_ = 0;
     statistics_.bytes = 0;
     statistics_.objects = 0;
+    nextId_ = 0;
 }

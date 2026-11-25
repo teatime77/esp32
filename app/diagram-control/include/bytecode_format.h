@@ -10,11 +10,12 @@
 #include <stdint.h>
 
 /**
- * @brief バイナリversion=3のレイアウト。転送・デバッグ通信の版番号とは独立する。
+ * @brief バイナリversion=4のレイアウト。転送・デバッグ通信の版番号とは独立する。
  */
 namespace BytecodeFormat {
-    constexpr uint16_t Version = 3; ///< 受理する唯一のバイトコード版。
-    constexpr size_t HeaderLength = 56; ///< ABI指紋を含むヘッダーのバイト数。
+    constexpr uint16_t Version = 4; ///< GC本体型表を含む唯一のバイトコード版。
+    constexpr size_t HeaderLength = 64; ///< ABI指紋と型表長を含むヘッダーのバイト数。
+    constexpr size_t TypeRecordLength = 8; ///< 型ID・フィールド数・フィールド表位置。
     constexpr size_t FunctionRecordLength = 12; ///< 関数レコードのバイト数。
     constexpr size_t StringRecordLength = 8; ///< 文字列レコードのバイト数。
     constexpr size_t MaxLength = 128 * 1024; ///< イメージ全体のバイト上限。
@@ -26,6 +27,9 @@ namespace BytecodeFormat {
         uint16_t globalCount = 0; ///< 大域値のスロット数。
         uint16_t functionCount = 0; ///< 関数レコード数。
         uint16_t stringCount = 0; ///< UTF-8定数のレコード数。
+        uint16_t typeCount = 0; ///< GC本体型の数。
+        uint32_t typeLength = 0; ///< 本体型表とフィールド表の合計バイト長。
+        const uint8_t *types = nullptr; ///< 借用する本体型表。参照先IDも全件検証する。
         uint32_t codeLength = 0; ///< 命令列のバイト長。
         uint32_t stringDataLength = 0; ///< UTF-8データのバイト長。
         const uint8_t *functions = nullptr; ///< 借用する関数表の先頭。
@@ -36,13 +40,21 @@ namespace BytecodeFormat {
     };
 
     /**
-     * @brief version=3の固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
+     * @brief version=4の固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
      * @param data イメージの先頭。ビューの使用中は有効に保持する。
      * @param length イメージ全長。
      * @param image 成功時の借用ビュー。失敗時は変更しない。
      * @return 識別子・版・規約・予約値・領域長が正しければtrue。
      */
     bool parseImage(const uint8_t *data, size_t length, Image &image);
+    /**
+     * @brief ソート済み本体型表から型IDを検索する。
+     * @param types 検証済み型表。
+     * @param count 型レコード数。
+     * @param id 検索する非0 ID。
+     * @return 型レコード。存在しなければnull。
+     */
+    const uint8_t *findType(const uint8_t *types, uint16_t count, uint16_t id);
 
     /**
      * @brief bit7を含まないopcodeの命令長を返す。フラグを持つ呼出し側は先に除去する。

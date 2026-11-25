@@ -78,7 +78,7 @@ class BytecodeVM {
         SavedBp,
         String,
         Object,
-        HeapReference ///< 8: VM内部のGC本体参照。バイトコード型・Snapshotへの公開は後続段階で行う。
+        HeapReference ///< 8: GC本体参照。Snapshotでは生アドレスを本体IDへ変換する。
     };
 
     /**
@@ -99,7 +99,7 @@ class BytecodeVM {
      * @brief C++側のValueをGCの根へ登録するスコープガード。参照カウントではない。
      * @details 値はガードより長く生存させ、確保APIを呼ぶ前に登録する。VMの生存中にloop()だけで使用する。
      * Valueの代入後も同じ登録で追跡する。登録前の生ポインター保持や、ガードのコピー・移動は禁止する。
-     * C++が所有するValueだけを登録し、VMスロットやGC本体内のValueは登録しない。文字列プールの根登録は対象外。
+     * C++所有のValueだけを登録し、VMスロットやGC本体内のValueは登録しない。Stringも文字列プールの根として扱う。
      */
     class HeapRoot {
         public:
@@ -138,7 +138,7 @@ class BytecodeVM {
      */
     struct NativeCall {
         BytecodeVM &vm; ///< 文字列参照・GC本体確保・HeapRoot登録に使用。実行・停止等のVM再入は禁止。
-        const Value *arguments; ///< self、明示引数の順。構造体は展開済み。
+        const Value *arguments; ///< self、明示引数の順。recordも1個のGC参照。
         Value *results; ///< 必ずresultSlots個すべてを設定する。Noneも1個返す。
         uint16_t argumentSlots; ///< selfと明示引数を宣言順に展開した入力スロット数。
         uint16_t resultSlots; ///< 戻り値を宣言順に展開した出力スロット数。Noneも1個を使う。
@@ -195,16 +195,25 @@ class BytecodeVM {
      */
     void tick(uint32_t budget = 128);
     /**
-     * @brief Value列と数値バイト列からなるGC本体を確保する。Pythonからの生成はまだ未対応。
+     * @brief 本体型表に一致するValue列をGCヒープへ確保する。
      * @param classId 非0の本体型ID。
      * @param valueCount 本体先頭に置くValueの個数。参照型のスロットだけをGCでたどる。
-     * @param byteCount Value列の後ろに置く、走査しない数値等のバイト数。
+     * @param byteCount 現段階は0だけ許可する。数値配列の生データは後続段階で接続する。
      * @param value 結果の参照。出力前の値は変更しない。以後の確保をまたいで使うならHeapRootを先に登録する。
      * @return 成功時true。型・サイズ・メモリーの失敗は実行エラーにする。
      * @details Runningで、未登録のC++一時参照がない位置からのみ呼ぶ。失敗時はGC後に一度だけ確保を再試行する。
-     * 本体内Stringの文字列プールとの寿命統合、Pythonの本体型・生成命令は後続段階の対象。
+     * classIdとvalueCountは借用イメージの型表に一致させる。生成途中の未初期化フィールドもGCで安全に走査する。
      */
     bool allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t byteCount, Value &value);
+    /**
+     * @brief 型・所属・フィールド数を検査して本体のValue列を借用する。
+     * @param value 検査対象の参照。
+     * @param classId 要求する型ID。
+     * @param count 要求するValue数。
+     * @param fields 成功時だけ設定する読取り用列。別のGCをまたぐならvalueを根として保持する。
+     * @return 有効な本体ならtrue。
+     */
+    bool heapFields(const Value &value, uint16_t classId, uint32_t count, const Value *&fields) const;
     /**
      * @brief 現在の根から同期GCを実行する。GC自身は本体を移動せず、追加領域も確保しない。
      * @return 実行中・一時停止・通常終了・エラー状態の有効な値領域で回収できたらtrue。
@@ -270,11 +279,30 @@ class BytecodeVM {
      */
     static void traceHeapValues(BytecodeHeap &heap, BytecodeHeap::Block &block);
     /**
+     * @brief 型表と値を照合する。参照型のNoneも許可する。
+     * @param value 格納・参照する値。
+     * @param field 4バイトの検証済みフィールド記述。
+     * @return 型と本体参照が正しければtrue。
+     */
+    bool fieldValue(const Value &value, const uint8_t *field) const;
+    /**
      * @brief 使用スロット順で文字列IDの初出か調べる。
      * @param index 大域、スタックの順の添字。
      * @return 初出Stringならtrue。
      */
     bool firstDebugString(uint32_t index) const;
+    /**
+     * @brief 値スタック・大域・全確保本体内のValueの合計を求める。
+     * @return Snapshotで文字列参照を収集するスロット数。
+     */
+    uint32_t debugValueCount() const;
+    /**
+     * @brief Snapshotの文字列収集順でスロットを借用する。
+     * @param index 大域・スタック・確保一覧内のValueの順の位置。
+     * @return 存在するスロット。範囲外ならnull。
+     */
+    const Value *debugValueAt(uint32_t index) const;
+
     /**
      * @brief 呼出し元の命令範囲・一時値下限・戻り値幅。
      */
@@ -383,8 +411,10 @@ class BytecodeVM {
     uint32_t nextFrameId_ = 1; ///< call()が増加させるフレーム識別子の採番状態。start()で初期化する。
     uint32_t debugFrameId_ = 0; ///< resumeDebug()時点のフレーム識別子。Overの停止判定に使う。
     uint32_t debugDepth_ = 0; ///< resumeDebug()時点の呼出し深さ。復帰とOutの停止判定に使う。
-    uint8_t abiHash_[32]{}; ///< start()が保持するversion=3イメージの32バイトABI指紋。呼出し直前も照合する。
+    uint8_t abiHash_[32]{}; ///< start()が保持するversion=4イメージの32バイトABI指紋。呼出し直前も照合する。
     const uint8_t *table_ = nullptr; ///< 借用イメージ内の関数表。stop()で参照を解除する。
+    const uint8_t *types_ = nullptr; ///< GC本体型とフィールド表。イメージと同じ寿命。
+    uint16_t typeCount_ = 0; ///< 本体型レコード数。
     const uint8_t *code_ = nullptr; ///< 借用イメージ内の命令列。命令先頭のデバッグbit7以外は変更しない。
     const uint8_t *strings_ = nullptr; ///< 借用イメージ内の文字列定数表。各レコードはoffsetとlengthの8バイト。
     const uint8_t *stringData_ = nullptr; ///< 借用イメージ内のUTF-8定数データ。長さで参照しNUL終端を要求しない。

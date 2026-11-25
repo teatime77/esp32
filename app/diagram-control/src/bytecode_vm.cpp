@@ -5,7 +5,7 @@
  * @details
  * # PythonサブセットVM
  *
- * BytecodeReceiverで構造検証済みのversion=3だけを実行する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
+ * BytecodeReceiverで構造検証済みのversion=4だけを実行する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
  * uroa/diagram/ts/python/bytecode.tsのencodeBinary()の仕様コメントを参照。bytecode_vm.hは公開状態と登録API、
  * 本ファイルは実行、main.cppはloop()単位の開始・停止・実行量制御を担当する。
  * ヒープ確保・非再帰マーク＆スイープはbytecode_heap.cpp、根とValue列の走査は本ファイルが担当する。
@@ -21,6 +21,75 @@
 
 namespace {
     /**
+     * @brief little endianの32bit整数を書き込む。
+     * @param data 書込み可能な4バイト。
+     * @param value 書込む整数。
+     */
+    void write32(uint8_t *data, uint32_t value) {
+        for (size_t byte = 0; byte < 4; ++byte) {
+            data[byte] = uint8_t(value >> (byte * 8));
+        }
+    }
+
+    /**
+     * @brief 値をSnapshotの8バイトへ変換する。GC参照はIDで送り、生アドレスを送らない。
+     * @param record 出力8バイト。
+     * @param value 検証済みの値。
+     */
+    void snapshotValue(uint8_t *record, const BytecodeVM::Value &value) {
+        using Type = BytecodeVM::Type;
+        std::memset(record, 0, 8);
+        record[0] = uint8_t(value.type);
+        uint32_t payload = 0;
+        if (value.type == Type::Float) {
+            std::memcpy(&payload, &value.real, sizeof payload);
+        }
+        else if (value.type == Type::Integer) {
+            payload = uint32_t(value.integer);
+        }
+        else if (value.type == Type::HeapReference) {
+            payload = value.reference->id;
+        }
+        else if (value.type != Type::None && value.type != Type::Uninitialized) {
+            payload = value.address;
+        }
+        if (value.type == Type::HeapReference || value.type == Type::Object) {
+            record[2] = uint8_t(value.classId);
+            record[3] = uint8_t(value.classId >> 8);
+        }
+        write32(record + 4, payload);
+    }
+
+    /**
+     * @brief 本体のSnapshot出力位置。
+     */
+    struct SnapshotWriter {
+        uint8_t *data; ///< 呼出し側が確保した全Snapshot。
+        size_t offset; ///< 次の本体レコード位置。
+    };
+
+    /**
+     * @brief 確保本体のID・型・Value列を出力する。
+     * @param block 出力する本体。
+     * @param context 正確な必要長を確保したSnapshotWriter。
+     */
+    void snapshotBlock(const BytecodeHeap::Block &block, void *context) {
+        auto &writer = *static_cast<SnapshotWriter *>(context);
+        uint8_t *record = writer.data + writer.offset;
+        write32(record, block.id);
+        record[4] = uint8_t(block.classId);
+        record[5] = uint8_t(block.classId >> 8);
+        record[6] = uint8_t(block.valueCount);
+        record[7] = uint8_t(block.valueCount >> 8);
+        writer.offset += 8;
+        const auto *values = static_cast<const BytecodeVM::Value *>(block.data);
+        for (uint32_t index = 0; index < block.valueCount; ++index) {
+            snapshotValue(writer.data + writer.offset, values[index]);
+            writer.offset += 8;
+        }
+    }
+
+    /**
      * @brief VMが保持する有効なGC参照だけをマークする。
      * @param heap 回収中のヒープ。
      * @param values 初期化済みの値スロット列。
@@ -32,6 +101,34 @@ namespace {
                 heap.mark(values[index].reference);
             }
         }
+    }
+
+    /**
+     * @brief Value列から動的文字列プールの使用中IDを集める。
+     * @param values 読取り対象。
+     * @param count スロット数。
+     * @param used MaxStrings個の使用フラグ。
+     */
+    void useTextSlots(const BytecodeVM::Value *values, size_t count, bool *used) {
+        for (size_t index = 0; index < count; ++index) {
+            const BytecodeVM::Value &value = values[index];
+            if (value.type == BytecodeVM::Type::String && (value.address & 0x80000000U) != 0) {
+                const uint32_t id = value.address & 0x7FFFFFFFU;
+                if (id < BytecodeVM::MaxStrings) {
+                    used[id] = true;
+                }
+            }
+        }
+    }
+
+    /**
+     * @brief 確保済み本体内の文字列をプールに残す。
+     * @param block GC本体。
+     * @param context MaxStrings個の使用フラグ。
+     */
+    void useHeapTexts(const BytecodeHeap::Block &block, void *context) {
+        useTextSlots(
+            static_cast<const BytecodeVM::Value *>(block.data), block.valueCount, static_cast<bool *>(context));
     }
 
     /**
@@ -132,13 +229,14 @@ bool BytecodeVM::collectHeap() {
  * @return 成功時true。失敗時は出力値を変えず実行エラーにする。
  * @details 本体はフレームに属さず、代入・引数・returnは参照を共有する。参照数は更新しない。
  * 確保失敗時だけ同期GCと再試行を行うため、入力・一時値の根を先に登録する。
- * 第2段階ではPythonの本体生成命令・型表と本体内Stringの寿命統合はまだ追加しない。
+ * 型表とValue数を照合し、文字列フィールドは文字列プールの参照探索でも保持する。
  */
 bool BytecodeVM::allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t byteCount, Value &value) {
     if (state != State::Running || !stack_) {
         return false;
     }
-    if (classId == 0) {
+    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
+    if (!record || valueCount != read16(record + 2) || byteCount != 0) {
         return fail(Error::Type);
     }
     const size_t maxPayload = MaxHeapBytes - sizeof(BytecodeHeap::Block);
@@ -170,6 +268,35 @@ bool BytecodeVM::allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t
 }
 
 /**
+ * @copydoc BytecodeVM::heapFields
+ */
+bool BytecodeVM::heapFields(const Value &value, uint16_t classId, uint32_t count, const Value *&fields) const {
+    if (value.type != Type::HeapReference || value.classId != classId || !heap_.contains(value.reference) ||
+        value.reference->classId != classId || value.reference->valueCount != count ||
+        value.reference->bytes != size_t(count) * sizeof(Value)) {
+        return false;
+    }
+    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
+    if (!record || read16(record + 2) != count) {
+        return false;
+    }
+    fields = static_cast<const Value *>(value.reference->data);
+    return true;
+}
+
+/**
+ * @copydoc BytecodeVM::fieldValue
+ */
+bool BytecodeVM::fieldValue(const Value &value, const uint8_t *field) const {
+    if (value.type == Type::None && (field[0] == uint8_t(Type::HeapReference) || field[0] == uint8_t(Type::Object))) {
+        return true;
+    }
+    return uint8_t(value.type) == field[0] &&
+        ((value.type != Type::HeapReference && value.type != Type::Object) || value.classId == read16(field + 2)) &&
+        validValue(value);
+}
+
+/**
  * @brief エラー状態へ移る。
  * @param code 理由。
  * @return false。
@@ -197,6 +324,8 @@ void BytecodeVM::stop() {
     }
     code_ = nullptr;
     table_ = nullptr;
+    types_ = nullptr;
+    typeCount_ = 0;
     strings_ = nullptr;
     stringData_ = nullptr;
     stringCount_ = 0;
@@ -305,6 +434,8 @@ bool BytecodeVM::start(const uint8_t *image, size_t length) {
         return fail(Error::AbiMismatch);
     }
     table_ = view.functions;
+    types_ = view.types;
+    typeCount_ = view.typeCount;
     code_ = view.code;
     strings_ = view.strings;
     stringData_ = view.stringData;
@@ -407,13 +538,13 @@ bool BytecodeVM::numeric(const Value &value) {
 }
 
 /**
- * @brief 数値とNoneの条件判定。
+ * @brief 数値・文字列・参照・Noneの条件判定。
  * @param value 値。
  * @param result 真偽。
  * @return 有効ならtrue。
  *
  * @details
- * 数値0とNoneは偽、それ以外の数値は真。
+ * 数値0・None・空文字列は偽。有効な機器・GC本体は真。__bool__等の特殊メソッドは呼ばない。
  */
 bool BytecodeVM::truth(const Value &value, bool &result) {
     if (value.type == Type::None) {
@@ -424,6 +555,20 @@ bool BytecodeVM::truth(const Value &value, bool &result) {
     }
     else if (value.type == Type::Float) {
         result = value.real != 0;
+    }
+    else if (value.type == Type::HeapReference || value.type == Type::Object) {
+        if (!validValue(value)) {
+            return fail(Error::Type);
+        }
+        result = true;
+    }
+    else if (value.type == Type::String) {
+        const char *data = nullptr;
+        size_t length = 0;
+        if (!stringBytes(value, data, length)) {
+            return fail(Error::Type);
+        }
+        result = length != 0;
     }
     else {
         return fail(value.type == Type::Uninitialized ? Error::Uninitialized : Error::Type);
@@ -437,6 +582,7 @@ bool BytecodeVM::truth(const Value &value, bool &result) {
  *
  * @details
  * 整数同士のADD・SUB・MULはint64で中間計算し、int32範囲を超えたらエラーにする。floatを含む演算とDIVはfloat32の結果を作り、非有限値になったら停止する。DIVは整数同士でもfloatを返し、0除算はエラー。比較は整数値を先にfloat32へ丸めず、doubleへ拡張して行う。NoneのEQ／NEはバイトコード仕様に従い、Noneの大小比較・四則は型エラー。
+ * 本体のEQ/NEは参照同一性、文字列のEQ/NEはUTF-8の内容で比較する。__eq__等の演算子オーバーロードは呼ばない。
  */
 void BytecodeVM::calculate(uint8_t opcode) {
     Value right;
@@ -451,6 +597,34 @@ void BytecodeVM::calculate(uint8_t opcode) {
             return;
         }
         const bool equal = left.type == Type::None && right.type == Type::None;
+        result.type = Type::Integer;
+        result.integer = opcode == 0x0E ? equal : !equal;
+        push(result);
+        return;
+    }
+    if ((opcode == 0x0E || opcode == 0x0F) &&
+        (left.type == Type::HeapReference || right.type == Type::HeapReference || left.type == Type::Object ||
+            right.type == Type::Object)) {
+        const bool equal = left.type == right.type && left.classId == right.classId &&
+            (left.type == Type::HeapReference ? left.reference == right.reference : left.address == right.address);
+        result.type = Type::Integer;
+        result.integer = opcode == 0x0E ? equal : !equal;
+        push(result);
+        return;
+    }
+    if ((opcode == 0x0E || opcode == 0x0F) && (left.type == Type::String || right.type == Type::String)) {
+        bool equal = false;
+        if (left.type == Type::String && right.type == Type::String) {
+            const char *a = nullptr;
+            const char *b = nullptr;
+            size_t aLength = 0;
+            size_t bLength = 0;
+            if (!stringBytes(left, a, aLength) || !stringBytes(right, b, bLength)) {
+                fail(Error::Type);
+                return;
+            }
+            equal = aLength == bLength && std::memcmp(a, b, aLength) == 0;
+        }
         result.type = Type::Integer;
         result.integer = opcode == 0x0E ? equal : !equal;
         push(result);
@@ -646,7 +820,9 @@ bool BytecodeVM::validValue(const Value &value) const {
         return value.classId != 0;
     }
     if (value.type == Type::HeapReference) {
-        return heap_.contains(value.reference) && value.classId != 0 && value.classId == value.reference->classId;
+        const Value *fields = nullptr;
+        const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, value.classId);
+        return record && heapFields(value, value.classId, read16(record + 2), fields);
     }
     const char *data = nullptr;
     size_t length = 0;
@@ -796,22 +972,30 @@ bool BytecodeVM::stringBytes(const Value &value, const char *&data, size_t &leng
  * @param bytes 書込先。
  * @return 成功時true。
  * @details
- * 動的文字列は64個・各1024バイトまで。確保前にglobalsと生存スタックを走査し、
- * 到達不能な文字列を回収する。
+ * 動的文字列は64個・各1024バイトまで。大域・スタック・ネイティブ結果・HeapRoot・本体内のStringを保持する。
+ * 空きIDがなければGCで到達不能な本体を回収して再走査する。本体だけが保持する文字列を早期解放しない。
  */
 bool BytecodeVM::allocateText(size_t length, Value &value, char *&bytes) {
     if (length > MaxStringLength) {
         return fail(Error::StringLimit);
     }
     bool used[MaxStrings]{};
-    // pop済みの値はrootではない。連結では結果確保まで入力断片をスタックへ残す。
-    for (uint32_t index = 0; index < globalCount + sp; ++index) {
-        const Value &root = index < globalCount ? globals[index] : stack_[index - globalCount];
-        if (root.type == Type::String && (root.address & 0x80000000U) != 0) {
-            const uint32_t text = root.address & 0x7FFFFFFFU;
-            if (text < MaxStrings) {
-                used[text] = true;
-            }
+    // 本体だけが保持する文字列とC++の登録値も残す。満杯ならGC後に一度だけ再走査する。
+    for (uint32_t pass = 0; pass < 2; ++pass) {
+        std::memset(used, 0, sizeof used);
+        useTextSlots(globals.get(), globalCount, used);
+        useTextSlots(stack_.get(), sp, used);
+        useTextSlots(nativeResults_.get(), nativeRootSlots_, used);
+        for (HeapRoot *root = heapRoots_; root; root = root->next_) {
+            useTextSlots(&root->value_, 1, used);
+        }
+        heap_.visit(useHeapTexts, used);
+        bool available = false;
+        for (uint32_t index = 0; index < MaxStrings; ++index) {
+            available = available || !used[index];
+        }
+        if (available || pass == 1 || !collectHeap()) {
+            break;
         }
     }
     uint32_t free = MaxStrings;
@@ -845,7 +1029,7 @@ bool BytecodeVM::allocateText(size_t length, Value &value, char *&bytes) {
  * @brief 数値書式から表示用UTF-8文字列を作る。
  * @param format 定数文字列ID。
  * @details
- * FORMAT_VALUE/BUILD_STRINGは表示引数だけの一時文字列を作る。
+ * FORMAT_VALUE/BUILD_STRINGは文字列を作り、通常変数・引数・戻り値・メンバーにも保持できる。
  * 書式は意味解析の数値書式（幅、精度、b/c/d/e/E/f/F/g/G/n/o/x/X/%）を扱う。
  * ロケールはC固定。floatの精度省略時は3桁とし、型も省略した場合はf形式（.3f）で表示する。
  * 例: f"{value}"は-0.2を-0.200と表示する。幅・ゼロ埋め・明示された型と精度は保持する。
@@ -1095,8 +1279,7 @@ void BytecodeVM::step() {
         case 0x02:
         case 0x05:
         case 0x06: {
-            // Vec3/IMUValue等は宣言順に再帰展開した値スロット列であり、VMに構造体オブジェクトはない。
-            // LOAD_G/LOAD_L・STORE_G/STORE_Lで葉をコピーする。
+            // record・ユーザー本体も1スロットの参照として読み書きする。本体のコピーは行わない。
             const bool local = opcode == 0x01 || opcode == 0x05;
             if ((local && (depth_ == 0 || operand < 2 || bp + operand >= floor_)) ||
                 (!local && operand >= globalCount)) {
@@ -1217,6 +1400,74 @@ void BytecodeVM::step() {
         case 0x1D:
             buildString(operand);
             break;
+        case 0x1E: {
+            const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, operand);
+            if (!record) {
+                fail(Error::Operand);
+                return;
+            }
+            if (allocateHeapValue(operand, read16(record + 2), 0, value)) {
+                push(value);
+            }
+            break;
+        }
+        case 0x1F:
+        case 0x20: {
+            Value receiver;
+            if (!pop(receiver)) {
+                return;
+            }
+            if (receiver.type != Type::HeapReference || !validValue(receiver)) {
+                fail(Error::Type);
+                return;
+            }
+            const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, receiver.classId);
+            if (operand >= read16(record + 2)) {
+                fail(Error::Operand);
+                return;
+            }
+            const uint8_t *field = types_ + read32(record + 4) + size_t(operand) * 4;
+            Value &slot = static_cast<Value *>(receiver.reference->data)[operand];
+            const uint8_t permission = opcode == 0x1F ? 1 : 2;
+            if ((field[1] & permission) == 0) {
+                fail(Error::Operand);
+                return;
+            }
+            if (opcode == 0x1F) {
+                if (slot.type == Type::Uninitialized) {
+                    fail(Error::Uninitialized);
+                    return;
+                }
+                if (!fieldValue(slot, field)) {
+                    fail(Error::Type);
+                    return;
+                }
+                push(slot);
+            }
+            else {
+                if (!pop(value)) {
+                    return;
+                }
+                if (!fieldValue(value, field)) {
+                    fail(Error::Type);
+                    return;
+                }
+                slot = value;
+            }
+            break;
+        }
+        case 0x21:
+            if (sp <= floor_) {
+                fail(Error::StackUnderflow);
+                return;
+            }
+            value = stack_[sp - 1];
+            if (!validValue(value)) {
+                fail(Error::Type);
+                return;
+            }
+            push(value);
+            break;
     }
 }
 
@@ -1327,12 +1578,12 @@ bool BytecodeVM::resumeDebug(DebugAction action) {
  * @details loop()だけが呼ぶ。補助配列やC++ポインターの公開は行わない。
  */
 bool BytecodeVM::firstDebugString(uint32_t index) const {
-    const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
+    const Value &value = *debugValueAt(index);
     if (value.type != Type::String) {
         return false;
     }
     for (uint32_t previous = 0; previous < index; ++previous) {
-        const Value &other = previous < globalCount ? globals[previous] : stack_[previous - globalCount];
+        const Value &other = *debugValueAt(previous);
         if (other.type == Type::String && other.address == value.address) {
             return false;
         }
@@ -1341,26 +1592,88 @@ bool BytecodeVM::firstDebugString(uint32_t index) const {
 }
 
 /**
+ * @copydoc BytecodeVM::debugValueCount
+ */
+uint32_t BytecodeVM::debugValueCount() const {
+    uint32_t count = globalCount + sp;
+    heap_.visit(
+        [](const BytecodeHeap::Block &block, void *context) {
+            *static_cast<uint32_t *>(context) += block.valueCount;
+        },
+        &count);
+    return count;
+}
+
+/**
+ * @copydoc BytecodeVM::debugValueAt
+ */
+const BytecodeVM::Value *BytecodeVM::debugValueAt(uint32_t index) const {
+    if (index < globalCount) {
+        return globals.get() + index;
+    }
+    index -= globalCount;
+    if (index < sp) {
+        return stack_.get() + index;
+    }
+
+    /**
+     * @brief 本体のValue列を横断して位置を探す読取り状態。
+     */
+    struct Position {
+        uint32_t index; ///< 確保一覧内の残り位置。
+        const Value *value; ///< 発見した値。
+    };
+
+    Position position{index - sp, nullptr};
+    heap_.visit(
+        [](const BytecodeHeap::Block &block, void *context) {
+            auto &position = *static_cast<Position *>(context);
+            if (position.value) {
+                return;
+            }
+            if (position.index < block.valueCount) {
+                position.value = static_cast<const Value *>(block.data) + position.index;
+            }
+            else {
+                position.index -= block.valueCount;
+            }
+        },
+        &position);
+    return position.value;
+}
+
+/**
  * @brief 参照中の文字列を重複除去してSnapshotの必要長を計算する。
  * @return Pausedでなければ0。上限256KiB、不正な文字列でも0。
  * @details 定数文字列・動的文字列を切り詰めず送る。確保失敗はDebuggerがMemoryとして通知する。
- * 第2段階のHeapReferenceはまだSnapshotで表現しない。生ポインターを送らず必要長0で拒否する。
+ * HeapReferenceは本体IDで表し、文字列と全確保本体のValue列を含める。生ポインターは送らない。
  */
 size_t BytecodeVM::debugSnapshotLength() const {
     if (state != State::Paused || sp > MaxStack || globalCount > MaxGlobals ||
         (sp && !stack_) || (globalCount && !globals)) {
         return 0;
     }
-    size_t length = 28 + 8 * (globalCount + sp);
-    for (uint32_t index = 0; index < globalCount + sp; ++index) {
-        const Value &current = index < globalCount ? globals[index] : stack_[index - globalCount];
-        if (current.type == Type::HeapReference) {
+    size_t length = 32 + 8 * (globalCount + sp);
+    heap_.visit(
+        [](const BytecodeHeap::Block &block, void *context) {
+            *static_cast<size_t *>(context) += 8 + size_t(block.valueCount) * 8;
+        },
+        &length);
+    if (length > 256 * 1024) {
+        return 0;
+    }
+    const uint32_t count = debugValueCount();
+    for (uint32_t index = 0; index < count; ++index) {
+        const Value &current = *debugValueAt(index);
+        if (uint8_t(current.type) > uint8_t(Type::HeapReference) ||
+            (current.type == Type::HeapReference && !validValue(current)) ||
+            (current.type == Type::Float && !std::isfinite(current.real))) {
             return 0;
         }
         if (!firstDebugString(index)) {
             continue;
         }
-        const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
+        const Value &value = current;
         const char *text = nullptr;
         size_t bytes = 0;
         if (!stringBytes(value, text, bytes) || bytes > 256 * 1024 || length + 8 + bytes > 256 * 1024) {
@@ -1376,7 +1689,7 @@ size_t BytecodeVM::debugSnapshotLength() const {
  * @param data 出力領域。
  * @param length 正確な必要長。
  * @return Pausedで正常にコピーしたらtrue。
- * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.tsのSnapshot version=2。
+ * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.tsのSnapshot version=3。
  * BPチェーンはReturnPc/SavedBpとdiagramのCALL表から復元する。値・文字列は同じ停止中のもの。
  */
 bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
@@ -1384,7 +1697,7 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
         return false;
     }
     std::memset(data, 0, length);
-    data[0] = 2;
+    data[0] = 3;
     data[1] = pauseReason;
     data[2] = 8;
     const uint32_t header[] = {pc, bp, sp, globalCount, sp};
@@ -1395,58 +1708,17 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
     }
     for (uint32_t index = 0; index < globalCount + sp; ++index) {
         const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
-        uint8_t *record = data + 24 + index * 8;
-        uint32_t payload = 0;
-        switch (value.type) {
-            case Type::Uninitialized:
-                record[0] = 0;
-                break;
-            case Type::Integer:
-                record[0] = 1;
-                payload = uint32_t(value.integer);
-                break;
-            case Type::Float:
-                record[0] = 2;
-                static_assert(sizeof(float) == 4, "Debug float must be binary32");
-                std::memcpy(&payload, &value.real, sizeof payload);
-                break;
-            case Type::None:
-                record[0] = 3;
-                break;
-            case Type::ReturnPc:
-                record[0] = 4;
-                payload = value.address;
-                break;
-            case Type::SavedBp:
-                record[0] = 5;
-                payload = value.address;
-                break;
-            case Type::String:
-                record[0] = 6;
-                payload = value.address;
-                break;
-            case Type::Object:
-                record[0] = 7;
-                record[2] = uint8_t(value.classId);
-                record[3] = uint8_t(value.classId >> 8);
-                payload = value.address;
-                break;
-            case Type::HeapReference:
-                return false;
-        }
-        for (size_t byte = 0; byte < 4; ++byte) {
-            record[4 + byte] = uint8_t(payload >> (byte * 8));
-        }
+        snapshotValue(data + 24 + index * 8, value);
     }
     size_t offset = 24 + 8 * (globalCount + sp);
     uint32_t count = 0;
     const size_t countOffset = offset;
     offset += 4;
-    for (uint32_t index = 0; index < globalCount + sp; ++index) {
+    for (uint32_t index = 0; index < debugValueCount(); ++index) {
         if (!firstDebugString(index)) {
             continue;
         }
-        const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
+        const Value &value = *debugValueAt(index);
         const char *text = nullptr;
         size_t bytes = 0;
         if (!stringBytes(value, text, bytes) || offset + 8 + bytes > length) {
@@ -1463,5 +1735,8 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
     for (size_t byte = 0; byte < 4; ++byte) {
         data[countOffset + byte] = uint8_t(count >> (byte * 8));
     }
-    return offset == length;
+    write32(data + offset, uint32_t(heapStatistics.objects));
+    SnapshotWriter writer{data, offset + 4};
+    heap_.visit(snapshotBlock, &writer);
+    return writer.offset == length;
 }

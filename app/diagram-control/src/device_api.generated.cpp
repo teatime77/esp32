@@ -1,4 +1,5 @@
-/** @file device_api.generated.cpp
+/**
+ * @file device_api.generated.cpp
  * @brief device.pyiから自動生成した型検査・値スロット変換・単一ID登録表。直接編集しない。
  * @details 数学関数は共通変換から直接呼び、機器操作はBackendへ渡す。有限性はVMが検査する。
  */
@@ -6,7 +7,9 @@
 #include <cmath>
 
 namespace device_api {
-    /** @brief 派生バックエンドを破棄する。 */
+    /**
+     * @brief 派生バックエンドを破棄する。
+     */
     Backend::~Backend() = default;
 
     namespace {
@@ -76,7 +79,8 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief std::modfの小数部だけを返す。仕様はinvokeFloatUnaryを参照する。
+        /**
+         * @brief std::modfの小数部だけを返す。仕様はinvokeFloatUnaryを参照する。
          * @param value 分解する値。@return 入力と同符号の小数部。
          */
         float fractionalPart(float value) {
@@ -84,7 +88,118 @@ namespace device_api {
             return std::modf(value, &integerPart);
         }
 
-        /** @brief Servo_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief GC本体をC++のVec3へコピーする。
+         * @param vm 本体を検査するVM。
+         * @param value 本体参照。
+         * @param result 成功時のC++値。
+         * @return 型・幅が一致すればtrue。
+         */
+        inline bool read_Vec3(BytecodeVM &vm, const BytecodeVM::Value &value, Vec3 &result) {
+            const BytecodeVM::Value *fields = nullptr;
+            if (!vm.heapFields(value, 1, 3, fields)) {
+                return false;
+            }
+            if (fields[0].type != BytecodeVM::Type::Float || !std::isfinite(fields[0].real)) {
+                return false;
+            }
+            result.x = fields[0].real;
+            if (fields[1].type != BytecodeVM::Type::Float || !std::isfinite(fields[1].real)) {
+                return false;
+            }
+            result.y = fields[1].real;
+            if (fields[2].type != BytecodeVM::Type::Float || !std::isfinite(fields[2].real)) {
+                return false;
+            }
+            result.z = fields[2].real;
+            return true;
+        }
+
+        /**
+         * @brief C++のVec3を入れ子も含めてGC本体へコピーする。
+         * @param vm 確保先のVM。
+         * @param input バックエンドの結果。
+         * @param value 成功時だけ設定する参照。
+         * @return 確保と変換の成功時true。
+         * @details 構築途中の親をHeapRootで保持し、子の確保中のGCから保護する。
+         */
+        inline bool write_Vec3(BytecodeVM &vm, const Vec3 &input, BytecodeVM::Value &value) {
+            BytecodeVM::Value holder;
+            BytecodeVM::HeapRoot root(vm, holder);
+            if (!vm.allocateHeapValue(1, 3, 0, holder)) {
+                return false;
+            }
+            auto *fields = static_cast<BytecodeVM::Value *>(holder.reference->data);
+            if (!std::isfinite(input.x)) {
+                return false;
+            }
+            fields[0].type = BytecodeVM::Type::Float;
+            fields[0].real = input.x;
+            if (!std::isfinite(input.y)) {
+                return false;
+            }
+            fields[1].type = BytecodeVM::Type::Float;
+            fields[1].real = input.y;
+            if (!std::isfinite(input.z)) {
+                return false;
+            }
+            fields[2].type = BytecodeVM::Type::Float;
+            fields[2].real = input.z;
+            value = holder;
+            return true;
+        }
+
+        /**
+         * @brief GC本体をC++のIMUValueへコピーする。
+         * @param vm 本体を検査するVM。
+         * @param value 本体参照。
+         * @param result 成功時のC++値。
+         * @return 型・幅が一致すればtrue。
+         */
+        inline bool read_IMUValue(BytecodeVM &vm, const BytecodeVM::Value &value, IMUValue &result) {
+            const BytecodeVM::Value *fields = nullptr;
+            if (!vm.heapFields(value, 2, 2, fields)) {
+                return false;
+            }
+            if (!read_Vec3(vm, fields[0], result.acc)) {
+                return false;
+            }
+            if (!read_Vec3(vm, fields[1], result.gyro)) {
+                return false;
+            }
+            return true;
+        }
+
+        /**
+         * @brief C++のIMUValueを入れ子も含めてGC本体へコピーする。
+         * @param vm 確保先のVM。
+         * @param input バックエンドの結果。
+         * @param value 成功時だけ設定する参照。
+         * @return 確保と変換の成功時true。
+         * @details 構築途中の親をHeapRootで保持し、子の確保中のGCから保護する。
+         */
+        inline bool write_IMUValue(BytecodeVM &vm, const IMUValue &input, BytecodeVM::Value &value) {
+            BytecodeVM::Value holder;
+            BytecodeVM::HeapRoot root(vm, holder);
+            if (!vm.allocateHeapValue(2, 2, 0, holder)) {
+                return false;
+            }
+            auto *fields = static_cast<BytecodeVM::Value *>(holder.reference->data);
+            if (!write_Vec3(vm, input.acc, fields[0])) {
+                return false;
+            }
+            if (!write_Vec3(vm, input.gyro, fields[1])) {
+                return false;
+            }
+            value = holder;
+            return true;
+        }
+
+        /**
+         * @brief Servo_constructの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Servo_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -112,7 +227,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Servo_enableの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Servo_enableの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Servo_enable(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -132,7 +251,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Servo_disableの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Servo_disableの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Servo_disable(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -152,7 +275,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Servo_set_angleの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Servo_set_angleの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Servo_set_angle(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -177,7 +304,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Servo_set_speedの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Servo_set_speedの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Servo_set_speed(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -202,7 +333,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief IMU_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief IMU_constructの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_IMU_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -220,11 +355,15 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief IMU_get_valueの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief IMU_get_valueの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_IMU_get_value(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
-            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 6) {
+            if (!call.context || call.argumentSlots != 1 || call.resultSlots != 1) {
                 return Error::Operand;
             }
             uint32_t receiver{};
@@ -237,22 +376,17 @@ namespace device_api {
             if (status != Error::None) {
                 return status;
             }
-            call.results[0].type = Type::Float;
-            call.results[0].real = result.acc.x;
-            call.results[1].type = Type::Float;
-            call.results[1].real = result.acc.y;
-            call.results[2].type = Type::Float;
-            call.results[2].real = result.acc.z;
-            call.results[3].type = Type::Float;
-            call.results[3].real = result.gyro.x;
-            call.results[4].type = Type::Float;
-            call.results[4].real = result.gyro.y;
-            call.results[5].type = Type::Float;
-            call.results[5].real = result.gyro.z;
+            if (!write_IMUValue(call.vm, result, call.results[0])) {
+                return call.vm.error == Error::None ? Error::Type : call.vm.error;
+            }
             return Error::None;
         }
 
-        /** @brief UltrasonicDistanceSensor_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief UltrasonicDistanceSensor_constructの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_UltrasonicDistanceSensor_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -270,7 +404,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief UltrasonicDistanceSensor_get_distanceの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief UltrasonicDistanceSensor_get_distanceの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_UltrasonicDistanceSensor_get_distance(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -292,7 +430,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_constructの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_constructの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_construct(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -310,7 +452,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_set_text_colorの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_set_text_colorの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_set_text_color(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -335,7 +481,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_set_cursorの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_set_cursorの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_set_cursor(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -365,7 +515,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_printの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_printの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_print(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -389,7 +543,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_draw_lineの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_draw_lineの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_draw_line(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -434,7 +592,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_draw_rectの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_draw_rectの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_draw_rect(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -479,7 +641,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_draw_circleの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_draw_circleの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_draw_circle(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -519,7 +685,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_fill_circleの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_fill_circleの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_fill_circle(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -559,7 +729,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief Display_displayの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief Display_displayの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_Display_display(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -579,7 +753,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief function_printの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief function_printの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_print(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -598,7 +776,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief function_sleepの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief function_sleepの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_sleep(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -618,7 +800,11 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief function_timeの型を検査し、機器操作へ渡す。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief function_timeの型を検査し、機器操作へ渡す。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_time(BytecodeVM::NativeCall &call) {
             using Type = BytecodeVM::Type;
             using Error = BytecodeVM::Error;
@@ -635,71 +821,119 @@ namespace device_api {
             return Error::None;
         }
 
-        /** @brief std::sinを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::sinを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_sin(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::sin));
         }
 
-        /** @brief std::cosを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::cosを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_cos(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::cos));
         }
 
-        /** @brief std::tanを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::tanを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_tan(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::tan));
         }
 
-        /** @brief std::fminを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::fminを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_min(BytecodeVM::NativeCall &call) {
             return invokeFloatBinary(call, static_cast<float (*)(float, float)>(std::fmin));
         }
 
-        /** @brief std::fmaxを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::fmaxを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_max(BytecodeVM::NativeCall &call) {
             return invokeFloatBinary(call, static_cast<float (*)(float, float)>(std::fmax));
         }
 
-        /** @brief std::floorを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::floorを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_floor(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::floor));
         }
 
-        /** @brief std::ceilを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::ceilを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_ceil(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::ceil));
         }
 
-        /** @brief fractionalPartを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief fractionalPartを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_modf(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(fractionalPart));
         }
 
-        /** @brief std::acosを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::acosを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_acos(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::acos));
         }
 
-        /** @brief std::asinを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::asinを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_asin(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::asin));
         }
 
-        /** @brief std::atan2を共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::atan2を共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_atan2(BytecodeVM::NativeCall &call) {
             return invokeFloatBinary(call, static_cast<float (*)(float, float)>(std::atan2));
         }
 
-        /** @brief std::fabsを共通変換から呼ぶ。@param call VMの入出力領域。@return 実行結果。 */
+        /**
+         * @brief std::fabsを共通変換から呼ぶ。
+         * @param call VMの入出力領域。
+         * @return 実行結果。
+         */
         BytecodeVM::Error invoke_abs(BytecodeVM::NativeCall &call) {
             return invokeFloatUnary(call, static_cast<float (*)(float)>(std::fabs));
         }
 
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
         const uint8_t abiHash[32] = {
-            0x4B, 0xD5, 0x0A, 0xF8, 0x83, 0xAC, 0x34, 0x57, 0x9C, 0x00, 0xAA, 0x0F, 0x0C, 0x84, 0xEF, 0x54, 0xC1, 0xF4, 0xA4, 0x4F, 0x80, 0xB7, 0x40, 0x6F, 0x1D, 0x39, 0x01, 0xDC, 0x0E, 0x28, 0x88, 0x2D
+            0x1D, 0xF2, 0xDD, 0x98, 0x0F, 0xF9, 0xB8, 0x01, 0x2C, 0xFF, 0xF1, 0xC8, 0xBF, 0x5C, 0x2A, 0x1F, 0x5E, 0x19, 0x49, 0xEA, 0x00, 0x98, 0x55, 0x36, 0xDF, 0x9A, 0x5C, 0x9E, 0xF3, 0x8F, 0x0E, 0xC7
         };
-        // nativeIdの昇順。引数と戻り値の幅はrecord展開後のスロット数。
+        // nativeIdの昇順。recordも1スロットのGC参照で受け渡す。
         const BytecodeVM::NativeEntry entries[] = {
             {1, 2, 1, invoke_Servo_construct},
             {2, 1, 1, invoke_Servo_enable},
@@ -707,7 +941,7 @@ namespace device_api {
             {4, 2, 1, invoke_Servo_set_angle},
             {5, 2, 1, invoke_Servo_set_speed},
             {6, 0, 1, invoke_IMU_construct},
-            {7, 1, 6, invoke_IMU_get_value},
+            {7, 1, 1, invoke_IMU_get_value},
             {8, 0, 1, invoke_UltrasonicDistanceSensor_construct},
             {9, 1, 1, invoke_UltrasonicDistanceSensor_get_distance},
             {10, 0, 1, invoke_Display_construct},
@@ -736,13 +970,20 @@ namespace device_api {
             {33, 1, 1, invoke_abs},
         };
 
-        /** @brief VM停止時に機器の出力とハンドルを解放する。@param context 登録バックエンド。 */
+        /**
+         * @brief VM停止時に機器の出力とハンドルを解放する。
+         * @param context 登録バックエンド。
+         */
         void resetBackend(void *context) {
             static_cast<Backend *>(context)->reset();
         }
     }
 
-    /** @brief VM登録表を構築する。@param backend 登録中保持する機器操作。@return 静的なID表を参照する登録情報。 */
+    /**
+     * @brief VM登録表を構築する。
+     * @param backend 登録中保持する機器操作。
+     * @return 静的なID表を参照する登録情報。
+     */
     BytecodeVM::NativeApi makeNativeApi(Backend &backend) {
         return {abiHash, entries, 33, &backend, resetBackend};
     }

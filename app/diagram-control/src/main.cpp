@@ -218,7 +218,7 @@ namespace {
         /**
          * @details
          * HALT時には先頭16個までを`VM g[番号]=値`としてシリアルへ出す。
-         * 番号は構造体の葉を展開した大域スロット。ObjectはクラスIDと不透明ハンドルを表示する。
+         * 番号は大域変数の値スロット。機器は不透明ハンドル、GC本体はIDを表示し、生アドレスを出さない。
          */
         if (bytecodeVm.state == BytecodeVM::State::Halted) {
             const uint32_t count = bytecodeVm.globalCount < 16 ? bytecodeVm.globalCount : 16;
@@ -234,6 +234,10 @@ namespace {
                 else if (value.type == BytecodeVM::Type::Object) {
                     Serial.printf("Object(class=%u, handle=%lu)\n", unsigned(value.classId),
                         static_cast<unsigned long>(value.address));
+                }
+                else if (value.type == BytecodeVM::Type::HeapReference) {
+                    Serial.printf("Object(class=%u, id=%lu)\n", unsigned(value.classId),
+                        static_cast<unsigned long>(value.reference->id));
                 }
                 else if (value.type == BytecodeVM::Type::String) {
                     const char *bytes = nullptr;

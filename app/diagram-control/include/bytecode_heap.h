@@ -28,6 +28,12 @@ class BytecodeHeap {
      * @param context 呼出し元の借用状態。
      */
     using Roots = void (*)(BytecodeHeap &heap, void *context);
+    /**
+     * @brief 確保済み本体を変更せず参照する関数。
+     * @param block 現在の本体。
+     * @param context 呼出し側の借用状態。確保・GC・解放は禁止。
+     */
+    using Visitor = void (*)(const Block &block, void *context);
 
     /**
      * @brief 本体の直前に置く管理情報。dataはmax_align_tに整列し、生存中は移動しない。
@@ -35,6 +41,7 @@ class BytecodeHeap {
      */
     struct alignas(max_align_t) Block {
         void *data; ///< このヘッダーの直後にある、ゼロ初期化した本体。
+        uint32_t id = 0; ///< 同一実行内で再利用しないSnapshot用ID。生アドレスは送らない。
         size_t bytes; ///< ヘッダーを除く本体のバイト長。
         uint32_t valueCount = 0; ///< 本体先頭に配置するVMのValueの数。後続の数値バイト列は走査しない。
         uint16_t classId = 0; ///< VMが設定する非0の本体型ID。機器ハンドルとは別の参照種別で扱う。
@@ -94,6 +101,12 @@ class BytecodeHeap {
      */
     bool contains(const Block *block) const;
     /**
+     * @brief 確保一覧を読み取る。Snapshotと文字列プールの参照探索に使用する。
+     * @param visitor 各本体へ一度呼ぶ読取り関数。
+     * @param context 読取り関数の借用状態。
+     */
+    void visit(Visitor visitor, void *context) const;
+    /**
      * @brief 根の列挙と本体走査を行い、到達不能な領域を解放する。
      * @param roots 根の列挙関数。nullなら根はない。
      * @param context 根の列挙関数へ渡す状態。
@@ -128,4 +141,5 @@ class BytecodeHeap {
     Block *blocks_ = nullptr; ///< 全確保領域の先頭。
     Block *pending_ = nullptr; ///< GCの探索待ちリストの先頭。
     bool collecting_ = false; ///< GCの再入・GC中の確保を禁止する状態。
+    uint32_t nextId_ = 0; ///< Snapshot用本体IDの採番。clearで0へ戻す。
 };
