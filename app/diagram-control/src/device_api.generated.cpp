@@ -121,11 +121,10 @@ namespace device_api {
          * @param input バックエンドの結果。
          * @param value 成功時だけ設定する参照。
          * @return 確保と変換の成功時true。
-         * @details 構築途中の親をHeapRootで保持し、子の確保中のGCから保護する。
+         * @details C++の構築中にGCを行わない。結果はVMへ返し、C++側へ参照を持ち越さない。
          */
         inline bool write_Vec3(BytecodeVM &vm, const Vec3 &input, BytecodeVM::Value &value) {
             BytecodeVM::Value holder;
-            BytecodeVM::HeapRoot root(vm, holder);
             if (!vm.allocateHeapValue(1, 3, 0, holder)) {
                 return false;
             }
@@ -176,11 +175,10 @@ namespace device_api {
          * @param input バックエンドの結果。
          * @param value 成功時だけ設定する参照。
          * @return 確保と変換の成功時true。
-         * @details 構築途中の親をHeapRootで保持し、子の確保中のGCから保護する。
+         * @details C++の構築中にGCを行わない。結果はVMへ返し、C++側へ参照を持ち越さない。
          */
         inline bool write_IMUValue(BytecodeVM &vm, const IMUValue &input, BytecodeVM::Value &value) {
             BytecodeVM::Value holder;
-            BytecodeVM::HeapRoot root(vm, holder);
             if (!vm.allocateHeapValue(2, 2, 0, holder)) {
                 return false;
             }
@@ -931,7 +929,7 @@ namespace device_api {
 
         // JSONと同一のABIハッシュ。シグネチャ・ID・フィールド配置の差をVM開始時に検出する。
         const uint8_t abiHash[32] = {
-            0xF1, 0x4D, 0x3F, 0x0A, 0x3E, 0x65, 0x1B, 0x9C, 0x62, 0x87, 0x76, 0xAD, 0x01, 0x38, 0x18, 0xC1, 0x89, 0xF2, 0x36, 0xCC, 0xA7, 0x72, 0x19, 0x97, 0x00, 0x81, 0xB8, 0xEE, 0x1D, 0x99, 0xC6, 0x08
+            0x47, 0x6A, 0xA9, 0x5D, 0x89, 0x23, 0x3D, 0x21, 0xC3, 0x84, 0x57, 0x3B, 0x77, 0x85, 0xA4, 0xE0, 0x48, 0x4E, 0xA6, 0xEB, 0x77, 0xBA, 0x5D, 0xCC, 0x16, 0x46, 0xBA, 0x86, 0xA6, 0x18, 0x2A, 0x9E
         };
         // nativeIdの昇順。recordも1スロットのGC参照で受け渡す。
         const BytecodeVM::NativeEntry entries[] = {

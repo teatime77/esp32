@@ -10,10 +10,10 @@
 #include <stdint.h>
 
 /**
- * @brief バイナリversion=6のレイアウト。転送・デバッグ通信の版番号とは独立する。
+ * @brief バイナリversion=7のレイアウト。転送・デバッグ通信の版番号とは独立する。
  */
 namespace BytecodeFormat {
-    constexpr uint16_t Version = 6; ///< GC本体型表を含む唯一のバイトコード版。
+    constexpr uint16_t Version = 7; ///< GC本体型表を含む唯一のバイトコード版。
     constexpr size_t HeaderLength = 64; ///< ABI指紋と型表長を含むヘッダーのバイト数。
     constexpr size_t TypeRecordLength = 16; ///< 型ID・フィールド数・表位置・本体種別・rank・要素タグ・要素型・予約値。
     constexpr size_t FunctionRecordLength = 12; ///< 関数レコードのバイト数。
@@ -25,6 +25,7 @@ namespace BytecodeFormat {
      */
     struct Image {
         uint16_t globalCount = 0; ///< 大域値のスロット数。
+        uint16_t globalRootCount = 0; ///< 一時領域を除く大域変数の根の数。
         uint16_t functionCount = 0; ///< 関数レコード数。
         uint16_t stringCount = 0; ///< UTF-8定数のレコード数。
         uint16_t typeCount = 0; ///< GC本体型の数。
@@ -40,7 +41,7 @@ namespace BytecodeFormat {
     };
 
     /**
-     * @brief version=6の固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
+     * @brief version=7の固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
      * @param data イメージの先頭。ビューの使用中は有効に保持する。
      * @param length イメージ全長。
      * @param image 成功時の借用ビュー。失敗時は変更しない。

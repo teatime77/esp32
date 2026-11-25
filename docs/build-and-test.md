@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## Python VMのGC簡略化（2026-11-25）
+
+[VM](../app/diagram-control/src/bytecode_vm.cpp)のcollectHeap()・markValues()と[ヒープ](../app/diagram-control/src/bytecode_heap.cpp)を簡略化した。回収点と根の範囲は[コンパイラー](../../uroa/diagram/ts/python/bytecode.ts)が生成し、C++の構築中には回収しない。C++の根登録・確保失敗時の回収と再試行・GC統計・本体IDを削除した。本体のSnapshot転送・展開も削除した。詳細な安全条件・参照規則はVMの仕様コメントを参照する。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。変更箇所の整形後、コンパイル・リンク・`firmware.bin`生成に成功（66.37秒）。RAMは59132/327680バイト、Flashは1079993/1310720バイト。PlatformIOの既存キャッシュ・ロックへの書込み権限を使用した。他の環境はビルドしていない。
+
+生成物の`--check`一致、Webの型・公開ビルド・成果物の静的確認は成功（[uroaの記録](../../uroa/docs/build-and-test.md)）。文書リンク・コメント・差分を確認した。形式・ABI変更のため、Webとファームウェアを更新し、バイトコードを再生成・再送信する。テストは作成・実行せず、Upload・通信・VM実行・実機GC動作と時間は未確認。commit・pushは行っていない。
+
 ## オブジェクト・NumPy対応 第5段階：object配列（2026-11-25）
 
 [VM](../app/diagram-control/src/bytecode_vm.cpp)と[numpy_native.cpp](../app/diagram-control/src/numpy_native.cpp)へobject配列を接続した。Value要素列のNone初期化・参照格納・GC探索、本体型表の要素タグとクラス検査、Noneアクセスを実装した。共通化したArray・allocateArray・arrayDataの配置と、arrayElementValueの検査は[ヘッダー](../app/diagram-control/include/bytecode_vm.h)を参照する。停止形式は[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)が正本。

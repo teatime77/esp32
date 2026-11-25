@@ -431,11 +431,12 @@ void BytecodeReceiver::publishResult() {
  * @details
  * - バイナリの識別子・版・開始PC・予約領域・全体長・上限。
  * - 関数範囲の順序・連続性・長さ、フレームのスロット数。
- * - 共通bytecode_format.cppによるversion=6の固定配置・本体型表・命令長。
+ * - 共通bytecode_format.cppによるversion=7の固定配置・本体型表・命令長。
  * - opcode・所属範囲、各範囲の末尾HALT／RET。
  * - 大域・局所変数の位置、CALL先の関数入口への一致。
  * - 分岐先が同じ所属範囲内の命令先頭であること。
  * - float32リテラルが有限であること。
+ * - 根の数が引数・局所領域内であり、GC_LOOPの入口PCが所属スコープと一致すること。
  */
 BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t length) {
     BytecodeFormat::Image view;
@@ -471,7 +472,8 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
         const uint32_t end = start + read16(record + 2);
         if (start == 0 || end <= start || end > codeLength || (index > 0 && start != previousEnd) ||
             uint32_t(read16(record + 4)) + read16(record + 6) + 2 > 65536 ||
-            (read16(record + 8) == 0 || read16(record + 10) != 0)) {
+            (read16(record + 8) == 0 || read16(record + 10) < read16(record + 4) ||
+                read16(record + 10) > uint32_t(read16(record + 4)) + read16(record + 6))) {
             return Invalid;
         }
         previousEnd = end;
@@ -502,6 +504,9 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
             }
             boundaries[pc / 8] |= uint8_t(1U << (pc % 8));
             const uint16_t value = size == 3 ? read16(code + pc + 1) : 0;
+            if (opcode == 0x27 && value != base) {
+                return Invalid;
+            }
             if ((opcode == 0x19 || opcode == 0x1C) && value >= strings) {
                 return Invalid;
             }
