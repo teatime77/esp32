@@ -20,7 +20,7 @@ namespace device_api {
     constexpr uint16_t ModuleDefinitionVersion = 1;
 
     /**
-     * @brief numpyの引数番号。実行処理は第1段階では未登録。
+     * @brief numpyの引数番号。実行処理はnumpy_native.cppが使用する。
      */
     namespace numpy {
         /**

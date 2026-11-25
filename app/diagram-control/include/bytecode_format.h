@@ -10,12 +10,12 @@
 #include <stdint.h>
 
 /**
- * @brief バイナリversion=4のレイアウト。転送・デバッグ通信の版番号とは独立する。
+ * @brief バイナリversion=5のレイアウト。転送・デバッグ通信の版番号とは独立する。
  */
 namespace BytecodeFormat {
-    constexpr uint16_t Version = 4; ///< GC本体型表を含む唯一のバイトコード版。
+    constexpr uint16_t Version = 5; ///< GC本体型表を含む唯一のバイトコード版。
     constexpr size_t HeaderLength = 64; ///< ABI指紋と型表長を含むヘッダーのバイト数。
-    constexpr size_t TypeRecordLength = 8; ///< 型ID・フィールド数・フィールド表位置。
+    constexpr size_t TypeRecordLength = 12; ///< 型ID・フィールド数・表位置・本体種別・rank・予約値。
     constexpr size_t FunctionRecordLength = 12; ///< 関数レコードのバイト数。
     constexpr size_t StringRecordLength = 8; ///< 文字列レコードのバイト数。
     constexpr size_t MaxLength = 128 * 1024; ///< イメージ全体のバイト上限。
@@ -40,7 +40,7 @@ namespace BytecodeFormat {
     };
 
     /**
-     * @brief version=4の固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
+     * @brief version=5の固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
      * @param data イメージの先頭。ビューの使用中は有効に保持する。
      * @param length イメージ全長。
      * @param image 成功時の借用ビュー。失敗時は変更しない。

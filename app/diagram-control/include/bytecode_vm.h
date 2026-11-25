@@ -14,7 +14,7 @@
 class BytecodeVM {
     public:
     static constexpr uint32_t MaxStack = 1024; ///< 管理領域・引数・局所・一時値の上限。
-    static constexpr uint32_t MaxGlobals = 1024; ///< 展開後の大域スロット上限。
+    static constexpr uint32_t MaxGlobals = 1024; ///< 大域変数・コンパイラー一時値のスロット上限。
     static constexpr uint32_t MaxFrames = 64; ///< 同時ユーザー関数呼出し上限。
     static constexpr uint32_t MaxStrings = 64; ///< 動的文字列の同時保持上限。
     static constexpr uint32_t MaxStringLength = 1024; ///< 整形・連結結果の最大UTF-8バイト長。
@@ -64,7 +64,10 @@ class BytecodeVM {
         NativeFailure, ///< 16: スタブが報告する機器エラー等。
         StringLimit, ///< 17: 動的文字列数・長さの上限。
         StringFormat, ///< 18: 未対応・不正な数値書式。
-        NativePending ///< 19: スタブからVMへの待機通知。Error状態にはせず、次のtickで再試行する。
+        NativePending, ///< 19: スタブからVMへの待機通知。Error状態にはせず、次のtickで再試行する。
+        ArrayIndex, ///< 20: 軸数・整数添字・負の添字補正後の範囲が不正。
+        ArrayShape, ///< 21: shape・次元数・要素数・バイト数が不正。
+        ArrayOption ///< 22: 未対応のdtype・order・device・like。
     };
     /**
      * @brief スロット型。管理用のReturnPc/SavedBpはPythonに公開しない。
@@ -82,7 +85,7 @@ class BytecodeVM {
     };
 
     /**
-     * @brief 1個の値。既存recordは複数スロット、GC本体はポインター1個を保持する。
+     * @brief 1個の値。record・ユーザー本体・ndarrayはポインター1個を保持する。
      */
     struct Value {
         Type type = Type::Uninitialized; ///< 未初期化・数値・管理値・文字列・機器・GC本体を区別する。
@@ -93,6 +96,18 @@ class BytecodeVM {
             uint32_t address; ///< 管理値・文字列ID・機器ハンドル。C++ポインターではない。
             BytecodeHeap::Block *reference; ///< HeapReferenceだけが使うGCヘッダーへのポインター。整数から復元しない。
         };
+    };
+
+    /**
+     * @brief 数値配列の本体先頭。直後にfloat32またはuint8の連続データを置く。
+     * @details VMが設定し、確保後は形状・dtype・要素数を変更しない。GCは生データを走査しない。
+     */
+    struct NumericArray {
+        uint32_t shape[4]{}; ///< 軸長。未使用軸は0。各軸はint32の非負範囲。
+        uint32_t elements = 0; ///< 全軸長の積。0長の軸があれば0。
+        uint8_t rank = 0; ///< 次元数1～4。
+        uint8_t dtype = 0; ///< 1=float32、2=uint8。
+        uint16_t reserved = 0; ///< 常に0。データをfloat境界へ整列する。
     };
 
     /**
@@ -140,8 +155,8 @@ class BytecodeVM {
         BytecodeVM &vm; ///< 文字列参照・GC本体確保・HeapRoot登録に使用。実行・停止等のVM再入は禁止。
         const Value *arguments; ///< self、明示引数の順。recordも1個のGC参照。
         Value *results; ///< 必ずresultSlots個すべてを設定する。Noneも1個返す。
-        uint16_t argumentSlots; ///< selfと明示引数を宣言順に展開した入力スロット数。
-        uint16_t resultSlots; ///< 戻り値を宣言順に展開した出力スロット数。Noneも1個を使う。
+        uint16_t argumentSlots; ///< selfと明示引数の入力スロット数。各値は1スロット。
+        uint16_t resultSlots; ///< 戻り値の出力スロット数。Noneも参照も1個を使う。
         void *context; ///< 登録元が所有する機器管理状態。
     };
     /**
@@ -149,8 +164,8 @@ class BytecodeVM {
      */
     struct NativeEntry {
         uint16_t id; ///< API定義の全呼出しで共有する非0のnativeId。登録表では昇順に並べる。
-        uint16_t argumentSlots; ///< selfと明示引数を宣言順に展開した入力スロット数。
-        uint16_t resultSlots; ///< 戻り値を宣言順に展開した出力スロット数。Noneも1個を使う。
+        uint16_t argumentSlots; ///< selfと明示引数の入力スロット数。各値は1スロット。
+        uint16_t resultSlots; ///< 戻り値の出力スロット数。Noneも参照も1個を使う。
         Error (*invoke)(NativeCall &call); ///< 同期実行。成功時Error::None。
     };
     /**
@@ -174,7 +189,7 @@ class BytecodeVM {
     uint8_t pauseReason = 1; ///< VMが更新する。1=ブレークポイント、2=ステップ。
     BytecodeHeap::Statistics heapStatistics; ///< ヒープが更新する確保量とGC診断。外部は参照のみ。start()で初期化する。
     std::unique_ptr<Value[]> globals; ///< stopではString/Object/HeapReferenceを無効化し、数値は保持する。
-    uint32_t globalCount = 0; ///< start()が確保した大域値スロット数。構造体は末端フィールドの幅を含む。
+    uint32_t globalCount = 0; ///< start()が確保した大域値スロット数。record・ndarrayも1スロット。
 
     /**
      * @brief 停止中にスタブ表を検証・登録する。
@@ -198,13 +213,31 @@ class BytecodeVM {
      * @brief 本体型表に一致するValue列をGCヒープへ確保する。
      * @param classId 非0の本体型ID。
      * @param valueCount 本体先頭に置くValueの個数。参照型のスロットだけをGCでたどる。
-     * @param byteCount 現段階は0だけ許可する。数値配列の生データは後続段階で接続する。
+     * @param byteCount 0だけ許可する。数値配列はallocateNumericArray()で確保する。
      * @param value 結果の参照。出力前の値は変更しない。以後の確保をまたいで使うならHeapRootを先に登録する。
      * @return 成功時true。型・サイズ・メモリーの失敗は実行エラーにする。
      * @details Runningで、未登録のC++一時参照がない位置からのみ呼ぶ。失敗時はGC後に一度だけ確保を再試行する。
      * classIdとvalueCountは借用イメージの型表に一致させる。生成途中の未初期化フィールドもGCで安全に走査する。
      */
     bool allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t byteCount, Value &value);
+    /**
+     * @brief shapeと型表を検査して数値配列をゼロ初期化する。
+     * @param classId dtype・rankが一致する本体型ID。
+     * @param dtype 1=float32、2=uint8。
+     * @param shape rank個の非負軸長。
+     * @param rank 1～4。
+     * @param value 成功時だけ設定する本体参照。
+     * @return 成功時true。失敗時はエラー状態にする。
+     * @details 確保失敗時は登録済みの根でGC後に一度だけ再試行する。数値データは探索しない。
+     */
+    bool allocateNumericArray(uint16_t classId, uint8_t dtype, const uint32_t *shape, uint8_t rank, Value &value);
+    /**
+     * @brief 所属・型表・shape・要素数・バイト長が一致する数値配列を借用する。
+     * @param value 本体参照。
+     * @param array 成功時の不変ヘッダー。要素データはarray+1にある。
+     * @return 有効ならtrue。GCをまたぐ場合はvalueを根に保つ。
+     */
+    bool numericArray(const Value &value, const NumericArray *&array) const;
     /**
      * @brief 型・所属・フィールド数を検査して本体のValue列を借用する。
      * @param value 検査対象の参照。
@@ -381,6 +414,22 @@ class BytecodeVM {
      */
     void callNative(uint16_t id);
     /**
+     * @brief shapeとoptionId/値の組を取り出してNumPyのC++実装へ渡す。
+     * @param classId コンパイル時のdtype・rankを持つ戻り値型。
+     */
+    void callNumpy(uint16_t classId);
+    /**
+     * @brief 全軸の添字を取り出し、スカラー1個を読書きする。
+     * @param rank 命令に記録した軸数。
+     * @param write SET_ITEMならtrue。右辺は対象より前に積まれている。
+     */
+    void arrayItem(uint16_t rank, bool write);
+    /**
+     * @brief 配列の長さ・数値属性・shapeの軸長を返す。
+     * @param kind 0=len、1=size、2=ndim、3=itemsize、4=shapeの軸。
+     */
+    void arrayAttribute(uint16_t kind);
+    /**
      * @brief 到達不能文字列を回収して結果領域を確保する。
      * @param length バイト長。
      * @param value 出力値。
@@ -411,7 +460,7 @@ class BytecodeVM {
     uint32_t nextFrameId_ = 1; ///< call()が増加させるフレーム識別子の採番状態。start()で初期化する。
     uint32_t debugFrameId_ = 0; ///< resumeDebug()時点のフレーム識別子。Overの停止判定に使う。
     uint32_t debugDepth_ = 0; ///< resumeDebug()時点の呼出し深さ。復帰とOutの停止判定に使う。
-    uint8_t abiHash_[32]{}; ///< start()が保持するversion=4イメージの32バイトABI指紋。呼出し直前も照合する。
+    uint8_t abiHash_[32]{}; ///< start()が保持するversion=5イメージの32バイトABI指紋。呼出し直前も照合する。
     const uint8_t *table_ = nullptr; ///< 借用イメージ内の関数表。stop()で参照を解除する。
     const uint8_t *types_ = nullptr; ///< GC本体型とフィールド表。イメージと同じ寿命。
     uint16_t typeCount_ = 0; ///< 本体型レコード数。

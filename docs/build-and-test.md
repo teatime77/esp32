@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## オブジェクト・NumPy対応 第4段階：数値NumPy配列（2026-11-25）
+
+[numpy_native.h](../app/diagram-control/include/numpy_native.h)・[numpy_native.cpp](../app/diagram-control/src/numpy_native.cpp)を追加し、共有enumの関数ID・optionIdでzeros/emptyを呼ぶ。数値本体の確保・型・shape・サイズ検証と命令は[VM](../app/diagram-control/src/bytecode_vm.cpp)、数値データを含む停止形式は[debug-protocol.ts](../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)の仕様コメントを参照する。作業範囲と残りの段階は[共有文書](../../uroa/docs/diagram/python/object-array-change-map.md)に示す。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。変更箇所の整形・生成物更新後の最終ビルドで、コンパイル・リンク・`firmware.bin`生成に成功（45.47秒）。RAMは59212/327680バイト、Flashは1081293/1310720バイト。PlatformIOの既存キャッシュ・ロックへの書込み権限を使用した。他の環境はビルドしていない。
+
+生成APIの`--check`、Web側の型・公開ビルド・静的成果物確認は成功（[uroaの記録](../../uroa/docs/build-and-test.md)）。ソースコメント・文書リンク・差分も確認した。形式・ABI変更によりWebとファームウェアを更新し、Pythonバイトコードを再生成・再送信する。ユーザー指定によりテストは作成・実行せず、READMEの例の実行、Upload・通信・VM実行・配列／GCの動作と時間・実機確認は行っていない。この段階で止め、ユーザーの確認・commit・pushを待つ。
+
 ## オブジェクト・NumPy対応 第3段階：オブジェクト・メソッド（2026-11-24）
 
 [VM](../app/diagram-control/src/bytecode_vm.cpp)へ本体型表・オブジェクト生成・属性アクセスを接続し、既存recordとC++バックエンドの変換は[生成スタブ](../app/diagram-control/src/device_api.generated.cpp)へ置いた。構築中の根、文字列保持、Snapshot本体IDの仕様はソースコメント、段階別の作業範囲は[uroaの共有文書](../../uroa/docs/diagram/python/object-array-change-map.md)を参照する。

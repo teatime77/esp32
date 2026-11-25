@@ -29,7 +29,7 @@ namespace {
  */
 bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image) {
     if (!data || length < HeaderLength || length > MaxLength || read16(data) != 0xB1C0 || read16(data + 2) != Version ||
-        read16(data + 12) != 0 || read16(data + 14) != 3 || read16(data + 18) != 3 || read16(data + 58) != 0) {
+        read16(data + 12) != 0 || read16(data + 14) != 4 || read16(data + 18) != 4 || read16(data + 58) != 0) {
         return false;
     }
     Image result;
@@ -58,7 +58,10 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
         const uint8_t *record = result.types + index * TypeRecordLength;
         const uint16_t id = read16(record);
         const uint32_t bytes = uint32_t(read16(record + 2)) * 4;
-        if (id <= previousId || read32(record + 4) != fieldOffset || bytes > result.typeLength - fieldOffset) {
+        const uint8_t kind = record[8];
+        const uint8_t rank = record[9];
+        if (id <= previousId || read32(record + 4) != fieldOffset || bytes > result.typeLength - fieldOffset ||
+            read16(record + 10) != 0 || kind > 2 || (kind == 0 ? rank != 0 : rank < 1 || rank > 4 || bytes != 0)) {
             return false;
         }
         previousId = id;
@@ -88,14 +91,14 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
  * @copydoc BytecodeFormat::instructionLength
  */
 uint32_t BytecodeFormat::instructionLength(uint8_t opcode) {
-    if (opcode < 0x01 || opcode > 0x21) {
+    if (opcode < 0x01 || opcode > 0x25) {
         return 0;
     }
     if (opcode == 0x03 || opcode == 0x04) {
         return 5;
     }
     if (opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ||
-        (opcode >= 0x1E && opcode <= 0x20)) {
+        (opcode >= 0x1E && opcode <= 0x20) || opcode >= 0x22) {
         return 3;
     }
     return 1;

@@ -5,14 +5,16 @@
  * @details
  * # PythonサブセットVM
  *
- * BytecodeReceiverで構造検証済みのversion=4だけを実行する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
+ * BytecodeReceiverで構造検証済みのversion=5だけを実行する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
  * uroa/diagram/ts/python/bytecode.tsのencodeBinary()の仕様コメントを参照。bytecode_vm.hは公開状態と登録API、
  * 本ファイルは実行、main.cppはloop()単位の開始・停止・実行量制御を担当する。
  * ヒープ確保・非再帰マーク＆スイープはbytecode_heap.cpp、根とValue列の走査は本ファイルが担当する。
+ * 数値NumPyの処理はnumpy_native.cpp、関数ID・引数番号はdevice_api.generated.hを共有する。
  * テスト・Upload・実機動作はビルドとは別の確認事項とする。
  */
 #include "bytecode_vm.h"
 #include "bytecode_format.h"
+#include "numpy_native.h"
 #include <cstring>
 #include <cmath>
 #include <new>
@@ -20,6 +22,37 @@
 #include <cstdio>
 
 namespace {
+    /**
+     * @brief 0長軸を先に調べ、乗算の上限を検査する。
+     * @param shape rank個の軸長。
+     * @param rank 1～4。
+     * @param maximum 許可する最大要素数。
+     * @param elements 成功時の積。0長軸があれば0。
+     * @return 軸長と積が範囲内ならtrue。
+     */
+    bool arrayElements(const uint32_t *shape, uint8_t rank, size_t maximum, uint32_t &elements) {
+        if (!shape || rank < 1 || rank > 4) {
+            return false;
+        }
+        bool empty = false;
+        for (uint8_t axis = 0; axis < rank; ++axis) {
+            if (shape[axis] > INT32_MAX) {
+                return false;
+            }
+            empty = empty || shape[axis] == 0;
+        }
+        elements = empty ? 0 : 1;
+        if (!empty) {
+            for (uint8_t axis = 0; axis < rank; ++axis) {
+                if (elements > maximum / shape[axis]) {
+                    return false;
+                }
+                elements *= shape[axis];
+            }
+        }
+        return true;
+    }
+
     /**
      * @brief little endianの32bit整数を書き込む。
      * @param data 書込み可能な4バイト。
@@ -69,7 +102,26 @@ namespace {
     };
 
     /**
-     * @brief 確保本体のID・型・Value列を出力する。
+     * @brief 通信形式での本体レコード長を求める。
+     * @param block VMが生成した本体。
+     * @return ヘッダー・フィールド・shape・数値バイト列の合計。不正なら0。
+     */
+    size_t snapshotBlockSize(const BytecodeHeap::Block &block) {
+        if (block.arrayKind == 0) {
+            return 16 + size_t(block.valueCount) * 8;
+        }
+        if (block.arrayKind > 2 || block.valueCount != 0 || block.bytes < sizeof(BytecodeVM::NumericArray)) {
+            return 0;
+        }
+        const auto *array = static_cast<const BytecodeVM::NumericArray *>(block.data);
+        if (array->rank < 1 || array->rank > 4 || array->dtype != block.arrayKind) {
+            return 0;
+        }
+        return 16 + size_t(array->rank) * 4 + block.bytes - sizeof(BytecodeVM::NumericArray);
+    }
+
+    /**
+     * @brief 確保本体のID・型・フィールドまたはshape・数値データを出力する。
      * @param block 出力する本体。
      * @param context 正確な必要長を確保したSnapshotWriter。
      */
@@ -81,7 +133,21 @@ namespace {
         record[5] = uint8_t(block.classId >> 8);
         record[6] = uint8_t(block.valueCount);
         record[7] = uint8_t(block.valueCount >> 8);
-        writer.offset += 8;
+        record[8] = block.arrayKind;
+        writer.offset += 16;
+        if (block.arrayKind != 0) {
+            const auto *array = static_cast<const BytecodeVM::NumericArray *>(block.data);
+            record[9] = array->rank;
+            const size_t bytes = block.bytes - sizeof(BytecodeVM::NumericArray);
+            write32(record + 12, uint32_t(bytes));
+            for (uint8_t axis = 0; axis < array->rank; ++axis) {
+                write32(writer.data + writer.offset, array->shape[axis]);
+                writer.offset += 4;
+            }
+            std::memcpy(writer.data + writer.offset, array + 1, bytes);
+            writer.offset += bytes;
+            return;
+        }
         const auto *values = static_cast<const BytecodeVM::Value *>(block.data);
         for (uint32_t index = 0; index < block.valueCount; ++index) {
             snapshotValue(writer.data + writer.offset, values[index]);
@@ -236,7 +302,7 @@ bool BytecodeVM::allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t
         return false;
     }
     const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
-    if (!record || valueCount != read16(record + 2) || byteCount != 0) {
+    if (!record || record[8] != 0 || valueCount != read16(record + 2) || byteCount != 0) {
         return fail(Error::Type);
     }
     const size_t maxPayload = MaxHeapBytes - sizeof(BytecodeHeap::Block);
@@ -268,16 +334,94 @@ bool BytecodeVM::allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t
 }
 
 /**
+ * @copydoc BytecodeVM::allocateNumericArray
+ */
+bool BytecodeVM::allocateNumericArray(
+    uint16_t classId, uint8_t dtype, const uint32_t *shape, uint8_t rank, Value &value) {
+    if (state != State::Running || !stack_) {
+        return false;
+    }
+    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
+    if (!record || dtype < 1 || dtype > 2 || record[8] != dtype || record[9] != rank) {
+        return fail(Error::Type);
+    }
+    const size_t itemBytes = dtype == 1 ? sizeof(float) : 1;
+    const size_t maximum = (MaxHeapBytes - sizeof(BytecodeHeap::Block) - sizeof(NumericArray)) / itemBytes;
+    uint32_t elements = 0;
+    if (!arrayElements(shape, rank, maximum, elements)) {
+        return fail(Error::ArrayShape);
+    }
+    const size_t bytes = sizeof(NumericArray) + size_t(elements) * itemBytes;
+    BytecodeHeap::Block *block = heap_.allocate(bytes, nullptr);
+    if (!block) {
+        if (!collectHeap()) {
+            return fail(Error::Memory);
+        }
+        block = heap_.allocate(bytes, nullptr);
+        if (!block) {
+            return fail(Error::Memory);
+        }
+    }
+    block->classId = classId;
+    block->arrayKind = dtype;
+    auto *array = new (block->data) NumericArray{};
+    array->rank = rank;
+    array->dtype = dtype;
+    array->elements = elements;
+    for (uint8_t axis = 0; axis < rank; ++axis) {
+        array->shape[axis] = shape[axis];
+    }
+    value = Value{};
+    value.type = Type::HeapReference;
+    value.classId = classId;
+    value.reference = block;
+    return true;
+}
+
+/**
+ * @copydoc BytecodeVM::numericArray
+ */
+bool BytecodeVM::numericArray(const Value &value, const NumericArray *&array) const {
+    if (value.type != Type::HeapReference || !heap_.contains(value.reference)) {
+        return false;
+    }
+    const BytecodeHeap::Block &block = *value.reference;
+    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, value.classId);
+    if (!record || block.classId != value.classId || block.arrayKind < 1 || block.arrayKind > 2 ||
+        block.arrayKind != record[8] || block.valueCount != 0 || block.bytes < sizeof(NumericArray)) {
+        return false;
+    }
+    const auto *data = static_cast<const NumericArray *>(block.data);
+    if (data->dtype != block.arrayKind || data->rank != record[9] || data->reserved != 0) {
+        return false;
+    }
+    const size_t itemBytes = data->dtype == 1 ? sizeof(float) : 1;
+    const size_t maximum = (MaxHeapBytes - sizeof(BytecodeHeap::Block) - sizeof(NumericArray)) / itemBytes;
+    uint32_t elements = 0;
+    if (!arrayElements(data->shape, data->rank, maximum, elements) || elements != data->elements ||
+        block.bytes != sizeof(NumericArray) + size_t(elements) * itemBytes) {
+        return false;
+    }
+    for (uint8_t axis = data->rank; axis < 4; ++axis) {
+        if (data->shape[axis] != 0) {
+            return false;
+        }
+    }
+    array = data;
+    return true;
+}
+
+/**
  * @copydoc BytecodeVM::heapFields
  */
 bool BytecodeVM::heapFields(const Value &value, uint16_t classId, uint32_t count, const Value *&fields) const {
     if (value.type != Type::HeapReference || value.classId != classId || !heap_.contains(value.reference) ||
-        value.reference->classId != classId || value.reference->valueCount != count ||
-        value.reference->bytes != size_t(count) * sizeof(Value)) {
+        value.reference->classId != classId || value.reference->arrayKind != 0 ||
+        value.reference->valueCount != count || value.reference->bytes != size_t(count) * sizeof(Value)) {
         return false;
     }
     const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
-    if (!record || read16(record + 2) != count) {
+    if (!record || record[8] != 0 || read16(record + 2) != count) {
         return false;
     }
     fields = static_cast<const Value *>(value.reference->data);
@@ -544,7 +688,8 @@ bool BytecodeVM::numeric(const Value &value) {
  * @return 有効ならtrue。
  *
  * @details
- * 数値0・None・空文字列は偽。有効な機器・GC本体は真。__bool__等の特殊メソッドは呼ばない。
+ * 数値0・None・空文字列は偽。有効な機器・通常GC本体は真。ndarrayの真偽変換はTypeで拒否する。
+ * __bool__等の特殊メソッドは呼ばない。長さや要素の比較で条件を明示する。
  */
 bool BytecodeVM::truth(const Value &value, bool &result) {
     if (value.type == Type::None) {
@@ -558,6 +703,9 @@ bool BytecodeVM::truth(const Value &value, bool &result) {
     }
     else if (value.type == Type::HeapReference || value.type == Type::Object) {
         if (!validValue(value)) {
+            return fail(Error::Type);
+        }
+        if (value.type == Type::HeapReference && value.reference->arrayKind != 0) {
             return fail(Error::Type);
         }
         result = true;
@@ -766,7 +914,7 @@ void BytecodeVM::call(uint16_t entry) {
  * RETは宣言幅の値スロットを呼出し元の引数位置へ移し、フレームを解放する。再帰と値コピーに対応する。
  * 宣言幅ちょうどの一時値を先頭からコピーする。Noneの戻り値は従来通り1スロット。
  * HeapReferenceは本体をコピー・移動せず共有する。calleeの局所参照はspの縮小で根から外れる。
- * スロットの移動途中ではGCを実行しない。Pythonからの本体returnは後続段階で接続する。
+ * スロットの移動途中ではGCを実行しない。Pythonの本体returnも参照1個を共有し、内部の本体を移動しない。
  */
 void BytecodeVM::ret() {
     if (depth_ == 0 || bp + 1 >= floor_ || stack_[bp].type != Type::ReturnPc ||
@@ -822,11 +970,113 @@ bool BytecodeVM::validValue(const Value &value) const {
     if (value.type == Type::HeapReference) {
         const Value *fields = nullptr;
         const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, value.classId);
+        if (record && record[8] != 0) {
+            const NumericArray *array = nullptr;
+            return numericArray(value, array);
+        }
         return record && heapFields(value, value.classId, read16(record + 2), fields);
     }
     const char *data = nullptr;
     size_t length = 0;
     return stringBytes(value, data, length);
+}
+
+/**
+ * @copydoc BytecodeVM::callNumpy
+ */
+void BytecodeVM::callNumpy(uint16_t classId) {
+    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
+    if (!record || record[8] == 0 || record[9] < 1 || record[9] > 4) {
+        fail(Error::Type);
+        return;
+    }
+    Value function;
+    Value count;
+    if (!pop(function) || !pop(count)) {
+        return;
+    }
+    if (function.type != Type::Integer || function.integer < 1 || function.integer > 65535 ||
+        count.type != Type::Integer || count.integer < 0 || count.integer > 4) {
+        fail(Error::ArrayOption);
+        return;
+    }
+    numpy_native::Option options[4];
+    for (int index = count.integer - 1; index >= 0; --index) {
+        Value id;
+        if (!pop(options[index].value) || !pop(id)) {
+            return;
+        }
+        if (id.type != Type::Integer || id.integer < 0 || id.integer > 65535) {
+            fail(Error::ArrayOption);
+            return;
+        }
+        options[index].id = uint16_t(id.integer);
+    }
+    Value shape[4];
+    for (int axis = record[9] - 1; axis >= 0; --axis) {
+        if (!pop(shape[axis])) {
+            return;
+        }
+    }
+    // 受入れ可能な入力は整数・文字列・Noneだけ。検証後の確保中に生きた本体参照をC++へ退避しない。
+    Value result;
+    HeapRoot root(*this, result);
+    const Error code = numpy_native::create(
+        *this, uint16_t(function.integer), classId, shape, record[9], options, size_t(count.integer), result);
+    if (code != Error::None) {
+        fail(code);
+    }
+    else {
+        push(result);
+    }
+}
+
+/**
+ * @copydoc BytecodeVM::arrayItem
+ */
+void BytecodeVM::arrayItem(uint16_t rank, bool write) {
+    if (rank < 1 || rank > 4) {
+        fail(Error::ArrayIndex);
+        return;
+    }
+    Value indices[4];
+    for (int axis = int(rank) - 1; axis >= 0; --axis) {
+        if (!pop(indices[axis])) {
+            return;
+        }
+    }
+    Value receiver;
+    Value value;
+    if (!pop(receiver) || (write && !pop(value))) {
+        return;
+    }
+    // スカラー操作中は確保・GCを起動しないので、取り出した対象と値を移動せず使える。
+    const Error code = numpy_native::item(*this, receiver, indices, uint8_t(rank), write, value);
+    if (code != Error::None) {
+        fail(code);
+    }
+    else if (!write) {
+        push(value);
+    }
+}
+
+/**
+ * @copydoc BytecodeVM::arrayAttribute
+ */
+void BytecodeVM::arrayAttribute(uint16_t kind) {
+    Value axis;
+    Value receiver;
+    Value result;
+    if ((kind == 4 && !pop(axis)) || !pop(receiver)) {
+        return;
+    }
+    const Error code = numpy_native::attribute(*this, receiver, kind, axis, result);
+    if (code != Error::None) {
+        fail(code);
+    }
+    else {
+        push(result);
+    }
 }
 
 /**
@@ -1468,6 +1718,16 @@ void BytecodeVM::step() {
             }
             push(value);
             break;
+        case 0x22:
+            callNumpy(operand);
+            break;
+        case 0x23:
+        case 0x24:
+            arrayItem(operand, opcode == 0x24);
+            break;
+        case 0x25:
+            arrayAttribute(operand);
+            break;
     }
 }
 
@@ -1656,10 +1916,17 @@ size_t BytecodeVM::debugSnapshotLength() const {
     size_t length = 32 + 8 * (globalCount + sp);
     heap_.visit(
         [](const BytecodeHeap::Block &block, void *context) {
-            *static_cast<size_t *>(context) += 8 + size_t(block.valueCount) * 8;
+            auto &total = *static_cast<size_t *>(context);
+            const size_t bytes = snapshotBlockSize(block);
+            if (total == 0 || bytes == 0 || bytes > 256 * 1024 || total > 256 * 1024 - bytes) {
+                total = 0;
+            }
+            else {
+                total += bytes;
+            }
         },
         &length);
-    if (length > 256 * 1024) {
+    if (length == 0 || length > 256 * 1024) {
         return 0;
     }
     const uint32_t count = debugValueCount();
@@ -1689,7 +1956,7 @@ size_t BytecodeVM::debugSnapshotLength() const {
  * @param data 出力領域。
  * @param length 正確な必要長。
  * @return Pausedで正常にコピーしたらtrue。
- * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.tsのSnapshot version=3。
+ * @details 形式の正本はuroa/diagram/ts/ble-wifi/debug-protocol.tsのSnapshot version=4。
  * BPチェーンはReturnPc/SavedBpとdiagramのCALL表から復元する。値・文字列は同じ停止中のもの。
  */
 bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
@@ -1697,7 +1964,7 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
         return false;
     }
     std::memset(data, 0, length);
-    data[0] = 3;
+    data[0] = 4;
     data[1] = pauseReason;
     data[2] = 8;
     const uint32_t header[] = {pc, bp, sp, globalCount, sp};
