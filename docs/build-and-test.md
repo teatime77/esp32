@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## Python VMの命令番号の名前付け（2026-11-25）
+
+[bytecode_format.h](../app/diagram-control/include/bytecode_format.h)へ39命令の共通enumと命令マスク・停止フラグの定数を追加し、VMのstep()・calculate()、受信検証、命令長判定、デバッガーのフラグ操作を名前で記述した。[uroaのコーディング規約](../../uroa/docs/coding-style.md#意味を持つ数値)へ数値の名前付け規則を追加し、ESP32の規約からも参照する。
+
+Web側BytecodeOpcodeと39命令の名前・値の一致を確認した。C++側の名前を元の数値へ戻して比較し、4実装ファイルのコメント・空白を除くトークンが変更前と一致することを確認した。命令番号・形式版・ABIの変更はない。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。コンパイル・リンク・`firmware.bin`生成に成功（41.17秒）。RAMは59132/327680バイト、Flashは1079993/1310720バイト。他の環境はビルドしていない。差分・コメント・文書リンクを確認した。テスト・Upload・実機確認、commit・pushは行っていない。
+
 ## Python VMのGC簡略化（2026-11-25）
 
 [VM](../app/diagram-control/src/bytecode_vm.cpp)のcollectHeap()・markValues()と[ヒープ](../app/diagram-control/src/bytecode_heap.cpp)を簡略化した。回収点と根の範囲は[コンパイラー](../../uroa/diagram/ts/python/bytecode.ts)が生成し、C++の構築中には回収しない。C++の根登録・確保失敗時の回収と再試行・GC統計・本体IDを削除した。本体のSnapshot転送・展開も削除した。詳細な安全条件・参照規則はVMの仕様コメントを参照する。

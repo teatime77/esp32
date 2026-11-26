@@ -127,7 +127,7 @@ void BytecodeDebugger::clearFlags() {
     uint32_t length = 0;
     uint8_t *bytes = code(length);
     for (uint32_t pc = 0; bytes && pc < length;) {
-        const uint8_t opcode = bytes[pc] & 0x7F;
+        const uint8_t opcode = bytes[pc] & BytecodeFormat::OpcodeMask;
         const uint32_t size = BytecodeFormat::instructionLength(opcode);
         if (size == 0 || size > length - pc) {
             return;
@@ -205,7 +205,7 @@ bool BytecodeDebugger::applyBreakpoints() {
     }
     uint32_t selected = 0;
     for (uint32_t pc = 0; pc < length;) {
-        const uint8_t opcode = bytes[pc] & 0x7F;
+        const uint8_t opcode = bytes[pc] & BytecodeFormat::OpcodeMask;
         const uint32_t size = BytecodeFormat::instructionLength(opcode);
         if (size == 0 || size > length - pc ||
             (selected < count_ && pending_[selected] < pc)) {
@@ -224,7 +224,7 @@ bool BytecodeDebugger::applyBreakpoints() {
     }
     clearFlags();
     for (uint32_t index = 0; index < count_; ++index) {
-        bytes[pending_[index]] |= 0x80;
+        bytes[pending_[index]] |= BytecodeFormat::BreakpointFlag;
     }
     return true;
 }
@@ -242,7 +242,7 @@ bool BytecodeDebugger::installDeployment() {
     }
     clearFlags();
     for (uint32_t index = 0; index < receiver_.breakpointCount; ++index) {
-        bytes[receiver_.breakpoints[index]] |= 0x80;
+        bytes[receiver_.breakpoints[index]] |= BytecodeFormat::BreakpointFlag;
     }
     return true;
 }

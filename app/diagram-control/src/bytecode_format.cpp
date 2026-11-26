@@ -108,14 +108,15 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
  * @copydoc BytecodeFormat::instructionLength
  */
 uint32_t BytecodeFormat::instructionLength(uint8_t opcode) {
-    if (opcode < 0x01 || opcode > 0x27) {
+    if (opcode < Opcode::LOAD_L || opcode > Opcode::GC_LOOP) {
         return 0;
     }
-    if (opcode == 0x03 || opcode == 0x04) {
+    if (opcode == Opcode::PUSH_INT || opcode == Opcode::PUSH_FLOAT) {
         return 5;
     }
-    if (opcode <= 0x09 || opcode == 0x14 || opcode == 0x19 || opcode == 0x1A || opcode == 0x1C || opcode == 0x1D ||
-        (opcode >= 0x1E && opcode <= 0x20) || opcode >= 0x22) {
+    if (opcode <= Opcode::JUMP_IF_TRUE || opcode == Opcode::CALL || opcode == Opcode::PUSH_STRING ||
+        opcode == Opcode::CALL_NATIVE || opcode == Opcode::FORMAT_VALUE || opcode == Opcode::BUILD_STRING ||
+        (opcode >= Opcode::NEW_OBJECT && opcode <= Opcode::SET_FIELD) || opcode >= Opcode::CALL_NUMPY) {
         return 3;
     }
     return 1;

@@ -10,6 +10,8 @@
 #include <cstring>
 #include <new>
 
+using BytecodeFormat::Opcode;
+
 namespace {
     /**
      * @brief 長さ付きバイト列がUnicodeスカラー値のUTF-8表現か検証する。
@@ -499,48 +501,50 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
                                          : base + read16(function(owner) + 2);
             const uint8_t opcode = code[pc];
             const uint32_t size = BytecodeFormat::instructionLength(opcode);
-            if (size == 0 || pc >= end || size > end - pc || (pc + size == end && opcode != (owner < 0 ? 0x18 : 0x15))) {
+            if (size == 0 || pc >= end || size > end - pc ||
+                (pc + size == end && opcode != (owner < 0 ? Opcode::HALT : Opcode::RET))) {
                 return Invalid;
             }
             boundaries[pc / 8] |= uint8_t(1U << (pc % 8));
             const uint16_t value = size == 3 ? read16(code + pc + 1) : 0;
-            if (opcode == 0x27 && value != base) {
+            if (opcode == Opcode::GC_LOOP && value != base) {
                 return Invalid;
             }
-            if ((opcode == 0x19 || opcode == 0x1C) && value >= strings) {
+            if ((opcode == Opcode::PUSH_STRING || opcode == Opcode::FORMAT_VALUE) && value >= strings) {
                 return Invalid;
             }
-            if (opcode == 0x1A && value == 0) {
+            if (opcode == Opcode::CALL_NATIVE && value == 0) {
                 return Invalid;
             }
-            if (opcode == 0x1E || opcode == 0x22) {
+            if (opcode == Opcode::NEW_OBJECT || opcode == Opcode::CALL_NUMPY) {
                 const uint8_t *type = BytecodeFormat::findType(view.types, view.typeCount, value);
-                if (!type || (opcode == 0x1E ? type[8] != 0 : type[8] == 0)) {
+                if (!type || (opcode == Opcode::NEW_OBJECT ? type[8] != 0 : type[8] == 0)) {
                     return Invalid;
                 }
             }
-            if (((opcode == 0x23 || opcode == 0x24) && (value < 1 || value > 4)) || (opcode == 0x25 && value > 4)) {
+            if (((opcode == Opcode::GET_ITEM || opcode == Opcode::SET_ITEM) && (value < 1 || value > 4)) ||
+                (opcode == Opcode::ARRAY_ATTR && value > 4)) {
                 return Invalid;
             }
-            if (opcode == 0x26 && value == 0) {
+            if (opcode == Opcode::CHECK_REF && value == 0) {
                 return Invalid;
             }
-            if ((opcode == 0x02 || opcode == 0x06) && value >= globals) {
+            if ((opcode == Opcode::LOAD_G || opcode == Opcode::STORE_G) && value >= globals) {
                 return Invalid;
             }
-            if (opcode == 0x01 || opcode == 0x05) {
+            if (opcode == Opcode::LOAD_L || opcode == Opcode::STORE_L) {
                 if (owner < 0 || value < 2 ||
                     value >= uint32_t(read16(function(owner) + 4)) + read16(function(owner) + 6) + 2) {
                     return Invalid;
                 }
             }
-            if (opcode >= 0x07 && opcode <= 0x09) {
+            if (opcode >= Opcode::JUMP && opcode <= Opcode::JUMP_IF_TRUE) {
                 const uint32_t target = base + value;
                 if (target >= end || (pass == 1 && (boundaries[target / 8] & (1U << (target % 8))) == 0)) {
                     return Invalid;
                 }
             }
-            if (opcode == 0x14) {
+            if (opcode == Opcode::CALL) {
                 size_t low = 0;
                 size_t high = functions;
                 while (low < high) {
@@ -556,8 +560,8 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
                     return Invalid;
                 }
             }
-            if ((opcode == 0x15 && owner < 0) || (opcode == 0x18 && owner >= 0) ||
-                (opcode == 0x04 && (read32(code + pc + 1) & 0x7F800000) == 0x7F800000)) {
+            if ((opcode == Opcode::RET && owner < 0) || (opcode == Opcode::HALT && owner >= 0) ||
+                (opcode == Opcode::PUSH_FLOAT && (read32(code + pc + 1) & 0x7F800000) == 0x7F800000)) {
                 return Invalid;
             }
             pc += size;

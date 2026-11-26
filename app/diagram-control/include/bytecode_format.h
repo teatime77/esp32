@@ -1,6 +1,6 @@
 /**
  * @file bytecode_format.h
- * @brief 現行バイトコードの固定配置と命令長の共通定義。
+ * @brief 現行バイトコードの命令番号・フラグ・固定配置・命令長の共通定義。
  * @details wire形式の正本はuroa/diagram/ts/python/bytecode.tsのencodeBinary。
  * bytecode_receiver.cppは命令・PC・UTF-8を検証し、bytecode_vm.cppは値と実行上限を検査する。
  * bytecode_debugger.cppも同じ配置・命令長を使う。版1/2は受理しない。
@@ -13,6 +13,56 @@
  * @brief バイナリversion=7のレイアウト。転送・デバッグ通信の版番号とは独立する。
  */
 namespace BytecodeFormat {
+    /**
+     * @brief バイトコードの命令番号。VM・受信検証・命令長判定で共有する。
+     * @details uroa/diagram/ts/python/bytecode.tsのBytecodeOpcodeと名前・値をそろえる。
+     * wire値と直接比較できるuint8_t基底のenumとし、命令の識別にはOpcode::名前を使う。
+     * 名前の導入で既存の命令番号・形式版・ABIを変更しない。
+     */
+    enum Opcode : uint8_t {
+        LOAD_L = 0x01, ///< 局所変数を積む。
+        LOAD_G = 0x02, ///< 大域変数を積む。
+        PUSH_INT = 0x03, ///< int32定数を積む。
+        PUSH_FLOAT = 0x04, ///< float32定数を積む。
+        STORE_L = 0x05, ///< 局所変数へ格納する。
+        STORE_G = 0x06, ///< 大域変数へ格納する。
+        JUMP = 0x07, ///< 無条件で分岐する。
+        JUMP_IF_FALSE = 0x08, ///< 偽なら分岐する。
+        JUMP_IF_TRUE = 0x09, ///< 真なら分岐する。
+        ADD = 0x0A, ///< 加算する。
+        SUB = 0x0B, ///< 減算する。
+        MUL = 0x0C, ///< 乗算する。
+        DIV = 0x0D, ///< 除算する。
+        EQ = 0x0E, ///< 等値を比較する。
+        NE = 0x0F, ///< 不等を比較する。
+        LT = 0x10, ///< より小さいか比較する。
+        LE = 0x11, ///< 以下か比較する。
+        GT = 0x12, ///< より大きいか比較する。
+        GE = 0x13, ///< 以上か比較する。
+        CALL = 0x14, ///< Python関数を呼ぶ。
+        RET = 0x15, ///< 呼出し元へ戻る。
+        PUSH_NONE = 0x16, ///< Noneを積む。
+        POP = 0x17, ///< 先頭の値を捨てる。
+        HALT = 0x18, ///< モジュールの実行を終了する。
+        PUSH_STRING = 0x19, ///< 文字列定数の参照を積む。
+        CALL_NATIVE = 0x1A, ///< ネイティブ関数を呼ぶ。
+        TO_FLOAT = 0x1B, ///< 数値をfloat32へ変換する。
+        FORMAT_VALUE = 0x1C, ///< 数値を文字列へ整形する。
+        BUILD_STRING = 0x1D, ///< 文字列を連結する。
+        NEW_OBJECT = 0x1E, ///< オブジェクト本体を確保する。
+        GET_FIELD = 0x1F, ///< メンバー値を取得する。
+        SET_FIELD = 0x20, ///< メンバー値を格納する。
+        DUP = 0x21, ///< 先頭の値を複製する。
+        CALL_NUMPY = 0x22, ///< NumPy関数を呼ぶ。
+        GET_ITEM = 0x23, ///< 配列要素を取得する。
+        SET_ITEM = 0x24, ///< 配列要素を格納する。
+        ARRAY_ATTR = 0x25, ///< 配列の属性を取得する。
+        CHECK_REF = 0x26, ///< 参照の型と有効性を検査する。
+        GC_LOOP = 0x27 ///< メインループの安全点でGCを行う。
+    };
+
+    constexpr uint8_t OpcodeMask = 0x7F; ///< 命令バイトから命令番号だけを取り出すマスク。
+    constexpr uint8_t BreakpointFlag = 0x80; ///< 命令先頭にデバッガーが設定する停止フラグ。
     constexpr uint16_t Version = 7; ///< GC本体型表を含む唯一のバイトコード版。
     constexpr size_t HeaderLength = 64; ///< ABI指紋と型表長を含むヘッダーのバイト数。
     constexpr size_t TypeRecordLength = 16; ///< 型ID・フィールド数・表位置・本体種別・rank・要素タグ・要素型・予約値。

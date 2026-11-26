@@ -21,6 +21,8 @@
 #include <limits.h>
 #include <cstdio>
 
+using BytecodeFormat::Opcode;
+
 namespace {
     /**
      * @brief 0長軸を先に調べ、乗算の上限を検査する。
@@ -649,7 +651,7 @@ bool BytecodeVM::truth(const Value &value, bool &result) {
 
 /**
  * @brief 四則または比較を計算する。
- * @param opcode 0x0A〜0x13。
+ * @param opcode ADD〜GEの四則・比較命令。
  *
  * @details
  * 整数同士のADD・SUB・MULはint64で中間計算し、int32範囲を超えたらエラーにする。floatを含む演算とDIVはfloat32の結果を作り、非有限値になったら停止する。DIVは整数同士でもfloatを返し、0除算はエラー。比較は整数値を先にfloat32へ丸めず、doubleへ拡張して行う。NoneのEQ／NEはバイトコード仕様に従い、Noneの大小比較・四則は型エラー。
@@ -662,28 +664,28 @@ void BytecodeVM::calculate(uint8_t opcode) {
         return;
     }
     Value result;
-    if (opcode >= 0x0E && (left.type == Type::None || right.type == Type::None)) {
-        if (opcode != 0x0E && opcode != 0x0F) {
+    if (opcode >= Opcode::EQ && (left.type == Type::None || right.type == Type::None)) {
+        if (opcode != Opcode::EQ && opcode != Opcode::NE) {
             fail(Error::Type);
             return;
         }
         const bool equal = left.type == Type::None && right.type == Type::None;
         result.type = Type::Integer;
-        result.integer = opcode == 0x0E ? equal : !equal;
+        result.integer = opcode == Opcode::EQ ? equal : !equal;
         push(result);
         return;
     }
-    if ((opcode == 0x0E || opcode == 0x0F) &&
+    if ((opcode == Opcode::EQ || opcode == Opcode::NE) &&
         (left.type == Type::HeapReference || right.type == Type::HeapReference || left.type == Type::Object ||
             right.type == Type::Object)) {
         const bool equal = left.type == right.type && left.classId == right.classId &&
             (left.type == Type::HeapReference ? left.reference == right.reference : left.address == right.address);
         result.type = Type::Integer;
-        result.integer = opcode == 0x0E ? equal : !equal;
+        result.integer = opcode == Opcode::EQ ? equal : !equal;
         push(result);
         return;
     }
-    if ((opcode == 0x0E || opcode == 0x0F) && (left.type == Type::String || right.type == Type::String)) {
+    if ((opcode == Opcode::EQ || opcode == Opcode::NE) && (left.type == Type::String || right.type == Type::String)) {
         bool equal = false;
         if (left.type == Type::String && right.type == Type::String) {
             const char *a = nullptr;
@@ -697,7 +699,7 @@ void BytecodeVM::calculate(uint8_t opcode) {
             equal = aLength == bLength && std::memcmp(a, b, aLength) == 0;
         }
         result.type = Type::Integer;
-        result.integer = opcode == 0x0E ? equal : !equal;
+        result.integer = opcode == Opcode::EQ ? equal : !equal;
         push(result);
         return;
     }
@@ -707,35 +709,35 @@ void BytecodeVM::calculate(uint8_t opcode) {
     }
     const double a = left.type == Type::Integer ? double(left.integer) : double(left.real);
     const double b = right.type == Type::Integer ? double(right.integer) : double(right.real);
-    if (opcode >= 0x0E) {
+    if (opcode >= Opcode::EQ) {
         result.type = Type::Integer;
         switch (opcode) {
-            case 0x0E:
+            case Opcode::EQ:
                 result.integer = a == b;
                 break;
-            case 0x0F:
+            case Opcode::NE:
                 result.integer = a != b;
                 break;
-            case 0x10:
+            case Opcode::LT:
                 result.integer = a < b;
                 break;
-            case 0x11:
+            case Opcode::LE:
                 result.integer = a <= b;
                 break;
-            case 0x12:
+            case Opcode::GT:
                 result.integer = a > b;
                 break;
-            case 0x13:
+            case Opcode::GE:
                 result.integer = a >= b;
                 break;
         }
     }
-    else if (opcode != 0x0D && left.type == Type::Integer && right.type == Type::Integer) {
+    else if (opcode != Opcode::DIV && left.type == Type::Integer && right.type == Type::Integer) {
         int64_t integer = 0;
-        if (opcode == 0x0A) {
+        if (opcode == Opcode::ADD) {
             integer = int64_t(left.integer) + right.integer;
         }
-        else if (opcode == 0x0B) {
+        else if (opcode == Opcode::SUB) {
             integer = int64_t(left.integer) - right.integer;
         }
         else {
@@ -749,13 +751,15 @@ void BytecodeVM::calculate(uint8_t opcode) {
         result.integer = int32_t(integer);
     }
     else {
-        if (opcode == 0x0D && b == 0) {
+        if (opcode == Opcode::DIV && b == 0) {
             fail(Error::DivisionByZero);
             return;
         }
         result.type = Type::Float;
-        result.real = float(opcode == 0x0A ? a + b : opcode == 0x0B ? a - b
-            : opcode == 0x0C ? a * b : a / b);
+        result.real = float(opcode == Opcode::ADD ? a + b
+                : opcode == Opcode::SUB           ? a - b
+                : opcode == Opcode::MUL           ? a * b
+                                                  : a / b);
         if (!std::isfinite(result.real)) {
             fail(Error::NonFinite);
             return;
@@ -1395,7 +1399,7 @@ void BytecodeVM::step() {
     // bit7はbytecode_debugger.cppだけが検証済み命令先頭へ設定する。オペランドには適用しない。
     // PC・命令数・スタックを更新する前に停止し、通常Stopとは別に値と所有機器を保持する。
     const uint8_t instruction = code_[pc];
-    const uint8_t opcode = instruction & 0x7F;
+    const uint8_t opcode = instruction & BytecodeFormat::OpcodeMask;
     const uint32_t size = BytecodeFormat::instructionLength(opcode);
     if (size == 0 || size > end_ - pc) {
         fail(Error::Format);
@@ -1403,13 +1407,13 @@ void BytecodeVM::step() {
     }
     // 再開直後の到達とNativePendingの再試行だけを除外する。ループの次周は同じPCでも再判定する。
     const bool arrival = !skipDebugArrival_ && !nativePending_;
-    const bool breakpoint = arrival && (instruction & 0x80) != 0;
+    const bool breakpoint = arrival && (instruction & BytecodeFormat::BreakpointFlag) != 0;
     const bool point = debugPoints_ && pc < debugCodeLength_ && (debugPoints_[pc / 8] & (1U << (pc % 8))) != 0;
     const bool returned = depth_ < debugDepth_;
-    const bool stepped = arrival && opcode != 0x18 && (
-        (debugAction_ == DebugAction::In && (point || returned)) ||
-        (debugAction_ == DebugAction::Over && ((frameId_ == debugFrameId_ && point) || returned)) ||
-        (debugAction_ == DebugAction::Out && returned));
+    const bool stepped = arrival && opcode != Opcode::HALT &&
+        ((debugAction_ == DebugAction::In && (point || returned)) ||
+            (debugAction_ == DebugAction::Over && ((frameId_ == debugFrameId_ && point) || returned)) ||
+            (debugAction_ == DebugAction::Out && returned));
     if (breakpoint || stepped) {
         pauseReason = breakpoint ? 1 : 2;
         debugAction_ = DebugAction::Continue;
@@ -1424,19 +1428,19 @@ void BytecodeVM::step() {
     ++instructions;
     Value value;
     switch (opcode) {
-        case 0x01:
-        case 0x02:
-        case 0x05:
-        case 0x06: {
+        case Opcode::LOAD_L:
+        case Opcode::LOAD_G:
+        case Opcode::STORE_L:
+        case Opcode::STORE_G: {
             // record・ユーザー本体も1スロットの参照として読み書きする。本体のコピーは行わない。
-            const bool local = opcode == 0x01 || opcode == 0x05;
+            const bool local = opcode == Opcode::LOAD_L || opcode == Opcode::STORE_L;
             if ((local && (depth_ == 0 || operand < 2 || bp + operand >= floor_)) ||
                 (!local && operand >= globalCount)) {
                 fail(Error::Operand);
                 return;
             }
             Value &slot = local ? stack_[bp + operand] : globals[operand];
-            if (opcode == 0x01 || opcode == 0x02) {
+            if (opcode == Opcode::LOAD_L || opcode == Opcode::LOAD_G) {
                 if (slot.type == Type::Uninitialized) {
                     fail(Error::Uninitialized);
                     return;
@@ -1448,12 +1452,12 @@ void BytecodeVM::step() {
             }
             break;
         }
-        case 0x03:
+        case Opcode::PUSH_INT:
             value.type = Type::Integer;
             std::memcpy(&value.integer, &bits, sizeof bits);
             push(value);
             break;
-        case 0x04:
+        case Opcode::PUSH_FLOAT:
             value.type = Type::Float;
             std::memcpy(&value.real, &bits, sizeof bits);
             if (!std::isfinite(value.real)) {
@@ -1462,14 +1466,15 @@ void BytecodeVM::step() {
             }
             push(value);
             break;
-        case 0x07:
-        case 0x08:
-        case 0x09: {
+        case Opcode::JUMP:
+        case Opcode::JUMP_IF_FALSE:
+        case Opcode::JUMP_IF_TRUE: {
             bool condition = true;
-            if (opcode != 0x07 && (!pop(value) || !truth(value, condition))) {
+            if (opcode != Opcode::JUMP && (!pop(value) || !truth(value, condition))) {
                 return;
             }
-            if (opcode == 0x07 || (opcode == 0x08 && !condition) || (opcode == 0x09 && condition)) {
+            if (opcode == Opcode::JUMP || (opcode == Opcode::JUMP_IF_FALSE && !condition) ||
+                (opcode == Opcode::JUMP_IF_TRUE && condition)) {
                 if (base_ + operand >= end_) {
                     fail(Error::Operand);
                     return;
@@ -1478,32 +1483,32 @@ void BytecodeVM::step() {
             }
             break;
         }
-        case 0x0A:
-        case 0x0B:
-        case 0x0C:
-        case 0x0D:
-        case 0x0E:
-        case 0x0F:
-        case 0x10:
-        case 0x11:
-        case 0x12:
-        case 0x13:
+        case Opcode::ADD:
+        case Opcode::SUB:
+        case Opcode::MUL:
+        case Opcode::DIV:
+        case Opcode::EQ:
+        case Opcode::NE:
+        case Opcode::LT:
+        case Opcode::LE:
+        case Opcode::GT:
+        case Opcode::GE:
             calculate(opcode);
             break;
-        case 0x14:
+        case Opcode::CALL:
             call(operand);
             break;
-        case 0x15:
+        case Opcode::RET:
             ret();
             break;
-        case 0x16:
+        case Opcode::PUSH_NONE:
             value.type = Type::None;
             push(value);
             break;
-        case 0x17:
+        case Opcode::POP:
             pop(value);
             break;
-        case 0x18:
+        case Opcode::HALT:
             if (depth_ != 0 || sp != 0) {
                 fail(Error::Operand);
                 return;
@@ -1511,7 +1516,7 @@ void BytecodeVM::step() {
             // 診断用の値と登録状態は、次のstop/startまで保持する。
             state = State::Halted;
             break;
-        case 0x19: {
+        case Opcode::PUSH_STRING: {
             // PUSH_STRINGは検証済みUTF-8定数のIDを積む。
             value.type = Type::String;
             value.address = operand;
@@ -1524,10 +1529,10 @@ void BytecodeVM::step() {
             push(value);
             break;
         }
-        case 0x1A:
+        case Opcode::CALL_NATIVE:
             callNative(operand);
             break;
-        case 0x1B:
+        case Opcode::TO_FLOAT:
             // TO_FLOATはint32をfloat32に変換し、floatはそのままにする。
             if (!pop(value)) {
                 return;
@@ -1543,13 +1548,13 @@ void BytecodeVM::step() {
             }
             push(value);
             break;
-        case 0x1C:
+        case Opcode::FORMAT_VALUE:
             formatValue(operand);
             break;
-        case 0x1D:
+        case Opcode::BUILD_STRING:
             buildString(operand);
             break;
-        case 0x1E: {
+        case Opcode::NEW_OBJECT: {
             const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, operand);
             if (!record) {
                 fail(Error::Operand);
@@ -1560,8 +1565,8 @@ void BytecodeVM::step() {
             }
             break;
         }
-        case 0x1F:
-        case 0x20: {
+        case Opcode::GET_FIELD:
+        case Opcode::SET_FIELD: {
             Value receiver;
             if (!pop(receiver)) {
                 return;
@@ -1577,12 +1582,12 @@ void BytecodeVM::step() {
             }
             const uint8_t *field = types_ + read32(record + 4) + size_t(operand) * 4;
             Value &slot = static_cast<Value *>(receiver.reference->data)[operand];
-            const uint8_t permission = opcode == 0x1F ? 1 : 2;
+            const uint8_t permission = opcode == Opcode::GET_FIELD ? 1 : 2;
             if ((field[1] & permission) == 0) {
                 fail(Error::Operand);
                 return;
             }
-            if (opcode == 0x1F) {
+            if (opcode == Opcode::GET_FIELD) {
                 if (slot.type == Type::Uninitialized) {
                     fail(Error::Uninitialized);
                     return;
@@ -1605,7 +1610,7 @@ void BytecodeVM::step() {
             }
             break;
         }
-        case 0x21:
+        case Opcode::DUP:
             if (sp <= floor_) {
                 fail(Error::StackUnderflow);
                 return;
@@ -1617,17 +1622,17 @@ void BytecodeVM::step() {
             }
             push(value);
             break;
-        case 0x22:
+        case Opcode::CALL_NUMPY:
             callNumpy(operand);
             break;
-        case 0x23:
-        case 0x24:
-            arrayItem(operand, opcode == 0x24);
+        case Opcode::GET_ITEM:
+        case Opcode::SET_ITEM:
+            arrayItem(operand, opcode == Opcode::SET_ITEM);
             break;
-        case 0x25:
+        case Opcode::ARRAY_ATTR:
             arrayAttribute(operand);
             break;
-        case 0x26:
+        case Opcode::CHECK_REF:
             if (sp <= floor_) {
                 fail(Error::StackUnderflow);
                 return;
@@ -1642,7 +1647,7 @@ void BytecodeVM::step() {
                 fail(Error::Type);
             }
             break;
-        case 0x27:
+        case Opcode::GC_LOOP:
             collectHeap(operand);
             break;
     }
@@ -1680,7 +1685,7 @@ bool BytecodeVM::configureDebugPoints(const uint16_t *points, uint32_t count, co
     }
     uint32_t selected = 0;
     for (uint32_t at = 0; at < length;) {
-        const uint8_t opcode = code[at] & 0x7F;
+        const uint8_t opcode = code[at] & BytecodeFormat::OpcodeMask;
         const uint32_t size = BytecodeFormat::instructionLength(opcode);
         if (size == 0 || size > length - at || (selected < count && points[selected] < at)) {
             return false;
