@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## object配列アクセスの簡略化（2026-11-26）
+
+[VM](../app/diagram-control/src/bytecode_vm.cpp)のarrayData()をprimitive・object共通のヘッダー取得へ整理し、object配列の確保一覧探索、型表との再照合、shape・本体サイズの再計算を削除した。[NumPyのitem()](../app/diagram-control/src/numpy_native.cpp)では、書込み時だけarrayElementValue()で要素タグ・クラスIDを確認し、読取りは保持済みのValueを直接返す。確保時の保証と参照の前提は[ヘッダー](../app/diagram-control/include/bytecode_vm.h)とitem()の仕様コメントを参照する。
+
+markValues()・collectHeap()・allocateArray()・Array::getOffset()・arrayItem()が変更前と同じであることをソース比較で確認した。None初期化、参照共有、GCのValue列探索と配列の配置を維持し、バイトコード・ABIは変更していない。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。整形後のコンパイル・リンク・`firmware.bin`生成に成功（45.42秒）。RAMは59132/327680バイト、Flashは1079597/1310720バイト。他の環境はビルドしていない。差分・コメント・文書リンクを確認した。テスト、Upload、VM実行・共有／循環参照の回収を含む実機確認、commit・pushは行っていない。
+
 ## primitive配列アクセスの簡略化（2026-11-26）
 
 [VM](../app/diagram-control/src/bytecode_vm.cpp)のArray::getOffset()へ添字検査・位置計算をまとめ、arrayItem()からスタック上の対象・添字を直接参照する。[NumPyのitem()](../app/diagram-control/src/numpy_native.cpp)はfloat32・uint8を型別に直接読み書きする形へ変更した。primitiveの本体検証を確保時の保証に基づく処理へ整理した。配列の要素型・借用規則と保証する条件は[ヘッダー](../app/diagram-control/include/bytecode_vm.h)と各実装のコメントを参照する。

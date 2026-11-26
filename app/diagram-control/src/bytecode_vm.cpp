@@ -329,62 +329,27 @@ bool BytecodeVM::allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *
  * @copydoc BytecodeVM::arrayData
  */
 bool BytecodeVM::arrayData(const Value &value, const Array *&array) const {
-    if (value.type != Type::HeapReference) {
-        return false;
-    }
-    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, value.classId);
-    if (record && (record[8] == Array::Float32 || record[8] == Array::UInt8)) {
-        // VMが生成した参照だけを受け取り、確保時に保証したshape・サイズを再検証しない。
-        if (!value.reference || value.reference->classId != value.classId || value.reference->arrayKind != record[8]) {
-            return false;
-        }
-        array = static_cast<const Array *>(value.reference->data);
-        return true;
-    }
-    if (!heap_.contains(value.reference)) {
+    if (value.type != Type::HeapReference || !value.reference) {
         return false;
     }
     const BytecodeHeap::Block &block = *value.reference;
-    if (!record || block.classId != value.classId || block.arrayKind < 1 || block.arrayKind > 3 ||
-        block.arrayKind != record[8] || block.bytes < sizeof(Array) ||
-        block.valueCount > (block.bytes - sizeof(Array)) / sizeof(Value) ||
-        (block.arrayKind != 3 && block.valueCount != 0)) {
+    if (block.classId != value.classId || block.arrayKind < Array::Float32 || block.arrayKind > Array::Object) {
         return false;
     }
-    const auto *data = reinterpret_cast<const Array *>(static_cast<const Value *>(block.data) + block.valueCount);
-    if (data->dtype != block.arrayKind || data->rank != record[9] || data->reserved != 0) {
-        return false;
-    }
-    const size_t itemBytes = data->dtype == 1 ? sizeof(float) : data->dtype == 2 ? 1 : sizeof(Value);
-    const size_t maximum = (MaxHeapBytes - sizeof(BytecodeHeap::Block) - sizeof(Array)) / itemBytes;
-    uint32_t elements = 0;
-    if (!arrayElements(data->shape, data->rank, maximum, elements) || elements != data->elements ||
-        block.bytes != sizeof(Array) + size_t(elements) * itemBytes ||
-        (data->dtype == 3 && block.valueCount != elements)) {
-        return false;
-    }
-    for (uint8_t axis = data->rank; axis < 4; ++axis) {
-        if (data->shape[axis] != 0) {
-            return false;
-        }
-    }
-    array = data;
+    // 数値配列はvalueCount=0。object配列はValue要素列の直後にヘッダーを置く。
+    array = reinterpret_cast<const Array *>(static_cast<const Value *>(block.data) + block.valueCount);
     return true;
 }
 
 /**
  * @copydoc BytecodeVM::arrayElementValue
  */
-bool BytecodeVM::arrayElementValue(const Value &receiver, const Value &value) const {
-    const Array *array = nullptr;
-    if (!arrayData(receiver, array) || array->dtype != 3) {
-        return false;
-    }
+bool BytecodeVM::arrayElementValue(uint16_t classId, const Value &value) const {
     if (value.type == Type::None) {
         return true;
     }
-    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, receiver.classId);
-    return uint8_t(value.type) == record[10] && value.classId == read16(record + 12) && validValue(value);
+    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
+    return record && uint8_t(value.type) == record[10] && value.classId == read16(record + 12);
 }
 
 /**

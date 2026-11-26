@@ -219,17 +219,19 @@ class BytecodeVM {
      * @param value 本体参照。
      * @param array 成功時の不変ヘッダー。数値はarray+1、object要素はvalue.reference->dataにある。
      * @return 配列参照ならtrue。借用は同期処理中だけ有効で、C++側へ持ち越さない。
-     * @details primitiveのshape・要素数・サイズはallocateArray()が保証し、ここでは再計算しない。
-     * 本体参照はVMの確保APIで生成したものだけを使う。object配列は従来の本体検証を行う。
+     * @details すべての配列のdtype・shape・要素数・配置はallocateArray()が保証し、ここでは再検証しない。
+     * 本体参照はVMの確保APIで生成したものだけを使い、確保一覧や型表を探索しない。
      */
     bool arrayData(const Value &value, const Array *&array) const;
     /**
-     * @brief object配列の要素型と、格納・読出しする参照の所属を照合する。
-     * @param receiver object配列。
-     * @param value 同じクラスの機器／GC参照、またはNone。
-     * @return 配列・要素が有効ならtrue。確保やGCを起動しない。
+     * @brief object配列へ格納する値のタグとクラスIDを照合する。
+     * @param classId arrayData()で確認済みのobject配列の本体型ID。
+     * @param value VMが生成した参照値、またはNone。
+     * @return 要素型に一致する参照またはNoneならtrue。確保やGCを起動しない。
+     * @details 型表の要素タグ@10と要素クラスID@12だけを格納時に照合する。
+     * 本体や参照先は再検証しない。全要素をNoneで初期化し、格納時に型を保つため、読出し時の照合は不要。
      */
-    bool arrayElementValue(const Value &receiver, const Value &value) const;
+    bool arrayElementValue(uint16_t classId, const Value &value) const;
     /**
      * @brief 型・所属・フィールド数を検査して本体のValue列を借用する。
      * @param value 検査対象の参照。

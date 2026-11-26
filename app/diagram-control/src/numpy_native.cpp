@@ -24,7 +24,7 @@ namespace {
  * 1～4次元・C順の連続領域。shapeの整数タプルは呼出し時だけ扱う。汎用タプル・リスト・
  * 部分配列・スライス・ビュー・broadcast・配列全体の演算は実装しない。
  * object dtypeはemptyだけに対応し、全要素をNoneにする。数値配列とobject配列も要素に格納できるが、
- * 要素型は単一クラスの参照＋Noneへ統一する。型表の要素タグ・クラスIDを格納・読出し時に照合する。
+ * 要素型は単一クラスの参照＋Noneへ統一し、格納時に型表の要素タグ・クラスIDを照合する。
  * object配列のitemsizeはVMのValue幅。共有・循環を許し、Noneの属性・メソッド・配列操作はNoneAccessとする。
  */
 BytecodeVM::Error numpy_native::create(BytecodeVM &vm, uint16_t function, uint16_t classId,
@@ -93,10 +93,12 @@ BytecodeVM::Error numpy_native::create(BytecodeVM &vm, uint16_t function, uint16
  * @details 各負の添字はその軸長を一度足して補正する。補正後も範囲外ならArrayIndex。
  * float32は有限な数値だけ格納する。uint8は0～255の有限な数値を0方向へ切り捨て、範囲外は拒否する。
  * primitiveはgetOffset()で添字を検査した後、ヘッダー直後のfloat/uint8_t配列を直接読み書きする。
- * 型・shape・本体サイズ・整列とゼロ初期化はVMのallocateArray()が保証する。
+ * すべての配列の型・shape・本体サイズ・整列と初期化はVMのallocateArray()が保証する。
  * すべての書込みで有限性を保ち、読取り時の有限性の再検査は行わない。
  * C++側もヘッダーを変更せず、数値要素へNaN・Infを格納しない。構築・要素操作中にGCは起動しない。
- * objectは参照を共有し、代入・上書きの際に確保・解放・GCを行わない。
+ * objectは全要素をNoneで初期化し、格納時だけ要素型を確認する。読取りは保持済みのValueをそのまま返す。
+ * object要素はVMで生成した参照またはNoneだけとし、C++側も同じ要素型を保つ。
+ * 参照を共有し、代入・上書きの際に確保・解放・GCを行わない。
  */
 BytecodeVM::Error numpy_native::item(BytecodeVM &vm, const BytecodeVM::Value &receiver,
     const BytecodeVM::Value *indices, uint8_t rank, bool write, BytecodeVM::Value &value) {
@@ -113,10 +115,10 @@ BytecodeVM::Error numpy_native::item(BytecodeVM &vm, const BytecodeVM::Value &re
     }
     if (array->dtype == Dtype::Object) {
         auto *values = static_cast<BytecodeVM::Value *>(receiver.reference->data);
-        if (!vm.arrayElementValue(receiver, write ? value : values[offset])) {
-            return Error::Type;
-        }
         if (write) {
+            if (!vm.arrayElementValue(receiver.classId, value)) {
+                return Error::Type;
+            }
             values[offset] = value;
         }
         else {
