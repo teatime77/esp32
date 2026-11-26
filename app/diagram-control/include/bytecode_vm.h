@@ -104,11 +104,30 @@ class BytecodeVM {
      * VMが設定し、確保後は形状・dtype・要素数を変更しない。数値の生データを参照として走査しない。
      */
     struct Array {
+        /**
+         * @brief 配列の要素型。型表の既存の番号と一致させる。
+         */
+        enum Dtype : uint8_t {
+            Float32 = 1, ///< 単精度浮動小数点。
+            UInt8 = 2, ///< 8bit符号なし整数。
+            Object = 3 ///< VMの参照値。
+        };
+
         uint32_t shape[4]{}; ///< 軸長。未使用軸は0。各軸はint32の非負範囲。
         uint32_t elements = 0; ///< 全軸長の積。0長の軸があれば0。
         uint8_t rank = 0; ///< 次元数1～4。
-        uint8_t dtype = 0; ///< 1=float32、2=uint8、3=object。
+        uint8_t dtype = 0; ///< Dtypeの要素型。allocateArray()が設定する。
         uint16_t reserved = 0; ///< 常に0。データをfloat境界へ整列する。
+
+        /**
+         * @brief 添字を検査し、C順の要素位置へ変換する。
+         * @param indices 軸ごとの整数添字。
+         * @param count 添字の個数。rankと一致させる。
+         * @param offset 成功時の要素単位の位置。
+         * @return 全軸の添字が範囲内ならtrue。
+         * @details 負の添字は軸長を一度加えて補正する。shapeと要素数は確保時に検証済み。
+         */
+        bool getOffset(const Value *indices, uint8_t count, uint32_t &offset) const;
     };
 
     /**
@@ -196,10 +215,12 @@ class BytecodeVM {
      */
     bool allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *shape, uint8_t rank, Value &value);
     /**
-     * @brief 所属・型表・shape・要素数・バイト長が一致する配列を借用する。
+     * @brief 配列の不変ヘッダーを借用する。
      * @param value 本体参照。
      * @param array 成功時の不変ヘッダー。数値はarray+1、object要素はvalue.reference->dataにある。
-     * @return 有効ならtrue。GCをまたぐ場合はvalueを根に保つ。
+     * @return 配列参照ならtrue。借用は同期処理中だけ有効で、C++側へ持ち越さない。
+     * @details primitiveのshape・要素数・サイズはallocateArray()が保証し、ここでは再計算しない。
+     * 本体参照はVMの確保APIで生成したものだけを使う。object配列は従来の本体検証を行う。
      */
     bool arrayData(const Value &value, const Array *&array) const;
     /**
@@ -382,7 +403,7 @@ class BytecodeVM {
      */
     void callNumpy(uint16_t classId);
     /**
-     * @brief 全軸の添字を取り出し、スカラー1個を読書きする。
+     * @brief スタック上の配列と全軸の添字を参照し、スカラー1個を読書きする。
      * @param rank 命令に記録した軸数。
      * @param write SET_ITEMならtrue。右辺は対象より前に積まれている。
      */

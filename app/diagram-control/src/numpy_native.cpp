@@ -8,10 +8,10 @@
 #include "numpy_native.h"
 #include "device_api.generated.h"
 #include <cmath>
-#include <cstring>
 
 namespace {
-    constexpr uint8_t DefaultDtype = 1; ///< 省略またはNoneのdtypeはfloat32。コンパイラーは値を補わない。
+    constexpr uint8_t DefaultDtype =
+        BytecodeVM::Array::Float32; ///< 省略またはNoneのdtypeはfloat32。コンパイラーは値を補わない。
 }
 
 /**
@@ -92,34 +92,26 @@ BytecodeVM::Error numpy_native::create(BytecodeVM &vm, uint16_t function, uint16
  * @copydoc numpy_native::item
  * @details 各負の添字はその軸長を一度足して補正する。補正後も範囲外ならArrayIndex。
  * float32は有限な数値だけ格納する。uint8は0～255の有限な数値を0方向へ切り捨て、範囲外は拒否する。
+ * primitiveはgetOffset()で添字を検査した後、ヘッダー直後のfloat/uint8_t配列を直接読み書きする。
+ * 型・shape・本体サイズ・整列とゼロ初期化はVMのallocateArray()が保証する。
+ * すべての書込みで有限性を保ち、読取り時の有限性の再検査は行わない。
+ * C++側もヘッダーを変更せず、数値要素へNaN・Infを格納しない。構築・要素操作中にGCは起動しない。
  * objectは参照を共有し、代入・上書きの際に確保・解放・GCを行わない。
  */
 BytecodeVM::Error numpy_native::item(BytecodeVM &vm, const BytecodeVM::Value &receiver,
     const BytecodeVM::Value *indices, uint8_t rank, bool write, BytecodeVM::Value &value) {
     using Error = BytecodeVM::Error;
     using Type = BytecodeVM::Type;
+    using Dtype = BytecodeVM::Array::Dtype;
     const BytecodeVM::Array *array = nullptr;
     if (!vm.arrayData(receiver, array)) {
         return receiver.type == Type::None ? Error::NoneAccess : Error::Type;
     }
-    if (rank != array->rank) {
+    uint32_t offset = 0;
+    if (!array->getOffset(indices, rank, offset)) {
         return Error::ArrayIndex;
     }
-    uint32_t offset = 0;
-    for (uint8_t axis = 0; axis < rank; ++axis) {
-        if (indices[axis].type != Type::Integer) {
-            return Error::ArrayIndex;
-        }
-        int64_t index = indices[axis].integer;
-        if (index < 0) {
-            index += array->shape[axis];
-        }
-        if (index < 0 || uint64_t(index) >= array->shape[axis]) {
-            return Error::ArrayIndex;
-        }
-        offset = offset * array->shape[axis] + uint32_t(index);
-    }
-    if (array->dtype == 3) {
+    if (array->dtype == Dtype::Object) {
         auto *values = static_cast<BytecodeVM::Value *>(receiver.reference->data);
         if (!vm.arrayElementValue(receiver, write ? value : values[offset])) {
             return Error::Type;
@@ -132,42 +124,41 @@ BytecodeVM::Error numpy_native::item(BytecodeVM &vm, const BytecodeVM::Value &re
         }
         return Error::None;
     }
-    auto *bytes = reinterpret_cast<uint8_t *>(const_cast<BytecodeVM::Array *>(array) + 1);
-    if (write) {
-        if (value.type != Type::Integer && value.type != Type::Float) {
-            return Error::Type;
-        }
-        const double number = value.type == Type::Integer ? double(value.integer) : double(value.real);
-        if (!std::isfinite(number)) {
-            return Error::NonFinite;
-        }
-        if (array->dtype == 1) {
-            const float real = float(number);
-            if (!std::isfinite(real)) {
-                return Error::NonFinite;
-            }
-            std::memcpy(bytes + size_t(offset) * sizeof(float), &real, sizeof real);
-        }
-        else {
-            if (number < 0 || number > 255) {
-                return Error::ArrayIndex;
-            }
-            bytes[offset] = uint8_t(number);
+    void *data = const_cast<BytecodeVM::Array *>(array) + 1;
+    if (!write) {
+        value = BytecodeVM::Value{};
+        switch (array->dtype) {
+            case Dtype::Float32:
+                value.type = Type::Float;
+                value.real = static_cast<const float *>(data)[offset];
+                return Error::None;
+            case Dtype::UInt8:
+                value.type = Type::Integer;
+                value.integer = static_cast<const uint8_t *>(data)[offset];
+                return Error::None;
+            default:
+                return Error::Type;
         }
     }
-    else {
-        value = BytecodeVM::Value{};
-        if (array->dtype == 1) {
-            value.type = Type::Float;
-            std::memcpy(&value.real, bytes + size_t(offset) * sizeof(float), sizeof(float));
-            if (!std::isfinite(value.real)) {
-                return Error::NonFinite;
+    if (value.type != Type::Integer && value.type != Type::Float) {
+        return Error::Type;
+    }
+    const float number = value.type == Type::Integer ? float(value.integer) : value.real;
+    if (!std::isfinite(number)) {
+        return Error::NonFinite;
+    }
+    switch (array->dtype) {
+        case Dtype::Float32:
+            static_cast<float *>(data)[offset] = number;
+            break;
+        case Dtype::UInt8:
+            if (number < 0 || number > UINT8_MAX) {
+                return Error::ArrayIndex;
             }
-        }
-        else {
-            value.type = Type::Integer;
-            value.integer = bytes[offset];
-        }
+            static_cast<uint8_t *>(data)[offset] = uint8_t(number);
+            break;
+        default:
+            return Error::Type;
     }
     return Error::None;
 }

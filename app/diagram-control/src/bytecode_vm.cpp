@@ -245,6 +245,30 @@ bool BytecodeVM::allocateHeapValue(uint16_t classId, uint32_t valueCount, size_t
 }
 
 /**
+ * @copydoc BytecodeVM::Array::getOffset
+ */
+bool BytecodeVM::Array::getOffset(const Value *indices, uint8_t count, uint32_t &offset) const {
+    if (count != rank) {
+        return false;
+    }
+    offset = 0;
+    for (uint8_t axis = 0; axis < rank; ++axis) {
+        if (indices[axis].type != Type::Integer) {
+            return false;
+        }
+        int32_t index = indices[axis].integer;
+        if (index < 0) {
+            index += int32_t(shape[axis]);
+        }
+        if (index < 0 || uint32_t(index) >= shape[axis]) {
+            return false;
+        }
+        offset = offset * shape[axis] + uint32_t(index);
+    }
+    return true;
+}
+
+/**
  * @copydoc BytecodeVM::allocateArray
  */
 bool BytecodeVM::allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *shape, uint8_t rank, Value &value) {
@@ -252,10 +276,10 @@ bool BytecodeVM::allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *
         return false;
     }
     const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, classId);
-    if (!record || dtype < 1 || dtype > 3 || record[8] != dtype || record[9] != rank) {
+    if (!record || dtype < Array::Float32 || dtype > Array::Object || record[8] != dtype || record[9] != rank) {
         return fail(Error::Type);
     }
-    const size_t itemBytes = dtype == 1 ? sizeof(float) : dtype == 2 ? 1 : sizeof(Value);
+    const size_t itemBytes = dtype == Array::Float32 ? sizeof(float) : dtype == Array::UInt8 ? 1 : sizeof(Value);
     const size_t maximum = (MaxHeapBytes - sizeof(BytecodeHeap::Block) - sizeof(Array)) / itemBytes;
     uint32_t elements = 0;
     if (!arrayElements(shape, rank, maximum, elements)) {
@@ -268,7 +292,7 @@ bool BytecodeVM::allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *
     }
     block->classId = classId;
     block->arrayKind = dtype;
-    block->valueCount = dtype == 3 ? elements : 0;
+    block->valueCount = dtype == Array::Object ? elements : 0;
     auto *values = static_cast<Value *>(block->data);
     for (uint32_t index = 0; index < block->valueCount; ++index) {
         new (values + index) Value{};
@@ -281,6 +305,19 @@ bool BytecodeVM::allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *
     for (uint8_t axis = 0; axis < rank; ++axis) {
         array->shape[axis] = shape[axis];
     }
+    // ヘッダー直後を型付きの数値要素として初期化し、以降は直接読み書きする。
+    if (dtype == Array::Float32) {
+        auto *data = reinterpret_cast<float *>(array + 1);
+        for (uint32_t index = 0; index < elements; ++index) {
+            new (data + index) float(0.0f);
+        }
+    }
+    else if (dtype == Array::UInt8) {
+        auto *data = reinterpret_cast<uint8_t *>(array + 1);
+        for (uint32_t index = 0; index < elements; ++index) {
+            new (data + index) uint8_t(0);
+        }
+    }
     value = Value{};
     value.type = Type::HeapReference;
     value.classId = classId;
@@ -292,11 +329,22 @@ bool BytecodeVM::allocateArray(uint16_t classId, uint8_t dtype, const uint32_t *
  * @copydoc BytecodeVM::arrayData
  */
 bool BytecodeVM::arrayData(const Value &value, const Array *&array) const {
-    if (value.type != Type::HeapReference || !heap_.contains(value.reference)) {
+    if (value.type != Type::HeapReference) {
+        return false;
+    }
+    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, value.classId);
+    if (record && (record[8] == Array::Float32 || record[8] == Array::UInt8)) {
+        // VMが生成した参照だけを受け取り、確保時に保証したshape・サイズを再検証しない。
+        if (!value.reference || value.reference->classId != value.classId || value.reference->arrayKind != record[8]) {
+            return false;
+        }
+        array = static_cast<const Array *>(value.reference->data);
+        return true;
+    }
+    if (!heap_.contains(value.reference)) {
         return false;
     }
     const BytecodeHeap::Block &block = *value.reference;
-    const uint8_t *record = BytecodeFormat::findType(types_, typeCount_, value.classId);
     if (!record || block.classId != value.classId || block.arrayKind < 1 || block.arrayKind > 3 ||
         block.arrayKind != record[8] || block.bytes < sizeof(Array) ||
         block.valueCount > (block.bytes - sizeof(Array)) / sizeof(Value) ||
@@ -965,23 +1013,23 @@ void BytecodeVM::arrayItem(uint16_t rank, bool write) {
         fail(Error::ArrayIndex);
         return;
     }
-    Value indices[4];
-    for (int axis = int(rank) - 1; axis >= 0; --axis) {
-        if (!pop(indices[axis])) {
-            return;
-        }
-    }
-    Value receiver;
-    Value value;
-    if (!pop(receiver) || (write && !pop(value))) {
+    const uint32_t count = rank + 1 + (write ? 1 : 0);
+    if (sp < floor_ || count > sp - floor_) {
+        fail(Error::StackUnderflow);
         return;
     }
-    // スカラー操作中は確保・GCを起動しないので、取り出した対象と値を移動せず使える。
+    const uint32_t first = sp - count;
+    const Value &receiver = stack_[first + (write ? 1 : 0)];
+    const Value *indices = &receiver + 1;
+    Value value = write ? stack_[first] : Value{};
+    // 同期処理中に確保・GCを行わないため、対象と添字はスタック上を直接参照する。
     const Error code = numpy_native::item(*this, receiver, indices, uint8_t(rank), write, value);
     if (code != Error::None) {
         fail(code);
+        return;
     }
-    else if (!write) {
+    sp = first;
+    if (!write) {
         push(value);
     }
 }

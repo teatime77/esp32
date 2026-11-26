@@ -1,5 +1,13 @@
 # ビルドと検証
 
+## primitive配列アクセスの簡略化（2026-11-26）
+
+[VM](../app/diagram-control/src/bytecode_vm.cpp)のArray::getOffset()へ添字検査・位置計算をまとめ、arrayItem()からスタック上の対象・添字を直接参照する。[NumPyのitem()](../app/diagram-control/src/numpy_native.cpp)はfloat32・uint8を型別に直接読み書きする形へ変更した。primitiveの本体検証を確保時の保証に基づく処理へ整理した。配列の要素型・借用規則と保証する条件は[ヘッダー](../app/diagram-control/include/bytecode_vm.h)と各実装のコメントを参照する。
+
+object要素の型検査・参照格納と読取り、本体メタデータの検証が変更前と同じであることをソース比較で確認した。共通の添字計算とスタック受渡しは共有する。バイトコード・ABIと配列のメモリー配置は変更していない。
+
+`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同ディレクトリーで`C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run -j 2`を実行した。整形後のコンパイル・リンク・`firmware.bin`生成に成功（52.24秒）。RAMは59132/327680バイト、Flashは1079933/1310720バイト。他の環境はビルドしていない。ソースコメント・差分・文書リンクを確認した。テスト、Upload、VM実行・実機動作と速度の確認、commit・pushは行っていない。
+
 ## Python VMの命令番号の名前付け（2026-11-25）
 
 [bytecode_format.h](../app/diagram-control/include/bytecode_format.h)へ39命令の共通enumと命令マスク・停止フラグの定数を追加し、VMのstep()・calculate()、受信検証、命令長判定、デバッガーのフラグ操作を名前で記述した。[uroaのコーディング規約](../../uroa/docs/coding-style.md#意味を持つ数値)へ数値の名前付け規則を追加し、ESP32の規約からも参照する。

@@ -35,11 +35,13 @@ namespace numpy_native {
      * @brief 全軸の整数添字でスカラーを読書きする。
      * @param vm 本体を検査するVM。
      * @param receiver 配列参照。
-     * @param indices rank個の整数添字。
+     * @param indices rank個の整数添字。VMの値スタック上を同期処理中だけ参照する。
      * @param rank 指定した次元数。
      * @param write 書込む場合true。
      * @param value 書込み入力または読取り結果。
      * @return 成功時None、失敗時エラー番号。
+     * @details primitiveはArray::getOffset()で位置を求め、型別に直接読み書きする。
+     * 確保・GCを行わず、対象・添字・要素への参照をC++側へ持ち越さない。
      */
     BytecodeVM::Error item(BytecodeVM &vm, const BytecodeVM::Value &receiver, const BytecodeVM::Value *indices,
         uint8_t rank, bool write, BytecodeVM::Value &value);
