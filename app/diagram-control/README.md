@@ -36,6 +36,8 @@ PythonBlockのStartによる一括転送・検証後開始、受信領域と通�
 
 開始・停止と最終状態の担当は[main.cpp](src/main.cpp)、停止値・ステップ操作は[BytecodeDebugger](src/bytecode_debugger.cpp)を参照する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNative](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
 
+Python VMから呼ぶC数値カーネルの追加設計は[カーネル仕様と接続設計](docs/numeric-kernel.md)を参照する。`@kernel`と`launch()`、fast math・チェックなし・中断なしの実行、ESP32／ブラウザ／Colabの接続形式を定める。Web側の構文・意味解析は実装済み。C生成・実行接続とバイトコードversion 8は未実装で、カーネルを含むプログラムのコード生成は拒否する。
+
 API変更後はuroaルートで`python diagram/python/generate-device-api.py`を実行し、JSONとC++の3成果物を一緒に更新する。生成物の一致確認は`--check`、JSONだけの生成は`--json-only`。ESP32のビルドは生成済みC++を使うため、ESP32リポジトリーだけでも可能。入力・生成の仕様は[生成プログラム](../../../uroa/diagram/python/generate-device-api.py)と[変換処理](../../../uroa/diagram/python/device_api_cpp.py)を参照する。
 
 数値NumPy配列の呼出し例。shapeの長さは関数の実行時に決まり、戻り値は本体参照を共有する。対応範囲・初期化・変換は[numpy_native.cpp](src/numpy_native.cpp)、型と配置は[semantic.ts](../../../uroa/diagram/ts/python/semantic.ts)のコメントを参照する。この例の実機実行は未確認。
