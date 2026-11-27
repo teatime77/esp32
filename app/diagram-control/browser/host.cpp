@@ -3,6 +3,7 @@
  * @brief 共通C++ VMをEmscriptenから呼ぶブラウザ用ホスト。
  * @details version 8の集合照合と同期CALL_KERNELを接続する。計算用Wasmは同じWorkerにある。
  * descriptorは引数ごとにdouble4個のtag・scalar・VM内アドレス・要素数。JS側がコピーを担当する。
+ * printは解析済みAPIのID・指紋で専用NativeApiへ登録し、長さ付きUTF-8をWorkerへ同期的に渡す。
  */
 #include "bytecode_vm.h"
 #include "bytecode_format.h"
@@ -24,6 +25,47 @@ namespace {
     uint8_t kernelHash[32]{}; ///< 開始前に接続した集合指紋。
     std::vector<std::vector<uint8_t>> signatures; ///< IDで引く引数型列。0は未使用。
     double result[4]{}; ///< 呼出し直後だけ有効な大域値の読出し領域。
+    uint8_t nativeHash[32]{}; ///< ブラウザのprint登録に使う、解析済みAPIの指紋。
+
+    /**
+     * @brief 借用したUTF-8を呼出し中にJS文字列へコピーする。
+     * @param text 長さ付き文字列の先頭。
+     * @param length 終端NULを含まないUTF-8バイト数。
+     * @return 成功ならNone、出力処理の例外はNativeFailure。
+     */
+    EM_JS(int, emitPrint, (const char *text, size_t length), {
+        try {
+            Module.pythonPrint(text, length);
+            return 0;
+        } catch (error) {
+            return 16;
+        }
+    });
+
+    /**
+     * @brief printの文字列1引数を出力し、Noneを返す。
+     * @param call 同期呼出し中だけ有効な入出力領域。
+     * @return 引数・文字列を検査した結果。
+     * @details 改行の付加とUIへの転送はWorkerが担当する。VMの文字列参照を保持しない。
+     */
+    BytecodeVM::Error invokePrint(BytecodeVM::NativeCall &call) {
+        if (call.argumentSlots != 1 || call.resultSlots != 1) {
+            return BytecodeVM::Error::Operand;
+        }
+        const char *text = nullptr;
+        size_t length = 0;
+        if (!call.vm.stringBytes(call.arguments[0], text, length)) {
+            return BytecodeVM::Error::Type;
+        }
+        const auto error = BytecodeVM::Error(emitPrint(text, length));
+        if (error == BytecodeVM::Error::None) {
+            call.results[0].type = BytecodeVM::Type::None;
+        }
+        return error;
+    }
+
+    BytecodeVM::NativeEntry printEntry{0, 1, 1, invokePrint}; ///< 開始前に解析済みのprint IDを設定する。
+    const BytecodeVM::NativeApi nativeApi{nativeHash, &printEntry, 1, nullptr, nullptr}; ///< printだけを公開するブラウザ用表。
 
     /**
      * @brief 登録したIDのVM引数数を取得する。
@@ -101,6 +143,21 @@ namespace {
 }
 
 extern "C" {
+    /**
+     * @brief 解析済みAPIのprintを停止中に登録する。IDを機器用生成物から複製しない。
+     * @param id 同じ解析から取得したprintのnativeId。
+     * @param hash APIのSHA-256。イメージの指紋とはstartと呼出し時に照合する。
+     * @return 登録成功なら1。
+     */
+    int browser_bind_print(uint16_t id, const uint8_t *hash) {
+        if (id == 0 || !hash || vm.state == BytecodeVM::State::Running || vm.state == BytecodeVM::State::Paused) {
+            return 0;
+        }
+        printEntry.id = id;
+        std::memcpy(nativeHash, hash, 32);
+        return vm.bindNativeApi(&nativeApi);
+    }
+
     /**
      * @brief 停止して集合情報を置き換える。hashは32バイト。
      * @param hash 呼出し中に読み取れる集合指紋。

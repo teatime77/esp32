@@ -89,7 +89,7 @@ def main():
         raise RuntimeError("Emscripten 4.0.23を指定してください")
     exports = ["malloc", "free", "browser_load", "browser_tick", "browser_stop", "browser_state",
                "browser_error", "browser_pc", "browser_instructions", "browser_global_count", "browser_value",
-               "browser_register_kernel", "browser_kernel_hash"]
+               "browser_register_kernel", "browser_kernel_hash", "browser_bind_print"]
     run([emcc, project / "browser/host.cpp", *[project / "src" / name for name in
          ["bytecode_vm.cpp", "bytecode_format.cpp", "bytecode_heap.cpp", "numpy_native.cpp"]],
          "-I" + str(project / "include"), "-std=c++17", "-O2", "-sMODULARIZE=1", "-sEXPORT_ES6=1",
@@ -98,12 +98,15 @@ def main():
          "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"HEAPF32\"]", "-o", output / "python-vm.mjs"], project)
     license_source = sdk / "upstream/emscripten/LICENSE"
     (output / "emscripten-LICENSE.txt").write_bytes(license_source.read_bytes())
+    # 配布するJSはOSによらずLFとし、その実バイト列を指紋へ反映する。
+    loader = output / "python-vm.mjs"
+    loader.write_bytes(loader.read_bytes().replace(b"\r\n", b"\n"))
     files = {}
     for name in ["python-vm.mjs", "python-vm.wasm", "wccfiles.zip"]:
         data = (output / name).read_bytes()
         files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
     manifest = {"wccCommit": "659a1773f20499864a8c3fdc7cd25cb506092bc1", "emscriptenVersion": "4.0.23", "files": files}
-    (output / "assets.json").write_text(json.dumps(manifest, indent=4) + "\n", encoding="utf-8")
+    (output / "assets.json").write_bytes((json.dumps(manifest, indent=4) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":
