@@ -4,7 +4,7 @@
 
 設計版1。Pythonプログラム全体は現在のPython VMで実行し、`@kernel`で指定した1要素分の数値関数だけをCへ変換する。`launch()`は指定要素数の計算を一度のネイティブ呼出しで実行する。目的は、VMによる要素ごとの命令解釈を省いて数値ループを高速化することである。
 
-カーネル機能は段階的に実装する。Python側の構文解析・型解析・対応外処理の診断は実装済みで、実装の仕様は[parser.ts](../../../../uroa/diagram/ts/python/parser.ts)、[syntax.ts](../../../../uroa/diagram/ts/python/syntax.ts)、[kernel.ts](../../../../uroa/diagram/ts/python/kernel.ts)、[semantic.ts](../../../../uroa/diagram/ts/python/semantic.ts)のコメントを正本とする。C生成と実行接続は未実装のため、カーネルを含むプログラムのバイトコード生成は明示的に拒否する。現在のバイトコードはversion 7であり、後述するversion 8、命令、登録表は追加設計である。
+カーネル機能は段階的に実装する。Python側の構文解析・型解析・診断と、数値用中間表現・共通C・登録マニフェストの生成は実装済み。実装の仕様は[parser.ts](../../../../uroa/diagram/ts/python/parser.ts)、[syntax.ts](../../../../uroa/diagram/ts/python/syntax.ts)、[kernel.ts](../../../../uroa/diagram/ts/python/kernel.ts)、[semantic.ts](../../../../uroa/diagram/ts/python/semantic.ts)、[kernel-ir.ts](../../../../uroa/diagram/ts/python/kernel-ir.ts)、[kernel-c.ts](../../../../uroa/diagram/ts/python/kernel-c.ts)のコメントを正本とする。実行接続は後続段階で追加するため、カーネルを含むプログラムのバイトコード生成は明示的に拒否する。現在のバイトコードはversion 7であり、後述するversion 8、命令、実行時の登録表は追加設計である。
 
 ## 1 対象環境とコンパイル方針
 
@@ -246,11 +246,13 @@ VM用Wasmは開発時にEmscriptenで事前ビルドする。利用時は指定�
 | 1 | この仕様と接続形式の文書化 | 宣言・型・生成C・登録・版・エラーの契約が記載されている |
 | 2 | ブラウザ用Cコンパイラーの選定 | 完了。[選定記録](browser-c-compiler.md)にwccとBinaryenの固定版・依存・接続APIを記載。比較用コンパイラーは追加しない |
 | 3 | Pythonの構文解析・型解析を拡張 | 実装済み。kernel.tsとsemantic.tsがカーネル・launchを静的に解決し、対応外を診断する。C生成・実行は含めない |
-| 4 | 数値用中間表現・C生成・version 8と実行接続 | 未実装。解析結果からCを生成し、VM・受信器・デバッガーの形式認識と専用呼出し経路をそろえる |
+| 4 | 数値カーネル用の中間表現とC生成を追加 | 実装済み。型付きIR、共通C、引数型列、kernelSetHash、登録マニフェストを生成する |
 | 5 | Colab用ホスト | 同じ生成Cと自作配列を共有ライブラリーで接続できる |
 | 6 | ESP32への組込み | 生成CをCとしてビルドし、登録済みカーネルをVMから呼べる |
 | 7 | ブラウザ用ツールの導入とVM接続 | 選定した資産とWorker接続を導入し、まとめたコピー、単一呼出し、出力反映まで完了できる |
 | 8 | VMとC数値計算の速度計測 | 計算単体、launch全体、プログラム全体、コンパイル時間を区別して示せる |
+
+各ホストへの接続に先立ち、version 8とCALL_KERNELを追加し、VM・受信器・デバッガーの形式認識と専用呼出し経路をそろえる。
 
 コンパイラー間の速度比較は行わない。速度評価は同じ環境のVMとC数値計算の比較とし、転送・呼出し費用と計算そのものを分ける。fast mathによる数値差を記録し、bit単位の一致を合格条件にしない。比較用入力は通常のVMでも正常に計算できる範囲とする。
 
@@ -263,7 +265,7 @@ VM用Wasmは開発時にEmscriptenで事前ビルドする。利用時は指定�
 | [uroaのparser.ts](../../../../uroa/diagram/ts/python/parser.ts)・[syntax.ts](../../../../uroa/diagram/ts/python/syntax.ts) | 限定したデコレーター・型注釈・関数宣言の保持 |
 | [semantic.ts](../../../../uroa/diagram/ts/python/semantic.ts) | kernelとlaunchの束縛、配列モード、純粋性、対応範囲の診断 |
 | [kernel.ts](../../../../uroa/diagram/ts/python/kernel.ts) | 数値関数の署名・固定型・入出力・有限ループ・純粋ヘルパーの制約と解析結果の正本 |
-| uroaの新しい数値カーネル生成処理 | 数値用中間表現、生成C、型列、マニフェスト、kernelSetHash |
+| [kernel-ir.ts](../../../../uroa/diagram/ts/python/kernel-ir.ts)・[kernel-c.ts](../../../../uroa/diagram/ts/python/kernel-c.ts) | 数値用中間表現、生成C、型列、マニフェスト、kernelSetHash |
 | [bytecode.ts](../../../../uroa/diagram/ts/python/bytecode.ts)・[bytecode_format.h](../include/bytecode_format.h)・[bytecode_format.cpp](../src/bytecode_format.cpp) | version 8とCALL_KERNEL、ヘッダー長、命令長の正本 |
 | [bytecode_receiver.cpp](../src/bytecode_receiver.cpp)・[bytecode_debugger.cpp](../src/bytecode_debugger.cpp)・Web側の転送とデバッグ処理 | 新形式の構造検証、命令境界、ヘッダー位置、停止点の扱い |
 | [bytecode_vm.h](../include/bytecode_vm.h)・[bytecode_vm.cpp](../src/bytecode_vm.cpp)と新しいカーネル接続処理 | 専用登録表、引数展開、有限性検査をしない同期実行、GC借用 |

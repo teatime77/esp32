@@ -36,7 +36,7 @@ PythonBlockのStartによる一括転送・検証後開始、受信領域と通�
 
 開始・停止と最終状態の担当は[main.cpp](src/main.cpp)、停止値・ステップ操作は[BytecodeDebugger](src/bytecode_debugger.cpp)を参照する。生成スタブはsetup()で登録する。機器ごとの単位・初期化・制約は[DeviceNative](src/device_native.cpp)、待機・呼出しは[BytecodeVM::callNative](src/bytecode_vm.cpp)を参照する。Flash保存は未実装。
 
-Python VMから呼ぶC数値カーネルの追加設計は[カーネル仕様と接続設計](docs/numeric-kernel.md)を参照する。`@kernel`と`launch()`、fast math・チェックなし・中断なしの実行、ESP32／ブラウザ／Colabの接続形式を定める。Web側の構文・意味解析は実装済み。C生成・実行接続とバイトコードversion 8は未実装で、カーネルを含むプログラムのコード生成は拒否する。
+Python VMから呼ぶC数値カーネルの概要は[簡易版](docs/numeric-kernel-overview.md)、接続設計は[詳細版](docs/numeric-kernel.md)を参照する。Web側の構文・意味解析、型付き中間表現、共通Cと登録マニフェストの生成まで実装済み。実行接続とバイトコードversion 8は後続段階で追加する。現在はカーネルを含むプログラムのバイトコード生成を拒否する。
 
 API変更後はuroaルートで`python diagram/python/generate-device-api.py`を実行し、JSONとC++の3成果物を一緒に更新する。生成物の一致確認は`--check`、JSONだけの生成は`--json-only`。ESP32のビルドは生成済みC++を使うため、ESP32リポジトリーだけでも可能。入力・生成の仕様は[生成プログラム](../../../uroa/diagram/python/generate-device-api.py)と[変換処理](../../../uroa/diagram/python/device_api_cpp.py)を参照する。
 
