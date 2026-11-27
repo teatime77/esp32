@@ -4,7 +4,9 @@
 
 ブラウザではPythonBlockの実行先で「ブラウザ」を選ぶ。Openから`numeric-kernel.py`を読み込み、StartでC生成・Wasmコンパイル・VM実行を開始する。`print("hello world")`のような文字列出力はPythonBlockへ改行付きで表示する。完了後は出力に続けて大域変数と配列の値を表示する。Stopは計算から戻った後にVMを停止する。
 
-現在のブラウザ実行は通常のVM命令、自作NumPy、数値カーネルを対象とする。機器API呼出しは`NativeUnavailable`になる。行ブレークポイントの操作はESP32向けの既存機能であり、ブラウザでStartするときは解除する。
+現在のブラウザ実行は通常のVM命令、自作NumPy、数値カーネルを対象とし、ブラウザの意味解析ではESP32機器APIを拒否する。行ブレークポイントの操作はESP32向けの既存機能であり、ブラウザでStartするときは解除する。
+
+RPCの第2段階では、[BrowserRemoteRuntime](../../../../uroa/diagram/ts/python/browser-runtime.ts)を専用の所有者として追加した。[remote.ts](../../../../uroa/diagram/ts/python/remote.ts)で作る2ソースの生成物からブラウザ側だけを起動し、Remoteを公開している間は受付を維持する。ESP32の配送・Future更新・2ソースUIは後続段階で、通常のPythonBlockからRPCはまだ開始できない。メソッド登録・引数・結果・回収の仕様は[host.cpp](host.cpp)と[共通VM](../include/bytecode_vm.h)、Workerの公開契約は[browser-abi.ts](../../../../uroa/diagram/ts/python/browser-abi.ts)を参照する。ブラウザでの動作確認はビルドと区別する。
 
 ## 開発環境での資産生成
 

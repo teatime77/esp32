@@ -1,5 +1,25 @@
 # ビルドと検証
 
+## RPC 第2段階：ブラウザVM受付（2026-11-27）
+
+[ブラウザ用ホスト](../app/diagram-control/browser/host.cpp)と[共通VM](../app/diagram-control/include/bytecode_vm.h)へ、登録メソッドの外部開始・最外RETでの停止・結果取得・要求間の回収を追加した。VM側の変更は`__EMSCRIPTEN__`に限定し、ESP32の命令形式・機器API・通信形式は変更していない。公開表は数値IDと大域スロットで保持し、GC本体のポインターをホストへ持ち越さない。仕様は各処理のコメントを参照する。Web側の所有者・Workerは[段階別計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)から参照できる。
+
+既存のEmscripten 4.0.23を使い、`app/diagram-control`から以下でVMのJS／Wasmとマニフェストを再生成した。SDKのパスは今回の環境に存在するものを使用した。SDKのコンパイラー実行・キャッシュと、PlatformIOの既存キャッシュ・ロックへのアクセスは権限付きで再実行した。パッケージやSDKの再インストールは行っていない。
+
+```powershell
+$env:EMSDK_PYTHON = 'C:/Users/hamad/.platformio/penv/Scripts/python.exe'
+$env:EM_CONFIG = "$env:TEMP/uroa-browser-kernel/emsdk/.emscripten"
+$env:PYTHONDONTWRITEBYTECODE = '1'
+& C:/Users/hamad/.platformio/penv/Scripts/python.exe -B browser/build.py --emsdk "$env:TEMP/uroa-browser-kernel/emsdk" --output D:/usr/prj/uroa/public/diagram/runtime/v1
+
+# 同じカレントフォルダーで、現在のdefault_envsだけを確認する。Uploadは含まない。
+& C:/Users/hamad/.platformio/penv/Scripts/platformio.exe run
+```
+
+両ビルドが成功。VMのJSは9,771バイト、Wasmは46,463バイトで、実バイト数・SHA-256を`assets.json`へ反映した。`default_envs = supermini_esp32s3`を確認し、整形後のコンパイル・リンク・`firmware.bin`生成に成功（最終38.27秒）。RAMは59132/327680バイト、Flashは1079597/1310720バイト。他の環境はビルドしていない。Webの`npm.cmd run verify`も成功し、型・公開ビルド・配布資産を静的に確認した。
+
+変更箇所をclang-formatで整形し、コメント・リンク・差分を確認した。従来のテスト不要指定に従い、テストは作成・実行していない。ブラウザのRPC起動・連続呼出し・値・状態保持・GC・Stop・通常実行、実BLE／Wi-Fi、Upload・実機確認は未実施。ESP32配送・Future更新・2ソースUI、Plotly.js・Three.js連携は後続段階。
+
 ## object配列アクセスの簡略化（2026-11-26）
 
 [VM](../app/diagram-control/src/bytecode_vm.cpp)のarrayData()をprimitive・object共通のヘッダー取得へ整理し、object配列の確保一覧探索、型表との再照合、shape・本体サイズの再計算を削除した。[NumPyのitem()](../app/diagram-control/src/numpy_native.cpp)では、書込み時だけarrayElementValue()で要素タグ・クラスIDを確認し、読取りは保持済みのValueを直接返す。確保時の保証と参照の前提は[ヘッダー](../app/diagram-control/include/bytecode_vm.h)とitem()の仕様コメントを参照する。

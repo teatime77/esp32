@@ -150,7 +150,8 @@ void BytecodeVM::markValues(const Value *values, uint32_t count) {
 /**
  * @brief コンパイラーが指定したメインループの先頭だけでGCを行う。
  * @param entry 0=モジュール、非0=モジュールから直接呼ぶ入口関数のPC。
- * @details GC_LOOP以外から呼ばない。呼出し先フレーム・式の一時値が残る場合は回収しない。
+ * @details 通常はGC_LOOP、ブラウザではRPCの結果コピー後のreleaseBrowserCall()からも呼ぶ。
+ * 呼出し先フレーム・式の一時値が残る場合は回収しない。
  * 根は大域変数とメインの引数・局所変数だけ。C++の構築処理は終了しており、参照を持ち越さない。
  * 確保処理中・sleepのC++スタブ中・命令予算切れ・一時停止中には回収しない。
  */
@@ -402,6 +403,9 @@ bool BytecodeVM::fail(Error code) {
  * NativeApi.resetの後でGC本体を全解放する。C++側はGC対象の参照を保持しない。
  */
 void BytecodeVM::stop() {
+#ifdef __EMSCRIPTEN__
+    browserCallActive_ = false;
+#endif
     debugAction_ = DebugAction::Continue;
     skipDebugArrival_ = false;
     nativePending_ = false;
@@ -861,6 +865,8 @@ void BytecodeVM::call(uint16_t entry) {
  * 宣言幅ちょうどの一時値を先頭からコピーする。Noneの戻り値は従来通り1スロット。
  * HeapReferenceは本体をコピー・移動せず共有する。calleeの局所参照はspの縮小で根から外れる。
  * スロットの移動途中ではGCを実行しない。Pythonの本体returnも参照1個を共有し、内部の本体を移動しない。
+ * ブラウザRPCの最外フレームだけは、戻り値をスタックに残してHaltedへ移る。
+ * ホストは結果をコピーしてreleaseBrowserCall()を呼ぶ。通常のCALLからの復帰は変更しない。
  */
 void BytecodeVM::ret() {
     if (depth_ == 0 || bp + 1 >= floor_ || stack_[bp].type != Type::ReturnPc ||
@@ -895,6 +901,12 @@ void BytecodeVM::ret() {
     resultSlots_ = caller.results;
     frameId_ = caller.id;
     --depth_;
+#ifdef __EMSCRIPTEN__
+    // 外部RPCの最外RETでは呼出し元の命令を再開しない。結果はVMスタックへ残す。
+    if (browserCallActive_ && depth_ == 0) {
+        state = State::Halted;
+    }
+#endif
 }
 
 /**
@@ -1168,7 +1180,7 @@ bool BytecodeVM::stringBytes(const Value &value, const char *&data, size_t &leng
 }
 
 /**
- * @brief 空いている文字列スロットへ確保する。回収はGC_LOOPだけが行う。
+ * @brief 空いている文字列スロットへ確保する。回収はGC_LOOPとブラウザRPCの終了境界で行う。
  * @param length UTF-8バイト数。
  * @param value 成功時の文字列ID。
  * @param bytes 書込み先。
@@ -1691,6 +1703,79 @@ void BytecodeVM::tick(uint32_t budget) {
 }
 
 #ifdef __EMSCRIPTEN__
+/**
+ * @copydoc BytecodeVM::beginBrowserCall
+ */
+bool BytecodeVM::beginBrowserCall(
+    uint16_t entry, uint16_t slot, uint16_t classId, const Value *arguments, uint16_t count) {
+    if (state != State::Halted || browserCallActive_ || !code_ || !stack_ || slot >= globalRootCount_ ||
+        uint32_t(count) + 1 > MaxStack) {
+        return false;
+    }
+    const Value &self = globals[slot];
+    if (self.type != Type::HeapReference || self.classId != classId || !validValue(self)) {
+        return false;
+    }
+    stack_[0] = self;
+    for (uint16_t index = 0; index < count; ++index) {
+        stack_[index + 1] = arguments[index];
+    }
+    sp = uint32_t(count) + 1;
+    bp = 0;
+    floor_ = 0;
+    pc = 0;
+    browserCallActive_ = true;
+    state = State::Running;
+    call(entry);
+    return state == State::Running;
+}
+
+/**
+ * @copydoc BytecodeVM::copyBrowserText
+ */
+bool BytecodeVM::copyBrowserText(const char *data, size_t length, Value &value) {
+    if (state != State::Halted || browserCallActive_) {
+        return false;
+    }
+    char *bytes = nullptr;
+    if (!allocateText(length, value, bytes)) {
+        return false;
+    }
+    if (length != 0) {
+        std::memcpy(bytes, data, length);
+    }
+    return true;
+}
+
+/**
+ * @copydoc BytecodeVM::browserCallResult
+ */
+const BytecodeVM::Value *BytecodeVM::browserCallResult() const {
+    return state == State::Halted && browserCallActive_ && sp == 1 ? stack_.get() : nullptr;
+}
+
+/**
+ * @copydoc BytecodeVM::releaseBrowserCall
+ */
+bool BytecodeVM::releaseBrowserCall() {
+    if (state != State::Halted || !code_ || depth_ != 0) {
+        return false;
+    }
+    browserCallActive_ = false;
+    for (uint32_t index = 0; index < sp; ++index) {
+        stack_[index] = Value{};
+    }
+    sp = 0;
+    bp = 0;
+    floor_ = 0;
+    state = State::Running;
+    collectHeap(0);
+    if (state == State::Running) {
+        state = State::Halted;
+    }
+    return state == State::Halted;
+}
+
 /**
  * @copydoc BytecodeVM::bindKernelApi
  */

@@ -180,6 +180,37 @@ class BytecodeVM {
      * @return 実行中ならfalse。
      */
     bool bindKernelApi(const KernelApi *api);
+    /**
+     * @brief 初期化終了後の大域オブジェクトをselfとして、登録済み関数を開始する。
+     * @param entry ホストが関数表と照合した入口PC。
+     * @param slot selfを保持する大域スロット。
+     * @param classId 公開時に照合したselfの型ID。
+     * @param arguments 明示引数。同期処理中だけ有効で、スタックへコピーする。
+     * @param count ホストが署名と照合した引数数。
+     * @return 開始成功ならtrue。Running・未解放の結果・不正selfは拒否する。
+     * @details ブラウザ専用。RETでHaltedへ戻り、releaseBrowserCall()まで結果をVM内に保持する。
+     */
+    bool beginBrowserCall(uint16_t entry, uint16_t slot, uint16_t classId, const Value *arguments, uint16_t count);
+    /**
+     * @brief ブラウザRPCへ渡すUTF-8をVM所有の文字列へコピーする。
+     * @param data ホストが検証したUTF-8。
+     * @param length バイト数。MaxStringLength以下。
+     * @param value 成功時の文字列値。直後のbeginBrowserCall()でVMへ渡す。
+     * @return 成功時true。確保失敗はVMエラー。
+     * @details 構築中はGCを行わず、ホストは次の非同期イベントへ値を持ち越さない。
+     */
+    bool copyBrowserText(const char *data, size_t length, Value &value);
+    /**
+     * @brief 完了したRPCの1個の戻り値を借用する。
+     * @return 完了時の値、未完了ならnull。次のrelease・stopまで有効。
+     */
+    const Value *browserCallResult() const;
+    /**
+     * @brief 初期化・RPC終了後の一時値を消し、大域を根としてGCを行う。
+     * @return 成功時true。Running・Errorでは拒否する。
+     * @details 結果をJSへコピーした後だけ呼ぶ。大域のRemoteとそのメンバーは保持する。
+     */
+    bool releaseBrowserCall();
 #endif
     Error error = Error::None; ///< VMが記録する実行エラー。外部は参照のみで、start()がNoneへ戻す。
     uint32_t errorPc = 0; ///< step()が記録する実行対象命令のPC。エラー・ネイティブ再試行に使う。
@@ -461,6 +492,9 @@ class BytecodeVM {
 
     const NativeApi *nativeApi_ = nullptr; ///< bindNativeApi()が登録する借用表。登録元が表・ハッシュ・contextを保持する。
     bool nativeActive_ = false; ///< 現在の実行でスタブを呼んだか。stop()がresetを一度呼んで解除する。
+#ifdef __EMSCRIPTEN__
+    bool browserCallActive_ = false; ///< ブラウザRPCの開始から結果解放まで。RETで実行だけを終了する。
+#endif
     bool yielded_ = false; ///< ネイティブ呼出し後はloop()へ戻す。tick()が更新する。
     bool nativePending_ = false; ///< 同じnative命令の再試行は新しい停止点到達ではない。
     bool skipDebugArrival_ = false; ///< 再開直後の1回の到達だけを消費する。
@@ -487,7 +521,7 @@ class BytecodeVM {
     BytecodeHeap heap_{MaxHeapBytes}; ///< 全ブロックの一覧と確保・解放を所有する。
     uint16_t globalRootCount_ = 0; ///< コンパイラー一時領域を除く大域の根の数。
     std::unique_ptr<Value[]> stack_; ///< VMの値スタック。stop()が解放する。
-    Text texts_[MaxStrings]; ///< 動的文字列の所有プール。GC_LOOPだけが未参照領域を回収する。
+    Text texts_[MaxStrings]; ///< 動的文字列の所有プール。GC_LOOPとブラウザRPCの終了境界で未参照領域を回収する。
     Frame frames_[MaxFrames]{}; ///< 呼出し元の実行範囲と戻り値幅を保存する配列。call()/ret()が更新する。
     uint32_t depth_ = 0; ///< frames_の使用件数。0はモジュール本体。
     uint32_t base_ = 0; ///< 現在の実行範囲の先頭PC。関数内分岐の相対PCの基準。

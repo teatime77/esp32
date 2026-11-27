@@ -89,7 +89,8 @@ def main():
         raise RuntimeError("Emscripten 4.0.23を指定してください")
     exports = ["malloc", "free", "browser_load", "browser_tick", "browser_stop", "browser_state",
                "browser_error", "browser_pc", "browser_instructions", "browser_global_count", "browser_value",
-               "browser_register_kernel", "browser_kernel_hash", "browser_bind_print"]
+               "browser_register_kernel", "browser_kernel_hash", "browser_bind_print",
+               "browser_rpc_register", "browser_rpc_begin", "browser_rpc_result", "browser_rpc_release"]
     run([emcc, project / "browser/host.cpp", *[project / "src" / name for name in
          ["bytecode_vm.cpp", "bytecode_format.cpp", "bytecode_heap.cpp", "numpy_native.cpp"]],
          "-I" + str(project / "include"), "-std=c++17", "-O2", "-sMODULARIZE=1", "-sEXPORT_ES6=1",
