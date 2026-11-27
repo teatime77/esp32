@@ -1,5 +1,15 @@
 # ビルドと検証
 
+## RPC 第3段階：BLE整数通知（2026-11-27）
+
+[BytecodeRpc](../app/diagram-control/include/bytecode_rpc.h)に公開定義の受信・照合・動的native登録表・整数要求キューを追加し、[main.cpp](../app/diagram-control/src/main.cpp)の両VM開始経路・Stop・切断・期限へ接続した。BLEコールバックは内容をコピーし、VMと登録表はloop()だけで操作する。通常の機器呼出しは元のcontextとresetへ配送する。専用GATTの操作結果と先頭要求はmutexで保持し、onRead()で反映する。通信の正本はWeb側の[rpc-protocol.ts](../../uroa/diagram/ts/ble-wifi/rpc-protocol.ts)、操作例は[ブラウザ用ホストREADME](../app/diagram-control/browser/README.md)を参照する。
+
+`NativeCall`に同期呼出しIDを追加し、C++11の集成体初期化を保った。命令・イメージ・転送の版、基本機器APIの生成物は変更していない。共通VMの変更に合わせ、既存Emscripten 4.0.23と第2段階の節と同じコマンドでVM資産を再生成した。JS 9,771バイト・Wasm 46,474バイト、`assets.json`のバイト数・SHA-256を更新し、Webの`npm.cmd run verify`も成功した。
+
+実行直前に`app/diagram-control/platformio.ini`の`default_envs = supermini_esp32s3`を確認し、同フォルダーで`C:/Users/hamad/.platformio/penv/Scripts/platformio.exe run`を実行した。初回はNativeCallの初期化でC++11のコンパイルエラーとなり、修正後は整形・停止時の要求失効を含めてビルド成功（最終50.52秒）。RAM 59916/327680バイト、Flash 1084097/1310720バイト。`-e`の上書き、他環境のビルド、パッケージの再インストールは行っていない。
+
+変更箇所をclang-formatで整形し、コメント・差分・リンクを静的に確認した。従来の指定に従い、テストは作成・実行していない。ブラウザVM・RPCサンプル・通常単独実行、実BLE／Wi-Fi、切断・停止・配送期限・満杯・GC・デバッグの実動作、Upload・実機確認は未実施。Future更新・配列・Wi-Fi配送とPlotly.js・Three.jsは後続段階。commit・pushは行っていない。
+
 ## RPC 第2段階：ブラウザVM受付（2026-11-27）
 
 [ブラウザ用ホスト](../app/diagram-control/browser/host.cpp)と[共通VM](../app/diagram-control/include/bytecode_vm.h)へ、登録メソッドの外部開始・最外RETでの停止・結果取得・要求間の回収を追加した。VM側の変更は`__EMSCRIPTEN__`に限定し、ESP32の命令形式・機器API・通信形式は変更していない。公開表は数値IDと大域スロットで保持し、GC本体のポインターをホストへ持ち越さない。仕様は各処理のコメントを参照する。Web側の所有者・Workerは[段階別計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)から参照できる。

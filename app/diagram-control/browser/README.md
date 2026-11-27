@@ -6,7 +6,7 @@
 
 現在のブラウザ実行は通常のVM命令、自作NumPy、数値カーネルを対象とし、ブラウザの意味解析ではESP32機器APIを拒否する。行ブレークポイントの操作はESP32向けの既存機能であり、ブラウザでStartするときは解除する。
 
-RPCの第2段階では、[BrowserRemoteRuntime](../../../../uroa/diagram/ts/python/browser-runtime.ts)を専用の所有者として追加した。[remote.ts](../../../../uroa/diagram/ts/python/remote.ts)で作る2ソースの生成物からブラウザ側だけを起動し、Remoteを公開している間は受付を維持する。ESP32の配送・Future更新・2ソースUIは後続段階で、通常のPythonBlockからRPCはまだ開始できない。メソッド登録・引数・結果・回収の仕様は[host.cpp](host.cpp)と[共通VM](../include/bytecode_vm.h)、Workerの公開契約は[browser-abi.ts](../../../../uroa/diagram/ts/python/browser-abi.ts)を参照する。ブラウザでの動作確認はビルドと区別する。
+RPCは第3段階まで実装し、[BrowserRemoteRuntime](../../../../uroa/diagram/ts/python/browser-runtime.ts)がRemoteの受付を維持する。図にブラウザ用・ESP32用のPythonBlockを各1個置き、Openで`rpc-notify-browser.py`・`rpc-notify-esp32.py`を読み込む。対応版ファームウェアへBLE接続し、ESP32側のStartで一組を開始、どちらかのStopで停止する。現在は戻り値なし・整数0〜1引数だけで、Future更新・配列・Wi-Fi配送は後続段階。通信は[rpc-protocol.ts](../../../../uroa/diagram/ts/ble-wifi/rpc-protocol.ts)、メソッド実行は[host.cpp](host.cpp)と[共通VM](../include/bytecode_vm.h)、Workerは[browser-abi.ts](../../../../uroa/diagram/ts/python/browser-abi.ts)の仕様コメントを参照する。ブラウザ・実通信・実機の動作確認は未実施。
 
 ## 開発環境での資産生成
 

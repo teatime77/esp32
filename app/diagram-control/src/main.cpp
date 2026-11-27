@@ -4,6 +4,7 @@
  * @details 通常指令はキュー、一括Python転送はmutex付き受信領域へコピーする。検証・VM・I2Cはloop()で行う。
  * HC-SR04のGPIOと同期測定は専用タスクだけが操作し、測定結果をキューでloop()へ渡す。
  * 通常通信の受信元・接続世代の照合と通知配送はcontrol_transport.h/.cppへ委譲する。
+ * BLEのRPC登録・整数要求キューはbytecode_rpc.h/.cppが所有し、VM開始時に対応するnative表を選ぶ。
  */
 #include <Arduino.h>
 #include <Wire.h>
@@ -23,6 +24,7 @@
 #include "bytecode_vm.h"
 #include "bytecode_debugger.h"
 #include "device_native.h"
+#include "bytecode_rpc.h"
 
 namespace {
     using uroa::Pca9685Servos;
@@ -154,6 +156,7 @@ namespace {
 
     DeviceNative nativeDevices(Wire, servos, imu, {nativeDistanceReady, enableNativeDistance, readNativeDistance}); ///< VMが使う機器ハンドル・待機・表示の所有者。setup()/loop()で操作する。
     BytecodeVM::NativeApi nativeApi = device_api::makeNativeApi(nativeDevices); ///< setup()でVMへ登録する静的な表。
+    BytecodeRpc bytecodeRpc(bytecodeVm, nativeApi, controlTransport); ///< loop()で操作するRPC登録と整数要求キュー。
 
     /**
      * @brief 確定バッファの置換で旧VMを停止し、開始済みのVMを最大128命令ずつ実行する。
@@ -648,6 +651,7 @@ namespace {
             vmRevision = bytecodeReceiver.programRevision;
             reportedVmState = BytecodeVM::State::Stopped;
             if (operation == Protocol::VM_STOP) {
+                bytecodeRpc.stop();
                 bytecodeReceiver.cancelDeployment();
                 status(Protocol::CODE_OK, sequence);
                 return;
@@ -657,7 +661,9 @@ namespace {
                 return;
             }
             vmSession = session;
-            const bool started = bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
+            const bool started =
+                bytecodeRpc.bindProgram(bytecodeReceiver.program.get(), bytecodeReceiver.programLength, session) &&
+                bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
             // time()の起点はVMの開始成功直後。仕様はdevice_native.cppのfunction_timeを参照する。
             if (started) {
                 nativeDevices.startProgramClock();
@@ -779,6 +785,9 @@ void setup() {
     if (!bytecodeVm.bindNativeApi(&nativeApi)) {
         Serial.println("VM native API registration failed");
     }
+    if (!bytecodeRpc.begin()) {
+        Serial.println("RPC queue allocation failed");
+    }
     commands = xQueueCreate(16, sizeof(Queued));
     if (!commands) {
         servos.allOff();
@@ -849,6 +858,9 @@ void setup() {
     bleConfig.debugResultUuid = DEBUG_RESULT_UUID;
     bleConfig.debugEventUuid = DEBUG_EVENT_UUID;
     bleConfig.debugDataUuid = DEBUG_DATA_UUID;
+    bleConfig.rpcControlUuid = "f364140d-00b0-4240-ba50-05ca45bf8abc";
+    bleConfig.rpcResultUuid = "f364140e-00b0-4240-ba50-05ca45bf8abc";
+    bleConfig.rpcEventUuid = "f364140f-00b0-4240-ba50-05ca45bf8abc";
     bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
     // 大きいTelemetryに必要な既存MTUも維持し、コードは最大244バイトのWriteへ制限する。
     bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength > 247
@@ -884,6 +896,12 @@ void setup() {
             resetDeviceInfo.store(true);
         }
         mustStop.store(true);
+    };
+    bleCallbacks.rpc = [](const uint8_t *data, size_t length, uint32_t generation) {
+        const ControlSession session{ControlSource::Ble, generation};
+        if (controlTransport.isCurrent(session)) {
+            bytecodeRpc.enqueue(data, length, session);
+        }
     };
     bleCallbacks.configure = [](const String &input) {
         return network.configure(input);
@@ -922,6 +940,10 @@ void loop() {
         status(Protocol::CODE_OK, urgentSeq.load());
     }
     const ControlSession session = controlTransport.currentSession();
+    if (vmStopRequested) {
+        bytecodeRpc.stop();
+    }
+    bytecodeRpc.process();
     bytecodeReceiver.process(controlTransport.isCurrent(session), session);
     if (bytecodeReceiver.deploymentPending) {
         // 旧イメージを参照するVMを進める前に停止する。新コードの開始はPC設定後に行う。
@@ -965,6 +987,7 @@ void loop() {
     // PausedではVMだけを止める。機器出力・補間は維持し、既存のStop・切断・通信期限が停止させる。
     bytecodeDebugger.process(!vmStopRequested && controlTransport.isCurrent(session), session);
     if (vmStopRequested || mustStop.load() || urgentStop.load()) {
+        bytecodeRpc.stop();
         bytecodeReceiver.cancelDeployment();
     }
     if (bytecodeReceiver.deploymentPending) {
@@ -972,7 +995,9 @@ void loop() {
         bool success = controlTransport.isCurrent(session) && bytecodeDebugger.installDeployment();
         if (success && bytecodeReceiver.startRequested) {
             vmSession = session;
-            success = bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
+            success =
+                bytecodeRpc.bindProgram(bytecodeReceiver.program.get(), bytecodeReceiver.programLength, session) &&
+                bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
             if (success) {
                 nativeDevices.startProgramClock();
             }

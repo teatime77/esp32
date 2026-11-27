@@ -143,6 +143,7 @@ class BytecodeVM {
         uint16_t argumentSlots; ///< selfと明示引数の入力スロット数。各値は1スロット。
         uint16_t resultSlots; ///< 戻り値の出力スロット数。Noneも参照も1個を使う。
         void *context; ///< 登録元が所有する機器管理状態。
+        uint16_t nativeId; ///< VMが呼出しIDを設定する。動的RPC登録表の配送用で、バイナリ形式には含めない。
     };
     /**
      * @brief 単一nativeIdとスタブ・入出力スロット幅の対応。

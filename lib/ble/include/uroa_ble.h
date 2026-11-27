@@ -40,6 +40,9 @@ namespace uroa {
             String debugResultUuid; ///< loop()の要求受付結果のRead窓口。
             String debugEventUuid; ///< VM停止状態のRead/Notify窓口。
             String debugDataUuid; ///< 選択したSnapshotチャンクのRead窓口。
+            String rpcControlUuid; ///< RPCの登録・受付確認のWrite窓口。
+            String rpcResultUuid; ///< RPC Controlの結果のRead窓口。
+            String rpcEventUuid; ///< RPCキュー先頭のRead窓口。
             uint32_t passkey = 123456;
             uint16_t preferredMtu = DefaultAttMtu; ///< 希望するATT MTU。実際の値は接続相手との交渉で決まる。
             uint16_t telemetryMaxLength = 20; ///< Telemetry Characteristicの値の最大長。
@@ -56,6 +59,10 @@ namespace uroa {
             std::function<void(const uint8_t *, size_t, uint32_t)> bytecode;
             /** @brief デバッグ要求をBLEタスクから渡す。受け手は接続世代と内容を即座にコピーする。 */
             std::function<void(const uint8_t *, size_t, uint32_t)> debug;
+            /**
+             * @brief RPCフレームを渡す。受け手が即座にコピーし、loopで処理する。
+             */
+            std::function<void(const uint8_t *, size_t, uint32_t)> rpc;
             std::function<void(bool, uint32_t)> session;
             // Wi-Fi設定JSONの解釈は外部へ委譲する。BLEは認証と分割転送だけを扱う。
             std::function<String(const String &)> configure;
@@ -107,6 +114,18 @@ namespace uroa {
         void publishDebugEvent(const uint8_t *data, size_t length);
         /** @brief Snapshotの選択チャンクを設定する。@param data バイト列。@param length 1〜20。 */
         void publishDebugData(const uint8_t *data, size_t length);
+        /**
+         * @brief RPC Controlの結果を専用コピーへ反映する。
+         * @param data 20バイトの結果。
+         * @param length 20。
+         */
+        void publishRpcResult(const uint8_t *data, size_t length);
+        /**
+         * @brief RPCキューの先頭を専用コピーへ反映する。
+         * @param data 20バイトの要求または状態。
+         * @param length 20。
+         */
+        void publishRpcEvent(const uint8_t *data, size_t length);
         /**
          * @brief 接続中のクライアントへTelemetryを通知する。
          * @param data 入力または出力のバイト配列。
@@ -166,14 +185,21 @@ namespace uroa {
          * @brief BLE書き込みを受け、指令または認証済み設定転送を処理する。
          */
         void onWrite(NimBLECharacteristic *, NimBLEConnInfo &) override;
-        /** @brief 専用コピーからBytecode ResultとDebug EventのGATT値を設定する。 */
+        /**
+         * @brief 専用コピーからBytecode Result・Debug Event・RPC Result/EventのGATT値を設定する。
+         */
         void onRead(NimBLECharacteristic *, NimBLEConnInfo &) override;
         Config config_;
         Callbacks callbacks_;
         NimBLECharacteristic *deviceInfo_ = nullptr; ///< 機器情報の書込窓口。専用コールバックへ渡す。
-        std::mutex readValueMutex_; ///< Bytecode ResultとDebug Eventの専用コピーだけを排他する。
+        std::mutex readValueMutex_; ///< Bytecode Result・Debug Event・RPC Result/Eventの専用コピーを排他する。
         uint8_t debugEventValue_[20]{}; ///< loop()が更新し、onReadがGATTへ反映するVM状態。
         uint8_t bytecodeResultValue_[20]{}; ///< loop()が更新し、onReadがコピーする。GATT値との同時書換えを避ける。
+        uint8_t rpcResultValue_[20]{}; ///< RPC操作の受付結果。readValueMutex_で排他する。
+        uint8_t rpcEventValue_[20]{}; ///< ACK前の先頭要求。readValueMutex_で排他する。
+        NimBLECharacteristic *rpcControl_ = nullptr; ///< RPCフレームのWrite窓口。
+        NimBLECharacteristic *rpcResult_ = nullptr; ///< RPC受付結果のRead窓口。
+        NimBLECharacteristic *rpcEvent_ = nullptr; ///< RPC要求のRead窓口。最新値上書き型の通知と分離する。
         NimBLECharacteristic *bytecode_ = nullptr; ///< バイトコード分割転送の書込窓口。
         NimBLECharacteristic *bytecodeResult_ = nullptr; ///< onReadだけが更新する受付結果のRead窓口。
         NimBLECharacteristic *debugControl_ = nullptr; ///< 要求は専用キューへコピーする。

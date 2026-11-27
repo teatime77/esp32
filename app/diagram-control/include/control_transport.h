@@ -6,6 +6,7 @@
  * Web側の共通窓口はuroa/diagram/ts/ble-wifi/control-connection.ts。
  * 機器一覧の接続照合も共用し、内容の検証はmain.cppが担当する。
  * プログラム・デバッグの受付結果と停止値も受信元の現接続だけへ配送する。カメラ画像は扱わない。
+ * RPCの受付結果・要求は現BLE接続だけへ配送する。通信の正本はuroaのrpc-protocol.ts。
  */
 #pragma once
 #include <uroa_ble.h>
@@ -75,6 +76,20 @@ class ControlTransport {
      * @param session 受信元。
      */
     void publishDebugData(const uint8_t *data, size_t length, const Session &session);
+    /**
+     * @brief 現BLE接続へRPC操作結果を配送する。Wi-Fiは後続段階。
+     * @param data 20バイトの操作結果。
+     * @param length 20。
+     * @param session 受信時の接続世代。
+     */
+    void publishRpcResult(const uint8_t *data, size_t length, const Session &session);
+    /**
+     * @brief 現BLE接続へRPC先頭要求・障害を配送する。
+     * @param data 20バイトの状態。
+     * @param length 20。
+     * @param session 登録した接続世代。
+     */
+    void publishRpcEvent(const uint8_t *data, size_t length, const Session &session);
 
     /**
      * @brief 通知長が現在の通信経路で送信可能か調べる。

@@ -16,6 +16,8 @@ ResultとDebug Eventの通信タスク・loop()間の排他・GATT反映は[uroa
 
 デバッグ用の設定・コールバック・公開APIは[uroa_ble.h](include/uroa_ble.h)の`debugControlUuid`・`Callbacks::debug`・`publishDebugResult/Event/Data()`を参照する。BLEライブラリーは要求の配送とRead/Notify値の保持を担当し、VMへ直接アクセスしない。教材側の処理は[bytecode_debugger.cpp](../../app/diagram-control/src/bytecode_debugger.cpp)、通信形式の正本はuroaの[debug-protocol.ts](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)に置く。
 
+RPC用の設定・コールバック・公開APIは[uroa_ble.h](include/uroa_ble.h)の`rpcControlUuid`等3個・`Callbacks::rpc`・`publishRpcResult/Event()`を参照する。GATTを分離し、受信内容は教材の[bytecode_rpc.cpp](../../app/diagram-control/src/bytecode_rpc.cpp)へコピーしてloop()で処理する。Read用の操作結果・先頭要求はmutexで保持し、GATT反映はonRead()で行う。通信形式の正本は[rpc-protocol.ts](../../../uroa/diagram/ts/ble-wifi/rpc-protocol.ts)。通知の欠落に依存せずReadと受付確認で配送する。
+
 | コールバック | 呼び出し元・責任 |
 |---|---|
 | `command(data, length, generation)` | BLEタスク。バッファは呼び出し中だけ有効。すぐコピーして指令キューへ送る |

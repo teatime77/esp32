@@ -102,6 +102,23 @@ namespace uroa {
             debugEvent_->setCallbacks(this);
             debugEvent_->setValue(initial, sizeof initial);
         }
+        if (config_.rpcControlUuid.length() && config_.rpcResultUuid.length() && config_.rpcEventUuid.length()) {
+            rpcControl_ = service->createCharacteristic(config_.rpcControlUuid.c_str(), NIMBLE_PROPERTY::WRITE, 20);
+            rpcResult_ = service->createCharacteristic(config_.rpcResultUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
+            rpcEvent_ = service->createCharacteristic(config_.rpcEventUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
+            rpcControl_->setCallbacks(this);
+            rpcResult_->setCallbacks(this);
+            rpcEvent_->setCallbacks(this);
+            uint8_t initial[20]{};
+            initial[0] = 1;
+            {
+                std::lock_guard<std::mutex> guard(readValueMutex_);
+                std::memcpy(rpcResultValue_, initial, 20);
+                std::memcpy(rpcEventValue_, initial, 20);
+            }
+            rpcResult_->setValue(initial, 20);
+            rpcEvent_->setValue(initial, 20);
+        }
         if (callbacks_.configure) {
             configuration_.reset();
             auto config = service->createCharacteristic(config_.configUuid.c_str(),
@@ -141,6 +158,9 @@ namespace uroa {
         telemetry_ = status_ = nullptr;
         deviceInfo_ = nullptr;
         bytecode_ = nullptr;
+        rpcControl_ = nullptr;
+        rpcResult_ = nullptr;
+        rpcEvent_ = nullptr;
         bytecodeResult_ = nullptr;
         debugControl_ = nullptr;
         debugResult_ = nullptr;
@@ -177,6 +197,15 @@ namespace uroa {
      * MTU上限を上書きしたり、長さ更新途中の値を読んだりし得るため、GATT値への書込みを一本化する。
      */
     void BleTransport::onRead(NimBLECharacteristic *characteristic, NimBLEConnInfo &info) {
+        if (characteristic == rpcResult_ || characteristic == rpcEvent_) {
+            uint8_t data[20];
+            {
+                std::lock_guard<std::mutex> guard(readValueMutex_);
+                std::memcpy(data, characteristic == rpcResult_ ? rpcResultValue_ : rpcEventValue_, 20);
+            }
+            characteristic->setValue(data, 20);
+            return;
+        }
         const bool bytecode = characteristic == bytecodeResult_;
         if (!bytecode && characteristic != debugEvent_) {
             return;
@@ -235,6 +264,12 @@ namespace uroa {
      */
     void BleTransport::onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &) {
         auto value = characteristic->getValue();
+        if (characteristic == rpcControl_) {
+            if (callbacks_.rpc) {
+                callbacks_.rpc(reinterpret_cast<const uint8_t *>(value.data()), value.size(), generation.load());
+            }
+            return;
+        }
         // バッファはコールバック中だけ有効。受け手は即座にキューへコピーする。
         if (characteristic == debugControl_) {
             if (callbacks_.debug) {
@@ -309,7 +344,31 @@ namespace uroa {
         }
     }
 
-    /** @brief 選択したチャンクをRead値へコピーする。@param data 内容。@param length 1〜20。 */
+    /**
+     * @copydoc BleTransport::publishRpcResult
+     */
+    void BleTransport::publishRpcResult(const uint8_t *data, size_t length) {
+        if (running_ && !stopping_ && rpcResult_ && length == 20) {
+            std::lock_guard<std::mutex> guard(readValueMutex_);
+            std::memcpy(rpcResultValue_, data, 20);
+        }
+    }
+
+    /**
+     * @copydoc BleTransport::publishRpcEvent
+     */
+    void BleTransport::publishRpcEvent(const uint8_t *data, size_t length) {
+        if (running_ && !stopping_ && rpcEvent_ && length == 20) {
+            std::lock_guard<std::mutex> guard(readValueMutex_);
+            std::memcpy(rpcEventValue_, data, 20);
+        }
+    }
+
+    /**
+     * @brief 選択したチャンクをRead値へコピーする。
+     * @param data 内容。
+     * @param length 1〜20。
+     */
     void BleTransport::publishDebugData(const uint8_t *data, size_t length) {
         if (running_ && !stopping_ && debugData_ && length > 0 && length <= 20) {
             debugData_->setValue(data, length);

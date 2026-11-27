@@ -1108,8 +1108,8 @@ void BytecodeVM::callNative(uint16_t id) {
     for (uint32_t index = 0; index < entry.resultSlots; ++index) {
         nativeResults_[index] = Value{};
     }
-    NativeCall call{*this, stack_.get() + first, nativeResults_.get(), entry.argumentSlots,
-        entry.resultSlots, nativeApi_->context};
+    NativeCall call{*this, stack_.get() + first, nativeResults_.get(), entry.argumentSlots, entry.resultSlots,
+        nativeApi_->context, id};
     nativeActive_ = true;
     Error result = entry.invoke(call);
     yielded_ = true;

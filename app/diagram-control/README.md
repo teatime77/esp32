@@ -38,6 +38,8 @@ PythonBlockのStartによる一括転送・検証後開始、受信領域と通�
 
 Python VMから呼ぶC数値カーネルの概要は[簡易版](docs/numeric-kernel-overview.md)、接続設計は[詳細版](docs/numeric-kernel.md)を参照する。構文・意味解析、型付き中間表現、共通Cと登録情報の生成、ブラウザ用VM・Cコンパイラー・同期実行の接続まで実装済み。PythonBlockの実行先で「ブラウザ」を選び、Startで実行する。使い方と資産生成は[ブラウザ用ホスト](browser/README.md)を参照する。ESP32は従来のversion 7を使い、カーネルの組込みは後続工程とする。
 
+ESP32→ブラウザVMのRPCは、[段階別計画](../../../uroa/docs/diagram/python/rpc-implementation-plan.md)の第3段階まで実装した。BLEの戻り値なし・整数0〜1引数を扱い、PythonBlockをブラウザ用・ESP32用の各1個に分けてESP32側から開始する。ブラウザ用ホストのREADMEに操作例を記載した。登録と要求キューは[bytecode_rpc.h](include/bytecode_rpc.h)、通信契約は[rpc-protocol.ts](../../../uroa/diagram/ts/ble-wifi/rpc-protocol.ts)を参照する。Future・配列・Wi-Fi配送、Plotly.js・Three.jsは後続作業。実通信・実機は未確認。
+
 API変更後はuroaルートで`python diagram/python/generate-device-api.py`を実行し、JSONとC++の3成果物を一緒に更新する。生成物の一致確認は`--check`、JSONだけの生成は`--json-only`。ESP32のビルドは生成済みC++を使うため、ESP32リポジトリーだけでも可能。入力・生成の仕様は[生成プログラム](../../../uroa/diagram/python/generate-device-api.py)と[変換処理](../../../uroa/diagram/python/device_api_cpp.py)を参照する。
 
 数値NumPy配列の呼出し例。shapeの長さは関数の実行時に決まり、戻り値は本体参照を共有する。対応範囲・初期化・変換は[numpy_native.cpp](src/numpy_native.cpp)、型と配置は[semantic.ts](../../../uroa/diagram/ts/python/semantic.ts)のコメントを参照する。この例の実機実行は未確認。

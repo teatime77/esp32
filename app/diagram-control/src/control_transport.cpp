@@ -4,6 +4,24 @@
  */
 #include "control_transport.h"
 
+/**
+ * @copydoc ControlTransport::publishRpcResult
+ */
+void ControlTransport::publishRpcResult(const uint8_t *data, size_t length, const Session &session) {
+    if (session.source == Source::Ble && isCurrent(session)) {
+        ble_.publishRpcResult(data, length);
+    }
+}
+
+/**
+ * @copydoc ControlTransport::publishRpcEvent
+ */
+void ControlTransport::publishRpcEvent(const uint8_t *data, size_t length, const Session &session) {
+    if (session.source == Source::Ble && isCurrent(session)) {
+        ble_.publishRpcEvent(data, length);
+    }
+}
+
 static_assert(uroa::BleTransport::DeviceInfoMaxLength == uroa::WifiNetwork::DeviceInfoMaxLength,
     "DeviceInfo capacity must match between BLE and Wi-Fi");
 
