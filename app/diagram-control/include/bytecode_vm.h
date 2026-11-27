@@ -102,6 +102,7 @@ class BytecodeVM {
      * @brief 不変の配列情報。数値配列は本体先頭、object配列はValue要素列の直後に置く。
      * @details 数値データはこの情報の直後。object要素は本体先頭のValue列をGCでたどる。
      * VMが設定し、確保後は形状・dtype・要素数を変更しない。数値の生データを参照として走査しない。
+     * ブラウザの数値カーネルは、float32要素へNaN・Infもそのまま書き戻す。
      */
     struct Array {
         /**
@@ -164,6 +165,22 @@ class BytecodeVM {
     };
 
     State state = State::Idle; ///< 外部は参照のみ。以下の診断情報はVMが更新する。
+#ifdef __EMSCRIPTEN__
+    /**
+     * @brief ブラウザの計算用Wasmへ同期接続する専用表。呼出し中は引数をVMが根として保持する。
+     */
+    struct KernelApi {
+        const uint8_t *hash; ///< 登録済み集合のSHA-256。
+        uint16_t (*argumentCount)(uint16_t id); ///< 未登録ならUINT16_MAX。nを除くVM引数数。
+        Error (*invoke)(BytecodeVM &vm, uint16_t id, const Value *arguments, uint16_t count); ///< nと引数。有限性検査は行わない。
+    };
+    /**
+     * @brief 停止中にブラウザの専用表を登録する。
+     * @param api ホストが停止まで保持する登録表。
+     * @return 実行中ならfalse。
+     */
+    bool bindKernelApi(const KernelApi *api);
+#endif
     Error error = Error::None; ///< VMが記録する実行エラー。外部は参照のみで、start()がNoneへ戻す。
     uint32_t errorPc = 0; ///< step()が記録する実行対象命令のPC。エラー・ネイティブ再試行に使う。
     uint32_t pc = 0; ///< 命令列先頭を0とする次の命令位置。Pausedでは未実行の停止命令を指す。
@@ -399,6 +416,14 @@ class BytecodeVM {
      * @param id 単一ネイティブID。
      */
     void callNative(uint16_t id);
+#ifdef __EMSCRIPTEN__
+    /**
+     * @brief スタックのnと明示引数を保持したまま同期実行し、Noneへ置換してtickを終える。
+     * @param id カーネルID。
+     */
+    void callKernel(uint16_t id);
+    const KernelApi *kernelApi_ = nullptr; ///< ブラウザ用ホストが所有する借用表。
+#endif
     /**
      * @brief shapeとoptionId/値の組を取り出してNumPyのC++実装へ渡す。
      * @param classId コンパイル時のdtype・rankを持つ戻り値型。

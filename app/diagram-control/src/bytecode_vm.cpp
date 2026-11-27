@@ -5,7 +5,8 @@
  * @details
  * # PythonサブセットVM
  *
- * BytecodeReceiverで構造検証済みのversion=7だけを実行する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
+ * ESP32ではBytecodeReceiverで構造検証済みのversion=7を実行する。ブラウザ用の__EMSCRIPTEN__ビルドは
+ * browser/host.cppからversion=7/8を受け、専用登録表とCALL_KERNELを接続する。固定配置と命令長はbytecode_format.cppを共有する。バイナリ規約は
  * uroa/diagram/ts/python/bytecode.tsのencodeBinary()の仕様コメントを参照。bytecode_vm.hは公開状態と登録API、
  * 本ファイルは実行、main.cppはloop()単位の開始・停止・実行量制御を担当する。
  * ヒープ確保・スイープはbytecode_heap.cpp、回収点の判定・根とValue列の再帰マークは本ファイルが担当する。
@@ -501,6 +502,11 @@ bool BytecodeVM::start(const uint8_t *image, size_t length) {
         return fail(Error::Format);
     }
     globalCount = view.globalCount;
+#ifdef __EMSCRIPTEN__
+    if (view.kernelHash && (!kernelApi_ || std::memcmp(view.kernelHash, kernelApi_->hash, 32) != 0)) {
+        return fail(Error::AbiMismatch);
+    }
+#endif
     globalRootCount_ = view.globalRootCount;
     functionCount_ = view.functionCount;
     codeLength_ = view.codeLength;
@@ -1663,6 +1669,11 @@ void BytecodeVM::step() {
         case Opcode::GC_LOOP:
             collectHeap(operand);
             break;
+#ifdef __EMSCRIPTEN__
+        case Opcode::CALL_KERNEL:
+            callKernel(operand);
+            break;
+#endif
     }
 }
 
@@ -1678,6 +1689,57 @@ void BytecodeVM::tick(uint32_t budget) {
         step();
     }
 }
+
+#ifdef __EMSCRIPTEN__
+/**
+ * @copydoc BytecodeVM::bindKernelApi
+ */
+bool BytecodeVM::bindKernelApi(const KernelApi *api) {
+    if (state == State::Running || state == State::Paused ||
+        (api && (!api->hash || !api->argumentCount || !api->invoke))) {
+        return false;
+    }
+    kernelApi_ = api;
+    return true;
+}
+
+/**
+ * @copydoc BytecodeVM::callKernel
+ * @details CALL_NATIVEと別経路で、数値の有限性を検査せず、正常復帰後にホストへ制御を戻す。
+ * 入出力配列の形式・共有はbrowser/host.cppが検査する。計算中はGCとVM再入を行わない。
+ */
+void BytecodeVM::callKernel(uint16_t id) {
+    if (!kernelApi_) {
+        fail(Error::NativeUnavailable);
+        return;
+    }
+    const uint16_t count = kernelApi_->argumentCount(id);
+    if (count == UINT16_MAX) {
+        fail(Error::NativeUnavailable);
+        return;
+    }
+    if (sp < floor_ || uint32_t(count) + 1 > sp - floor_) {
+        fail(Error::StackUnderflow);
+        return;
+    }
+    const uint32_t begin = sp - count - 1;
+    const Value &n = stack_[begin];
+    if (n.type != Type::Integer || n.integer < 0) {
+        fail(Error::Operand);
+        return;
+    }
+    const Error result = kernelApi_->invoke(*this, id, stack_.get() + begin, count + 1);
+    if (result != Error::None) {
+        fail(result);
+        return;
+    }
+    sp = begin;
+    Value value;
+    value.type = Type::None;
+    push(value);
+    yielded_ = true;
+}
+#endif
 
 /**
  * @brief 停止点を命令境界と照合し、1PC=1bitの表を作る。

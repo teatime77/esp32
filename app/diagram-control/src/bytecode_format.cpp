@@ -28,12 +28,25 @@ namespace {
  * @copydoc BytecodeFormat::parseImage
  */
 bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image) {
-    if (!data || length < HeaderLength || length > MaxLength || read16(data) != 0xB1C0 || read16(data + 2) != Version ||
+    size_t headerLength = HeaderLength;
+#ifdef __EMSCRIPTEN__
+    // ブラウザ用ホストだけがversion 8を受理する。ESP32版はversion 7を維持する。
+    const bool kernelImage = data && length >= HeaderLength && read16(data + 2) == 8;
+    if (kernelImage) {
+        headerLength += 32;
+    }
+#else
+    const bool kernelImage = false;
+#endif
+    if (!data || length < headerLength || length > MaxLength || read16(data) != 0xB1C0 || (!kernelImage && read16(data + 2) != Version) ||
         read16(data + 12) != 0 || read16(data + 14) != 6 || read16(data + 18) != 6 ||
         read16(data + 58) > read16(data + 4)) {
         return false;
     }
     Image result;
+#ifdef __EMSCRIPTEN__
+    result.kernelHash = kernelImage ? data + HeaderLength : nullptr;
+#endif
     result.globalCount = read16(data + 4);
     result.globalRootCount = read16(data + 58);
     result.functionCount = read16(data + 6);
@@ -42,14 +55,14 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
     result.stringDataLength = read32(data + 20);
     result.typeCount = read16(data + 56);
     result.typeLength = read32(data + 60);
-    const size_t typeOffset = HeaderLength + size_t(result.functionCount) * FunctionRecordLength;
+    const size_t typeOffset = headerLength + size_t(result.functionCount) * FunctionRecordLength;
     const uint64_t codeOffset = uint64_t(typeOffset) + result.typeLength;
     const uint64_t expectedLength = uint64_t(codeOffset) + result.codeLength +
         uint64_t(result.stringCount) * StringRecordLength + result.stringDataLength;
     if (result.codeLength == 0 || result.codeLength > 65536 || expectedLength != length) {
         return false;
     }
-    result.functions = data + HeaderLength;
+    result.functions = data + headerLength;
     result.types = data + typeOffset;
     if (result.typeLength < size_t(result.typeCount) * TypeRecordLength) {
         return false;
@@ -108,6 +121,11 @@ bool BytecodeFormat::parseImage(const uint8_t *data, size_t length, Image &image
  * @copydoc BytecodeFormat::instructionLength
  */
 uint32_t BytecodeFormat::instructionLength(uint8_t opcode) {
+#ifdef __EMSCRIPTEN__
+    if (opcode == Opcode::CALL_KERNEL) {
+        return 3;
+    }
+#endif
     if (opcode < Opcode::LOAD_L || opcode > Opcode::GC_LOOP) {
         return 0;
     }

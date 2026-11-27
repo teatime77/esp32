@@ -2,7 +2,7 @@
 
 選定日: 2026-11-27。
 
-[C数値カーネルの仕様](numeric-kernel.md)に対して、Cコンパイラーにwcc、生成Wasmの最適化にBinaryenを採用する。ブラウザ内で完結し、既存のWorker接続を利用できることを優先する。複数コンパイラーの性能比較は行わない。コンパイラーの選定は完了し、Web側への導入と実行確認は後続作業とする。
+[C数値カーネルの仕様](numeric-kernel.md)に対して、Cコンパイラーにwcc、生成Wasmの最適化にBinaryenを採用する。固定版の資産と依存をWebへ導入し、WorkerからVMと接続した。再生成と利用方法は[ブラウザ用ホスト](../browser/README.md)、実装の契約はリンク先のソースコメントを参照する。確認範囲はコンパイラー資産・VMのビルドとWebの静的確認までで、ブラウザ実行試験は別途確認する。
 
 ## 1 採用ツールと固定版
 
@@ -19,7 +19,7 @@ Binaryenは`^`や`~`を付けない`132.0.0`をWeb側の依存に指定し、pac
 sha512-4Usg7yEvwO3FMso3Oov6qkOOHSod1IEv+boKkh77kTljM+eNBouqCTbqWswGzbG+vDNO/b/v2C4gfEh1WgB9Lg==
 ```
 
-Binaryenの取得元は`https://registry.npmjs.org/binaryen/-/binaryen-132.0.0.tgz`。この記録は選定版の指定であり、現時点でWeb側のpackage.jsonやpackage-lock.jsonへ追加済みという意味ではない。
+Binaryenの取得元は`https://registry.npmjs.org/binaryen/-/binaryen-132.0.0.tgz`。Web側のpackage.jsonとpackage-lock.jsonへ固定版を追加済み。
 
 ## 2 この構成を選ぶ理由
 
@@ -50,11 +50,11 @@ Binaryenの取得元は`https://registry.npmjs.org/binaryen/-/binaryen-132.0.0.t
 
 ### 4.1 wccの資産と接続コード
 
-採用コミットの[Makefile](https://github.com/tyfkda/xcc/blob/659a1773f20499864a8c3fdc7cd25cb506092bc1/Makefile)にある`make assets`で、コンパイラー資産の`wccfiles.zip`を開発環境で用意する。ブラウザ自身でwccをビルドしない。
+採用コミットの[Makefile](https://github.com/tyfkda/xcc/blob/659a1773f20499864a8c3fdc7cd25cb506092bc1/Makefile)の自己ビルドと同じ構成を、Windows向けの[browser/build.py](../browser/build.py)で生成する。Emscripten 4.0.23でビルド用コンパイラーを用意し、wcc自身で配布用コンパイラーと標準ライブラリーを生成する。
 
 [lib_list.json](https://github.com/tyfkda/xcc/blob/659a1773f20499864a8c3fdc7cd25cb506092bc1/src/wcc/www/lib_list.json)で定義された、`/usr/bin/cc`のWasm、ヘッダー、`wcrt0.a`、`wlibc.a`を初期資産とする。初期導入では資産の独自削減やWASIホストの自作を行わず、既存の組合せを利用する。
 
-取り込む接続コードはwcc_runner.ts、wasi_worker.ts、wa_proc.tsを基にする。`?worker`など上流のビルド方式に依存するimportだけを、uroa側のWorker配布方法へ合わせる。IDE用のmain.tsや画面部品は取り込まない。資産URLは配置先から決められるようにし、公開デモの更新されるファイルを実行時に直接参照しない。
+接続コードはwcc_runner.ts、wasi_worker.ts、wa_proc.tsを基に、[browser-kernel-worker.ts](../../../../uroa/diagram/ts/python/browser-kernel-worker.ts)と[wasi-host.ts](../../../../uroa/diagram/ts/python/wasi-host.ts)へまとめた。既存のWasmerホストと仮想FSを使い、コンパイル・終了コード・ファイル入出力を接続する。固定資産は自サイトの`/diagram/runtime/v1/`から配布し、assets.jsonの固定点とSHA-256を照合する。
 
 接続コードが使う依存は、採用コミットのpackage-lock.jsonに合わせて次の版に固定する。実際に組み込む際には推移依存もWeb側のロックファイルへ保持する。
 
@@ -70,10 +70,10 @@ Binaryenの取得元は`https://registry.npmjs.org/binaryen/-/binaryen-132.0.0.t
 
 接続処理は次の順序に固定する。
 
-1. WccRunnerのsetUpで固定資産を仮想ファイルシステムへ用意する。
-2. writeFileで共通生成Cと固定の割当て・解放用接続コードを書き込む。
-3. compileでWasmを生成する。entry-pointは空にし、カーネルのrun関数と割当て・解放の関数を公開する。
-4. コンパイルの終了コードと診断を受け取り、成功時だけreadFileでWasmを取得する。
+1. コンパイルWorkerのinitializeで固定資産を仮想ファイルシステムへ用意する。
+2. 共通生成Cと固定の割当て・解放用接続コードを書き込む。
+3. 既存WASIホストでwccを実行する。entry-pointは空にし、カーネルのrun関数と割当て・解放の関数を公開する。
+4. コンパイルの終了コードと診断を受け取り、成功時にWasmを取得する。
 5. Binaryenで取得した計算用Wasmを最適化する。
 6. 最適化済みWasmを実行用Workerへ渡し、メモリーと公開関数を接続してからVMを開始する。
 
@@ -81,7 +81,7 @@ wccの初期オプションは`-o kernel.wasm --entry-point= -e <公開関数名
 
 Binaryenは`setOptimizeLevel(3)`、`setShrinkLevel(0)`、`setFastMath(true)`を用いる。readBinaryで読み、optimize、emitBinaryの順に処理し、最後にdisposeで最適化用モジュールを解放する。これらの設定を使うのは計算用Wasmだけであり、VM用Wasmをこの経路へ渡さない。
 
-wccは既存RunnerのWorkerでコンパイルする。BinaryenもWorker内で実行する。接続処理を直列化し、Binaryenのプロセス共通設定が別の最適化へ混ざらないようにする。数値カーネルの実行はVMと同じ実行用Worker内で同期的に完了させ、要素ごとのメッセージやTypeScript呼出しを行わない。
+wccとBinaryenは同じコンパイルWorkerで直列実行する。数値カーネルの実行はVMと同じ実行用Worker内で同期的に完了させる。配列コピーと停止の所有は[browser-vm-worker.ts](../../../../uroa/diagram/ts/python/browser-vm-worker.ts)と[browser-runtime.ts](../../../../uroa/diagram/ts/python/browser-runtime.ts)のコメントを正本とする。
 
 ### 4.3 配布とライセンス
 
@@ -89,8 +89,8 @@ wccfiles.zipと接続コードは自サイトの固定バージョン用パス�
 
 配布時にはwccの[MITライセンス](https://github.com/tyfkda/xcc/blob/659a1773f20499864a8c3fdc7cd25cb506092bc1/LICENSE)、BinaryenのApache-2.0ライセンスと同梱される告知、実際に含めた依存のライセンスを保持する。バージョン更新は固定情報・ロックファイル・コンパイラー資産を一緒に更新する作業とする。
 
-## 5 選定完了と後続作業の境界
+## 5 導入状況と確認範囲
 
-この段階の成果は、採用ツール、ソースの固定点、パッケージの固定版、依存、接続API、最適化設定、配布方法を決めたことである。Web側へのパッケージ追加、コンパイラー資産のビルド・配置、実行用アダプターの実装、Cカーネルの実行確認は後続の導入作業で行う。
+固定依存、コンパイラー資産、Emscripten製VM、Workerの接続、PythonBlockの実行先選択を実装済み。資産・VMのビルドとWebの型・公開ビルド・成果物の静的確認に成功した。assets.jsonにVMとwcc資産のハッシュを保持し、配布時にも照合する。ライセンスと推移依存の告知は同じ固定パスへ配置する。
 
-導入では、仕様で使用する数値演算・ループ・配列・export・メモリー割当てが一連の経路で成立することを確認する。性能順位の比較やコンパイラーの追加は行わない。VMとC数値計算の速度計測は、カーネル機能を実装した後の別段階で行う。
+ブラウザ操作、数値カーネルの実行試験、VMとC数値計算の速度計測は別の確認段階とする。

@@ -58,7 +58,10 @@ namespace BytecodeFormat {
         SET_ITEM = 0x24, ///< 配列要素を格納する。
         ARRAY_ATTR = 0x25, ///< 配列の属性を取得する。
         CHECK_REF = 0x26, ///< 参照の型と有効性を検査する。
-        GC_LOOP = 0x27 ///< メインループの安全点でGCを行う。
+        GC_LOOP = 0x27, ///< メインループの安全点でGCを行う。
+#ifdef __EMSCRIPTEN__
+        CALL_KERNEL = 0x28 ///< ブラウザ版だけが扱う同期カーネル呼出し。
+#endif
     };
 
     constexpr uint8_t OpcodeMask = 0x7F; ///< 命令バイトから命令番号だけを取り出すマスク。
@@ -74,6 +77,9 @@ namespace BytecodeFormat {
      * @brief 長さと固定ヘッダーを検証した借用ビュー。本体・命令の内容検証は呼出し側が行う。
      */
     struct Image {
+#ifdef __EMSCRIPTEN__
+        const uint8_t *kernelHash = nullptr; ///< version 8だけが持つカーネル集合の指紋。
+#endif
         uint16_t globalCount = 0; ///< 大域値のスロット数。
         uint16_t globalRootCount = 0; ///< 一時領域を除く大域変数の根の数。
         uint16_t functionCount = 0; ///< 関数レコード数。
@@ -91,7 +97,8 @@ namespace BytecodeFormat {
     };
 
     /**
-     * @brief version=7の固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
+     * @brief 固定ヘッダーと全領域の長さを検証し、成功時だけビューを設定する。
+     * @details ESP32はversion=7、__EMSCRIPTEN__ではversion=8の96バイトヘッダーも扱う。
      * @param data イメージの先頭。ビューの使用中は有効に保持する。
      * @param length イメージ全長。
      * @param image 成功時の借用ビュー。失敗時は変更しない。
