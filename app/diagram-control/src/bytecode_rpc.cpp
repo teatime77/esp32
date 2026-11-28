@@ -1,8 +1,10 @@
-#include <uroa_wire.generated.h>
 /**
  * @file bytecode_rpc.cpp
  * @brief BLEの登録・受付確認をloop()で処理し、VMの整数通知をキューへコピーする。
+ * @details 登録表・要求・Result/Eventはwire.protoの生成codecを使う。
+ * 署名の照合・所有キュー・nonce・接続世代とWorker受付ACKの契約は本ファイルとrpc-protocol.tsが管理する。
  */
+#include <uroa_wire.generated.h>
 #include "bytecode_rpc.h"
 #include "bytecode_format.h"
 #include <Arduino.h>
@@ -10,8 +12,6 @@
 #include <new>
 
 namespace {
-
-
 
     /**
      * @brief 登録データのCRC-32/ISO-HDLCを求める。
@@ -111,7 +111,8 @@ BytecodeVM::Error BytecodeRpc::invoke(BytecodeVM::NativeCall &call) {
     }
     const auto registry = uroa::wire::readRegistryHeader(self.config_);
     for (size_t index = 0; index < registry.count; ++index) {
-        const auto binding = uroa::wire::readRegistryRecord(self.config_ + uroa::wire::RegistryHeaderLayout::ByteLength + index * uroa::wire::RegistryRecordLayout::ByteLength);
+        const auto binding = uroa::wire::readRegistryRecord(self.config_ +
+            uroa::wire::RegistryHeaderLayout::ByteLength + index * uroa::wire::RegistryRecordLayout::ByteLength);
         if (binding.native != call.nativeId) {
             continue;
         }
@@ -155,7 +156,8 @@ BytecodeVM::Error BytecodeRpc::invoke(BytecodeVM::NativeCall &call) {
  */
 BytecodeRpc::Code BytecodeRpc::configure() {
     const auto header = uroa::wire::readRegistryHeader(config_);
-    if (total_ < 100 || header.version != ProtocolVersion || header.count == 0 || header.count > MaxBindings || header.reserved || total_ != 100 + header.count * 10 || crc32(config_, total_) != crc_) {
+    if (total_ < 100 || header.version != ProtocolVersion || header.count == 0 || header.count > MaxBindings ||
+        header.reserved || total_ != 100 + header.count * 10 || crc32(config_, total_) != crc_) {
         return Format;
     }
     if (std::memcmp(header.baseHash, base_.abiHash, 32) != 0) {
@@ -163,9 +165,10 @@ BytecodeRpc::Code BytecodeRpc::configure() {
     }
     const uint16_t last = base_.count ? base_.entries[base_.count - 1].id : 0;
     for (uint16_t index = 0; index < header.count; ++index) {
-        const auto binding = uroa::wire::readRegistryRecord(config_ + uroa::wire::RegistryHeaderLayout::ByteLength + index * uroa::wire::RegistryRecordLayout::ByteLength);
-        if (uint32_t(last) + index + 1 > UINT16_MAX || binding.native != last + index + 1 ||
-            binding.object == 0 || binding.classId == 0 || binding.argc > 1 || binding.reserved) {
+        const auto binding = uroa::wire::readRegistryRecord(config_ + uroa::wire::RegistryHeaderLayout::ByteLength +
+            index * uroa::wire::RegistryRecordLayout::ByteLength);
+        if (uint32_t(last) + index + 1 > UINT16_MAX || binding.native != last + index + 1 || binding.object == 0 ||
+            binding.classId == 0 || binding.argc > 1 || binding.reserved) {
             return Range;
         }
         if (binding.method == 0) {
@@ -176,7 +179,9 @@ BytecodeRpc::Code BytecodeRpc::configure() {
         else {
             bool found = false;
             for (uint16_t previous = 0; previous < index; ++previous) {
-                const auto constructor = uroa::wire::readRegistryRecord(config_ + uroa::wire::RegistryHeaderLayout::ByteLength + previous * uroa::wire::RegistryRecordLayout::ByteLength);
+                const auto constructor =
+                    uroa::wire::readRegistryRecord(config_ + uroa::wire::RegistryHeaderLayout::ByteLength +
+                        previous * uroa::wire::RegistryRecordLayout::ByteLength);
                 if (constructor.object == binding.object && constructor.method == 0 &&
                     constructor.classId == binding.classId) {
                     found = true;
@@ -196,9 +201,9 @@ BytecodeRpc::Code BytecodeRpc::configure() {
         entries_[index].invoke = invoke;
     }
     for (uint16_t index = 0; index < header.count; ++index) {
-        const auto binding = uroa::wire::readRegistryRecord(config_ + uroa::wire::RegistryHeaderLayout::ByteLength + index * uroa::wire::RegistryRecordLayout::ByteLength);
-        entries_[base_.count + index] = {
-            binding.native, uint16_t(binding.method ? 1 + binding.argc : 0), 1, invoke};
+        const auto binding = uroa::wire::readRegistryRecord(config_ + uroa::wire::RegistryHeaderLayout::ByteLength +
+            index * uroa::wire::RegistryRecordLayout::ByteLength);
+        entries_[base_.count + index] = {binding.native, uint16_t(binding.method ? 1 + binding.argc : 0), 1, invoke};
     }
     api_ = {header.rpcHash, entries_.get(), base_.count + header.count, this, reset};
     configured_ = true;
@@ -232,7 +237,11 @@ bool BytecodeRpc::bindProgram(const uint8_t *data, size_t length, ControlSession
 void BytecodeRpc::result(const Frame &frame, Code code) {
     const auto header = uroa::wire::readRemoteHeader(frame.data);
     const uroa::wire::RemoteResult packet{header.version, header.op, header.sequence, header.nonce,
-        static_cast<uint8_t>(code), static_cast<uint8_t>(configured_ ? Configured : receiving_ ? Receiving : Unregistered), received_, 0, 0};
+        static_cast<uint8_t>(code),
+        static_cast<uint8_t>(configured_ ? Configured
+                : receiving_             ? Receiving
+                                         : Unregistered),
+        received_, 0, 0};
     uint8_t bytes[uroa::wire::RemoteResultLayout::ByteLength];
     uroa::wire::writeRemoteResult(bytes, packet);
     transport_.publishRpcResult(bytes, sizeof bytes, frame.session);
@@ -247,7 +256,8 @@ void BytecodeRpc::handle(const Frame &frame) {
     const auto header = uroa::wire::readRemoteHeader(data);
     const uint16_t sequence = header.sequence;
     const uint32_t nonce = header.nonce;
-    if (header.version != ProtocolVersion || nonce == 0 || sequence == 0 || frame.session.source != ControlSource::Ble) {
+    if (header.version != ProtocolVersion || nonce == 0 || sequence == 0 ||
+        frame.session.source != ControlSource::Ble) {
         code = Format;
     }
     else if (header.op == Begin) {
@@ -259,8 +269,9 @@ void BytecodeRpc::handle(const Frame &frame) {
             session_ = frame.session;
             nonce_ = nonce;
             sequence_ = sequence;
-            total_ = uroa::wire::readRemoteBegin(data).total;
-            crc_ = uroa::wire::readRemoteBegin(data).crc;
+            const auto begin = uroa::wire::readRemoteBegin(data);
+            total_ = begin.total;
+            crc_ = begin.crc;
             received_ = 0;
             nextId_ = 0;
             receiving_ = total_ >= 100 && total_ <= MaxConfig;
@@ -273,8 +284,8 @@ void BytecodeRpc::handle(const Frame &frame) {
     }
     else {
         sequence_ = sequence;
-        if (header.op == Data && receiving_ && frame.length > 10 && uroa::wire::readRemoteData(data).offset == received_ &&
-            received_ + frame.length - 10 <= total_) {
+        if (header.op == Data && receiving_ && frame.length > 10 &&
+            uroa::wire::readRemoteData(data).offset == received_ && received_ + frame.length - 10 <= total_) {
             std::memcpy(config_ + received_, data + 10, frame.length - 10);
             received_ += frame.length - 10;
         }

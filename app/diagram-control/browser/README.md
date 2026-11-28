@@ -2,6 +2,8 @@
 
 既存C++ VMをEmscriptenでWasm化し、Web側のPythonBlockから実行する。数値カーネル用のwcc資産も、固定ソースから開発環境で生成する。
 
+共通VMのSnapshot書込みは[wire.proto](../../../../uroa/diagram/rpc/wire.proto)の生成codecを使うため、[build.py](build.py)は`lib/protocol/src/uroa_wire.generated.cpp`と対応ヘッダーもビルドへ含める。Node.jsやProtobufはVMの実行時には不要。
+
 ブラウザではPythonBlockの実行先で「ブラウザ」を選ぶ。Openから`numeric-kernel.py`を読み込み、StartでC生成・Wasmコンパイル・VM実行を開始する。`print("hello world")`のような文字列出力はPythonBlockへ改行付きで表示する。完了後は出力に続けて大域変数と配列の値を表示する。Stopは計算から戻った後にVMを停止する。
 
 現在のブラウザ実行は通常のVM命令、自作NumPy、数値カーネルを対象とし、ブラウザの意味解析ではESP32機器APIを拒否する。行ブレークポイントの操作はESP32向けの既存機能であり、ブラウザでStartするときは解除する。

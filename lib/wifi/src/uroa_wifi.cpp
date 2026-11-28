@@ -1,6 +1,8 @@
 /**
  * @file uroa_wifi.cpp
  * @brief Wi-Fi設定、認証、HTTP/WebSocket制御と通信タスクを管理する。
+ * @details JSON・経路登録・制御データの振分けはtransport.protoから生成する。
+ * 認証・署名・接続世代・資格情報と通信タスクの所有は本ファイルが管理する。
  */
 #include "uroa_wifi.h"
 #include "uroa_json.generated.h"
@@ -99,8 +101,7 @@ namespace uroa {
         }
         for (size_t index = 0; index < value.length(); ++index) {
             const char digit = value[index];
-            if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') ||
-                    (digit >= 'A' && digit <= 'F'))) {
+            if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') || (digit >= 'A' && digit <= 'F'))) {
                 return false;
             }
         }
@@ -165,7 +166,8 @@ namespace uroa {
             jsonwire::writeListPaging(doc.as<JsonObject>(), count > 0 ? (count + 1) / 2 : 0);
             for (int i = page * 2; i < count && i < page * 2 + 2; ++i) {
                 auto item = list.createNestedObject();
-                jsonwire::writeWifiNetworkRow(item, WiFi.SSID(i), WiFi.RSSI(i), WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
+                jsonwire::writeWifiNetworkRow(
+                    item, WiFi.SSID(i), WiFi.RSSI(i), WiFi.encryptionType(i) == WIFI_AUTH_OPEN);
             }
         }
         if (doc.overflowed()) {
@@ -379,7 +381,9 @@ namespace uroa {
     String WifiNetwork::claimReply() {
         StaticJsonDocument<768> doc;
         metadata(doc.to<JsonObject>());
-        jsonwire::writeReadyFields(doc.as<JsonObject>(), controlSession, hmac("ready|" + deviceId + "|" + challenge + "|" + controlSession + "|" + hostname + ".local|" + WiFi.localIP().toString()));
+        jsonwire::writeReadyFields(doc.as<JsonObject>(), controlSession,
+            hmac("ready|" + deviceId + "|" + challenge + "|" + controlSession + "|" + hostname + ".local|" +
+                WiFi.localIP().toString()));
         String result;
         serializeJson(doc, result);
         return result;
@@ -426,7 +430,8 @@ namespace uroa {
             return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid request");
         }
         xSemaphoreTake(stateLock, portMAX_DELAY);
-        bool ok = claim(doc["challenge"] | "", doc["proof"] | "", header(req, "Origin"), -1);
+        const auto claimRequest = jsonwire::readHttpClaim(doc.as<JsonVariantConst>());
+        bool ok = claim(claimRequest.challenge, claimRequest.proof, header(req, "Origin"), -1);
         xSemaphoreGive(stateLock);
         if (!ok) {
             const CorsHeaders headers(req);
@@ -499,7 +504,8 @@ namespace uroa {
         StaticJsonDocument<384> doc;
         const String data = packetHex(value->data, value->length);
         const String count = header(req, "X-Uroa-Counter");
-        jsonwire::writeReadReply(doc.as<JsonObject>(), controlSession, count, data, hmac(controlSession + "|" + path.substring(1) + "|" + count + "|" + data));
+        jsonwire::writeReadReply(doc.as<JsonObject>(), controlSession, count, data,
+            hmac(controlSession + "|" + path.substring(1) + "|" + count + "|" + data));
         xSemaphoreGive(stateLock);
         String result;
         serializeJson(doc, result);
@@ -532,7 +538,8 @@ namespace uroa {
         String data;
         serializeJson(packets, data);
         String requestCount = header(req, "X-Uroa-Counter");
-        jsonwire::writeSignedFields(doc.as<JsonObject>(), controlSession, requestCount, hmac(controlSession + "|events|" + requestCount + "|" + data));
+        jsonwire::writeSignedFields(doc.as<JsonObject>(), controlSession, requestCount,
+            hmac(controlSession + "|events|" + requestCount + "|" + data));
         xSemaphoreGive(stateLock);
         String result;
         serializeJson(doc, result);
@@ -669,7 +676,8 @@ namespace uroa {
         String op = jsonwire::readProvisionQuery(doc.as<JsonVariantConst>()).op;
         if (op == "claim") {
             xSemaphoreTake(stateLock, portMAX_DELAY);
-            bool ok = claim(jsonwire::readSocketClaim(doc.as<JsonVariantConst>()).challenge, jsonwire::readSocketClaim(doc.as<JsonVariantConst>()).proof, jsonwire::readSocketClaim(doc.as<JsonVariantConst>()).origin, number);
+            const auto claimRequest = jsonwire::readSocketClaim(doc.as<JsonVariantConst>());
+            bool ok = claim(claimRequest.challenge, claimRequest.proof, claimRequest.origin, number);
             xSemaphoreGive(stateLock);
             if (!ok) {
                 sockets.disconnect(number);
@@ -687,9 +695,10 @@ namespace uroa {
             return;
         }
         const String path = "/" + op;
-        String data = doc["data"] | "";
+        const auto command = jsonwire::readSocketCommand(doc.as<JsonVariantConst>());
+        String data = command.data;
         xSemaphoreTake(stateLock, portMAX_DELAY);
-        bool ok = authorize(doc["session"] | "", doc["counter"] | uint32_t(0), path, data, doc["mac"] | "");
+        bool ok = authorize(command.session, command.counter, path, data, command.mac);
         const uint32_t sessionGeneration = generation.load();
         xSemaphoreGive(stateLock);
         if (!ok || !dispatchControl(path, data, sessionGeneration)) {
@@ -715,14 +724,17 @@ namespace uroa {
                     xSemaphoreTake(stateLock, portMAX_DELAY);
                     if (!connected) {
                         wifiError = "";
-                        if (jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_SCAN && !trying && !scanRunning) {
+                        if (jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_SCAN &&
+                            !trying && !scanRunning) {
                             WiFi.scanDelete();
                             WiFi.scanNetworks(true, true);
                             scanRunning = true;
                             wifiState = "scanning";
                             scanStarted = millis();
                         }
-                        else if (jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_CONFIGURE && !scanRunning) {
+                        else if (jsonwire::provisionOperation(op) ==
+                                jsonwire::ProvisionOperation::PROVISION_CONFIGURE &&
+                            !scanRunning) {
                             const auto credentials = jsonwire::readProvisionConfigure(doc.as<JsonVariantConst>());
                             String ssid = credentials.ssid;
                             String password = credentials.password;
@@ -835,7 +847,8 @@ namespace uroa {
                         StaticJsonDocument<2 * MaxPacketLength + 256> doc;
                         String data = packetHex(p.data, p.length);
                         uint32_t count = ++outputCounter;
-                        jsonwire::writeSocketPacket(doc.as<JsonObject>(), data, count, hmac(controlSession + "|packet|" + String(count) + "|" + data));
+                        jsonwire::writeSocketPacket(doc.as<JsonObject>(), data, count,
+                            hmac(controlSession + "|packet|" + String(count) + "|" + data));
                         String result;
                         serializeJson(doc, result);
                         xSemaphoreGive(stateLock);
@@ -966,7 +979,8 @@ namespace uroa {
     }
 
     /** @brief 現世代の専用Read値をコピーする。@param value 出力先。@param data 内容。@param length 1〜20。@param sessionGeneration 世代。 */
-    void WifiNetwork::storeControlValue(ControlValue &value, const uint8_t *data, size_t length, uint32_t sessionGeneration) {
+    void WifiNetwork::storeControlValue(
+        ControlValue &value, const uint8_t *data, size_t length, uint32_t sessionGeneration) {
         if (length == 0 || length > sizeof value.data) {
             return;
         }
@@ -1069,13 +1083,16 @@ namespace uroa {
             op = query.op;
             page = constrain(query.page, 0, 64);
         }
-        if (jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_INFO || jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_LIST) {
+        if (jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_INFO ||
+            jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_LIST) {
             xSemaphoreTake(stateLock, portMAX_DELAY);
             String reply = jsonReply(op, page);
             xSemaphoreGive(stateLock);
             return reply;
         }
-        if (jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_SCAN || jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_CONFIGURE || jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_FORGET) {
+        if (jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_SCAN ||
+            jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_CONFIGURE ||
+            jsonwire::provisionOperation(op) == jsonwire::ProvisionOperation::PROVISION_FORGET) {
             ConfigRequest request{};
             input.toCharArray(request.text, sizeof request.text);
             return xQueueSend(configQueue, &request, 0) == pdTRUE ? "{\"accepted\":true}" : "{\"error\":\"Busy\"}";

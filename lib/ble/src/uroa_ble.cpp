@@ -1,4 +1,3 @@
-#include <uroa_wire.generated.h>
 /**
  * @file uroa_ble.cpp
  * @brief BLE接続、指令受信、状態通知と認証済み設定転送を管理する。
@@ -7,7 +6,10 @@
  * 設定Characteristicの暗号化・認証要件とConfigurationの状態検査は維持し、
  * onAuthenticationComplete()で認証結果だけをログへ記録する。保存済みボンドは自動削除しない。
  * Web側robot-wifi.tsはNot pairedを操作案内へ変換し、設定データを自動再送しない。
+ * wire.protoの生成codecでBLE初期応答・MTU通知・設定ヘッダーを扱う。
+ * バッファーの所有、暗号化・認証の判定とコールバックへの配送は本ファイルに残す。
  */
+#include <uroa_wire.generated.h>
 #include "uroa_ble.h"
 #include <algorithm>
 #include <cstring>
@@ -75,9 +77,12 @@ namespace uroa {
         if (config_.bytecodeUuid.length() > 0 && config_.bytecodeResultUuid.length() > 0) {
             bytecode_ = service->createCharacteristic(config_.bytecodeUuid.c_str(), NIMBLE_PROPERTY::WRITE, 244);
             bytecode_->setCallbacks(this);
-            bytecodeResult_ = service->createCharacteristic(config_.bytecodeResultUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
+            bytecodeResult_ =
+                service->createCharacteristic(config_.bytecodeResultUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
             uint8_t initial[20]{};
-            initial[0] = 2;
+            wire::TransferResult packet{};
+            packet.version = wire::TransferResultLayout::versionDefault;
+            wire::writeTransferResult(initial, packet);
             {
                 std::lock_guard<std::mutex> guard(readValueMutex_);
                 std::memcpy(bytecodeResultValue_, initial, sizeof initial);
@@ -85,17 +90,23 @@ namespace uroa {
             bytecodeResult_->setCallbacks(this);
             bytecodeResult_->setValue(initial, sizeof initial);
         }
-        if (config_.debugControlUuid.length() && config_.debugResultUuid.length() &&
-            config_.debugEventUuid.length() && config_.debugDataUuid.length()) {
+        if (config_.debugControlUuid.length() && config_.debugResultUuid.length() && config_.debugEventUuid.length() &&
+            config_.debugDataUuid.length()) {
             debugControl_ = service->createCharacteristic(config_.debugControlUuid.c_str(), NIMBLE_PROPERTY::WRITE, 20);
             debugControl_->setCallbacks(this);
             debugResult_ = service->createCharacteristic(config_.debugResultUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
-            debugEvent_ = service->createCharacteristic(config_.debugEventUuid.c_str(),
-                NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 20);
+            debugEvent_ = service->createCharacteristic(
+                config_.debugEventUuid.c_str(), NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 20);
             debugData_ = service->createCharacteristic(config_.debugDataUuid.c_str(), NIMBLE_PROPERTY::READ, 20);
             uint8_t initial[20]{};
-            initial[0] = 1;
+            wire::DebugResult packet{};
+            packet.version = wire::DebugResultLayout::versionDefault;
+            wire::writeDebugResult(initial, packet);
             debugResult_->setValue(initial, sizeof initial);
+            // 起動直後のEventは従来のversion=1・残り0を維持する。実イベントはversion=2。
+            wire::DebugEvent event{};
+            event.version = packet.version;
+            wire::writeDebugEvent(initial, event);
             {
                 std::lock_guard<std::mutex> guard(readValueMutex_);
                 std::memcpy(debugEventValue_, initial, sizeof initial);
@@ -111,13 +122,18 @@ namespace uroa {
             rpcResult_->setCallbacks(this);
             rpcEvent_->setCallbacks(this);
             uint8_t initial[20]{};
-            initial[0] = 1;
+            wire::RemoteResult packet{};
+            packet.version = wire::RemoteResultLayout::versionDefault;
+            wire::writeRemoteResult(initial, packet);
+            rpcResult_->setValue(initial, 20);
             {
                 std::lock_guard<std::mutex> guard(readValueMutex_);
                 std::memcpy(rpcResultValue_, initial, 20);
+                wire::RemoteEvent event{};
+                event.version = packet.version;
+                wire::writeRemoteEvent(initial, event);
                 std::memcpy(rpcEventValue_, initial, 20);
             }
-            rpcResult_->setValue(initial, 20);
             rpcEvent_->setValue(initial, 20);
         }
         if (callbacks_.configure) {
@@ -231,8 +247,8 @@ namespace uroa {
      * @details 通常BLE接続の公開状態は変更しない。Wi-Fi設定の保護要件も緩和しない。
      */
     void BleTransport::onAuthenticationComplete(NimBLEConnInfo &info) {
-        Serial.printf("BLE security: encrypted=%d authenticated=%d bonded=%d\n",
-            info.isEncrypted(), info.isAuthenticated(), info.isBonded());
+        Serial.printf("BLE security: encrypted=%d authenticated=%d bonded=%d\n", info.isEncrypted(),
+            info.isAuthenticated(), info.isBonded());
     }
 
     /**

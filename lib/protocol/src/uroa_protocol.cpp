@@ -3,6 +3,8 @@
  * @brief diagramと共有するprotocol v1と機器種別付きTelemetryのパケットを読み書きする。
  * @details Command復号・通常形式検査とStatus符号化は生成codecを呼ぶ。
  * 優先STOPは従来の生バイト条件で判定する。C++構造体のパディングを通信へ含めない。
+ * Telemetryの種別・全長・値の検査と書込みはwire.protoの生成レコード列へ委譲する。
+ * MPUの測定値の軸順変換は本ファイル、計測・登録順・送信先は教材側が担当する。
  */
 #include "uroa_protocol.h"
 #include "uroa_wire.generated.h"
@@ -118,14 +120,21 @@ namespace uroa {
      */
     size_t Protocol::deviceTelemetry(uint8_t *out, size_t capacity, uint8_t flags, uint16_t sequence, uint32_t now,
         const uint8_t *sensorTypes, size_t sensorCount, const uint8_t *imuRaw, uint16_t distanceMm) {
+        if (out == nullptr || (sensorCount && sensorTypes == nullptr)) {
+            return 0;
+        }
         wire::ImuRecord imu{};
         imu.deviceType = IMU6AxisDeviceType;
+        bool usesImu = false;
         for (size_t index = 0; index < sensorCount; ++index) {
-            if (sensorTypes == nullptr || (sensorTypes[index] == IMU6AxisDeviceType && imuRaw == nullptr)) {
-                return 0;
+            if (sensorTypes[index] == IMU6AxisDeviceType) {
+                usesImu = true;
             }
         }
-        if (imuRaw != nullptr) {
+        if (usesImu) {
+            if (imuRaw == nullptr) {
+                return 0;
+            }
             // MPU-6050のレジスター順はbig endian。温度2バイトを除いて値へ変換する。
             const auto sensor16 = [](const uint8_t *raw) -> int16_t {
                 const uint16_t bits = (uint16_t(raw[0]) << 8) | raw[1];

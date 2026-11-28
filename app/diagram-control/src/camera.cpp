@@ -2,6 +2,7 @@
  * @file camera.cpp
  * @brief XIAO ESP32-S3 Senseの320×240 JPEG画像を取得する。
  */
+#include <uroa_json.generated.h>
 #include "camera.h"
 #include <Arduino.h>
 #if defined(ARDUINO_XIAO_ESP32S3)
@@ -62,7 +63,7 @@ void cameraServe(httpd_req_t *request) {
     if (cameraReady.load()) {
         camera_fb_t *frame = esp_camera_fb_get();
         if (frame) {
-            httpd_resp_set_type(request, "image/jpeg");
+            httpd_resp_set_type(request, uroa::jsonwire::route(uroa::jsonwire::Resource::Capture).mime);
             httpd_resp_send(request, reinterpret_cast<const char *>(frame->buf), frame->len);
             esp_camera_fb_return(frame);
             return;

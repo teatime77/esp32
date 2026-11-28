@@ -1,6 +1,6 @@
 # UroaWiFi
 
-一括Python転送のHTTP/WS配送と上限は[uroa_wifi.cppのbody()/dispatchControl()/socketEvent()](src/uroa_wifi.cpp)、フレーム・開始条件は[転送仕様コメント](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。
+JSON・HTTP経路と配送上限は[transport.proto](../../../uroa/diagram/rpc/transport.proto)から[uroa_json.generated.h](include/uroa_json.generated.h)・[実装](src/uroa_json.generated.cpp)へ生成する。生成物は手動編集しない。認証・接続世代・通信タスクは[uroa_wifi.cpp](src/uroa_wifi.cpp)、フレーム・開始条件は[転送仕様コメント](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)を参照する。
 
 `uroa_wifi.h`の`uroa::WifiNetwork`はuroa教材用のWi-Fi設定・NVS・mDNS・HTTP/WebSocket・HMAC認証をまとめる。`Config`へ教材の表示名・接続キー・NVS名前空間を渡す。BLEやカメラの具体的な実装は参照しない。
 

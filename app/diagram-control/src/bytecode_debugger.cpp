@@ -1,19 +1,18 @@
-#include <uroa_wire.generated.h>
 /**
  * @file bytecode_debugger.cpp
  * @brief BLE／Wi-Fiデバッグの段階受信、opcode bit7の設定と停止時の値転送。
  * @details バイト単位の共通仕様はuroa/diagram/ts/ble-wifi/debug-protocol.tsを参照する。
  * lib/bleとlib/wifiはコピーだけ、main.cppはloop()の順序、bytecode_vm.cppは停止と値の直列化を担当する。
  * 行からPCへの変換はdiagramの生成器が担当する。
+ * 要求・結果・Eventの固定領域はwire.protoの生成codecを使い、PC・CRC・停止IDの照合はここで行う。
  */
+#include <uroa_wire.generated.h>
 #include "bytecode_debugger.h"
 #include "bytecode_format.h"
 #include <cstring>
 #include <new>
 
 namespace {
-
-
 
     /**
      * @brief CRC-32/ISO-HDLC。
@@ -162,7 +161,8 @@ void BytecodeDebugger::process(bool enabled, ControlSession session) {
     }
     Request request;
     for (size_t index = 0; requests_ && index < 4 && xQueueReceive(requests_, &request, 0) == pdTRUE; ++index) {
-        if (enabled_ && request.session.source == session_.source && request.session.generation == session_.generation) {
+        if (enabled_ && request.session.source == session_.source &&
+            request.session.generation == session_.generation) {
             handle(request);
         }
     }
@@ -185,8 +185,7 @@ bool BytecodeDebugger::applyBreakpoints() {
     for (uint32_t pc = 0; pc < length;) {
         const uint8_t opcode = bytes[pc] & BytecodeFormat::OpcodeMask;
         const uint32_t size = BytecodeFormat::instructionLength(opcode);
-        if (size == 0 || size > length - pc ||
-            (selected < count_ && pending_[selected] < pc)) {
+        if (size == 0 || size > length - pc || (selected < count_ && pending_[selected] < pc)) {
             return false;
         }
         if (selected < count_ && pending_[selected] == pc) {
@@ -331,8 +330,12 @@ void BytecodeDebugger::handle(const Request &request) {
     }
     const uint8_t transferOperation = operation_ >= 7 ? operation_ - 6 : operation_;
     if (transferOperation == 1) {
+        if (request.length != uroa::wire::DebugBeginLayout::ByteLength) {
+            reply(Invalid);
+            return;
+        }
         const auto begin = uroa::wire::readDebugBegin(data);
-        if (request.length != 20 || begin.imageCrc != receiver_.programCrc32) {
+        if (begin.imageCrc != receiver_.programCrc32) {
             reply(Invalid);
             return;
         }
@@ -374,7 +377,9 @@ void BytecodeDebugger::handle(const Request &request) {
             return;
         }
         for (uint32_t index = 0; index < count; ++index) {
-            const uint16_t pc = uroa::wire::readPc(data + uroa::wire::DebugDataLayout::ByteLength + index * uroa::wire::PcLayout::ByteLength).value;
+            const uint16_t pc = uroa::wire::readPc(
+                data + uroa::wire::DebugDataLayout::ByteLength + index * uroa::wire::PcLayout::ByteLength)
+                                    .value;
             if (received_ && pc <= pending_[received_ - 1]) {
                 cancelTransfer();
                 reply(Order);
@@ -409,8 +414,10 @@ void BytecodeDebugger::publishState() {
         return;
     }
     const uint32_t now = millis();
-    if (vm_.state == BytecodeVM::State::Running && uroa::wire::readDebugEvent(event_).version == 2 && uroa::wire::readDebugEvent(event_).state == uint8_t(vm_.state) &&
-        uroa::wire::readDebugEvent(event_).revision == receiver_.programRevision && uint32_t(now - lastProgressMs_) < 1000) {
+    if (vm_.state == BytecodeVM::State::Running && uroa::wire::readDebugEvent(event_).version == 2 &&
+        uroa::wire::readDebugEvent(event_).state == uint8_t(vm_.state) &&
+        uroa::wire::readDebugEvent(event_).revision == receiver_.programRevision &&
+        uint32_t(now - lastProgressMs_) < 1000) {
         return;
     }
     if (vm_.state != BytecodeVM::State::Paused) {
@@ -447,7 +454,9 @@ void BytecodeDebugger::publishState() {
     const bool paused = vm_.state == BytecodeVM::State::Paused;
     const uroa::wire::DebugEvent packet{2, static_cast<uint8_t>(vm_.state), static_cast<uint8_t>(snapshotError_),
         static_cast<uint8_t>(vm_.state == BytecodeVM::State::Error ? uint8_t(vm_.error) : 0),
-        paused ? stopId_ : vm_.state == BytecodeVM::State::Error ? vm_.errorPc : 0,
+        paused                                      ? stopId_
+            : vm_.state == BytecodeVM::State::Error ? vm_.errorPc
+                                                    : 0,
         receiver_.programRevision, paused ? snapshotLength_ : vm_.instructions, paused ? snapshotCrc_ : vm_.pc};
     uint8_t event[uroa::wire::DebugEventLayout::ByteLength];
     uroa::wire::writeDebugEvent(event, packet);

@@ -1,11 +1,13 @@
-#include <uroa_wire.generated.h>
 /**
  * @file bytecode_receiver.cpp
  * @brief 一括転送version=2を蓄積しloop()でコード・PCを検証する。
  * @details 通信の中心契約はuroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭。
  * 受信領域の確保・コピーは通信タスクでmutex排他し、CRC・命令検証・確定はloop()で行う。
  * 確定コードはRAMへ保持し、Flash保存は行わない。
+ * フレーム・Bundle・Resultの固定領域はwire.protoの生成codecを使う。
+ * コード本体の命令検証・CRC・分割順序・所有権と検証後の確定は本ファイルに残す。
  */
+#include <uroa_wire.generated.h>
 #include "bytecode_receiver.h"
 #include "bytecode_format.h"
 #include <cstring>
@@ -58,8 +60,7 @@ namespace {
                 }
                 codePoint = (codePoint << 6) | (next & 0x3F);
             }
-            if (codePoint < minimum || codePoint > 0x10FFFF ||
-                (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+            if (codePoint < minimum || codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
                 return false;
             }
         }
@@ -83,7 +84,6 @@ namespace {
     uint32_t read32(const uint8_t *p) {
         return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
     }
-
 
     /**
      * @brief CRC-32/ISO-HDLC。
@@ -318,8 +318,9 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
     const uint32_t bpCount = header.breakpoints;
     const uint32_t pointsCount = header.points;
     const size_t pcOffset = 24 + size_t(length) + length % 2;
-    if (header.signature != 0x32525055 || header.version != 1 || header.flags > 1 || length < 16 || length > MaxLength ||
-        bpCount > 4096 || pointsCount > 65536 || uint64_t(pcOffset) + uint64_t(bpCount + pointsCount) * 2 != total_) {
+    if (header.signature != 0x32525055 || header.version != 1 || header.flags > 1 || length < 16 ||
+        length > MaxLength || bpCount > 4096 || pointsCount > 65536 ||
+        uint64_t(pcOffset) + uint64_t(bpCount + pointsCount) * 2 != total_) {
         return Format;
     }
     if ((length % 2 && p[24 + length] != 0) || crc32(p + 24, length) != header.crc) {
@@ -490,8 +491,8 @@ BytecodeReceiver::Code BytecodeReceiver::validate(const uint8_t *data, size_t le
                 ++owner;
             }
             const uint32_t base = owner < 0 ? 0 : read16(function(owner));
-            const uint32_t end = owner < 0 ? (functions > 0 ? read16(function(0)) : codeLength)
-                                         : base + read16(function(owner) + 2);
+            const uint32_t end =
+                owner < 0 ? (functions > 0 ? read16(function(0)) : codeLength) : base + read16(function(owner) + 2);
             const uint8_t opcode = code[pc];
             const uint32_t size = BytecodeFormat::instructionLength(opcode);
             if (size == 0 || pc >= end || size > end - pc ||

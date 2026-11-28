@@ -1,4 +1,3 @@
-#include <uroa_wire.generated.h>
 /**
  * @file bytecode_vm.cpp
  * @brief 値スロット・関数フレーム・ネイティブ呼出しとGCヒープを持つPythonサブセットVM。
@@ -12,8 +11,11 @@
  * 本ファイルは実行、main.cppはloop()単位の開始・停止・実行量制御を担当する。
  * ヒープ確保・スイープはbytecode_heap.cpp、回収点の判定・根とValue列の再帰マークは本ファイルが担当する。
  * 数値NumPyの処理はnumpy_native.cpp、関数ID・引数番号はdevice_api.generated.hを共有する。
+ * Snapshotの固定領域・値・文字列ヘッダーはwire.protoの生成codecへ渡す。
+ * 値タグ・GC参照・文字列の列挙と寿命は本VMが管理し、ヒープ本体は送信しない。
  * テスト・Upload・実機動作はビルドとは別の確認事項とする。
  */
+#include <uroa_wire.generated.h>
 #include "bytecode_vm.h"
 #include "bytecode_format.h"
 #include "numpy_native.h"

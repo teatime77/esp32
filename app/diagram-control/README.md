@@ -1,5 +1,7 @@
 # diagram-control
 
+RPC生成化5では機器一覧・Telemetry・コード転送・デバッグ・Python RPCとWi-Fiの外側の読み書きを生成codecへ接続した。生成元は[wire.proto](../../../uroa/diagram/rpc/wire.proto)・[transport.proto](../../../uroa/diagram/rpc/transport.proto)、生成・ビルド手順は[検証記録](../../docs/build-and-test.md)を参照する。CRC・認証・実行世代とloop()での機器／VM処理は既存の所有者が担当する。
+
 uroaのdiagramからESP32の角度・連続回転サーボとIMUをBLEまたはWi-Fiで操作するアプリ。既存の`uroa/esp32-ble-lab/firmware`をもとに、新しい共通ライブラリーの公開状態APIへ移行した。ESP32 DevKit V1、XIAO ESP32-S3 Sense、ESP32-S3 SuperMiniを対象とし、SenseではWi-Fi接続時にJPEGカメラも使える。
 
 ## 構成

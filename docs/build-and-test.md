@@ -1,5 +1,35 @@
 # ビルドと検証
 
+## RPC生成化5：既存通信への展開（2026-11-28）
+
+uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)の生成化5を実施した。[wire.proto](../../uroa/diagram/rpc/wire.proto)・[transport.proto](../../uroa/diagram/rpc/transport.proto)から、機器情報・Telemetry・コード転送・デバッグ／Snapshot・Python RPCのcodecと、Wi-Fi JSON・経路登録・制御配送を生成した。BLE初期値・MTU通知・設定ヘッダー、GATT UUID、カメラの経路／MIMEも接続した。CRC・世代・認証・キューとloop()でのVM／機器処理は既存の所有者に残した。仕様は生成元とソースコメントを参照する。
+
+uroaルートで生成物13ファイルの生成・照合を行った。実行直前に現在のdefault_envsを確認し、diagram-controlから以下を実行した。別envの指定は行っていない。
+
+```powershell
+# D:/usr/prj/uroa
+node diagram/rpc/generate.mjs --esp32
+node diagram/rpc/generate.mjs --check --esp32
+
+# D:/usr/prj/esp32/app/diagram-control
+Get-Content platformio.ini
+& C:/Users/hamad/.platformio/penv/Scripts/platformio.exe run
+```
+
+supermini_esp32s3の最終ビルドは成功（40.41秒）。RAMは59,916 / 327,680バイト、Flashは1,089,561 / 1,310,720バイト。XIAO専用カメラ本体はこの環境ではコンパイル対象外。
+
+共通VMのSnapshot codecに合わせ、ブラウザ用ビルドにも生成C++を追加してEmscripten 4.0.23で再ビルドした。SDK取得済みの今回の環境では、diagram-controlで次を実行した。wccの再ビルドは行わず、既存の固定資産を使用した。
+
+```powershell
+$env:EMSDK_PYTHON='C:/Users/hamad/.platformio/penv/Scripts/python.exe'
+$env:EM_CONFIG="$env:TEMP/uroa-browser-kernel/emsdk/.emscripten"
+$env:PYTHONDONTWRITEBYTECODE='1'
+& C:/Users/hamad/.platformio/penv/Scripts/python.exe -B browser/build.py --emsdk "$env:TEMP/uroa-browser-kernel/emsdk" --output D:/usr/prj/uroa/public/diagram/runtime/v1
+```
+
+ブラウザVMのビルドも成功し、JS／Wasmとassets.jsonは既存配布資産と同一だった。Webのverifyは[uroa側の記録](../../uroa/docs/build-and-test.md)を参照する。既存5配置の長さ・位置・幅・符号の静的一致と、認証・署名・順序・CRC・検証後開始・Worker受付ACKの保持をソースで照合した。テストの作成・実行、codecの実行比較、ブラウザ・実BLE／Wi-Fi・JPEG・Upload・実機確認は行っていない。生成化6とPython Future・配列・Wi-Fi配送は未着手。
+
+
 ## RPC生成化4：通常指令の振分け・応答生成（2026-11-28）
 
 uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)の生成化4を実施した。[生成器](../../uroa/diagram/rpc/generate.mjs)から[サービス宣言](../app/diagram-control/include/control_rpc.generated.h)と[振分け・応答](../app/diagram-control/src/control_rpc.generated.cpp)を追加し、既存11 opcodeの受理・変換とStatus作成をmain.cppから置換した。機器・VM・STREAMの機能本体をサービス単位で登録し、共有状態・制御権・停止優先の確認とloop()の実行責任は教材側へ残した。ProtocolのStatus組立ても生成処理へ委譲した。契約は生成元と各ソースのコメントを参照する。

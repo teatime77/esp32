@@ -6,6 +6,7 @@
  * 通常通信の受信元・接続世代の照合と通知配送はcontrol_transport.h/.cppへ委譲する。
  * BLEのRPC登録・整数要求キューはbytecode_rpc.h/.cppが所有し、VM開始時に対応するnative表を選ぶ。
  * 通常指令の受理・opcode振分け・応答生成はcontrol_rpc.generated.h/.cpp、ここには機能本体と状態取得を置く。
+ * 機器一覧のレコード長・値・GATT UUIDはwire.protoの生成定義を使う。登録の全件確定と機器操作はここが所有する。
  */
 #include <Arduino.h>
 #include <Wire.h>
