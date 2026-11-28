@@ -1,10 +1,13 @@
 /**
  * @file uroa_protocol.h
  * @brief diagramと共有するprotocol v1と機器種別付きTelemetryのパケットを読み書きする。
+ * @details 操作番号・固定長配置はuroa/diagram/rpc/device.protoを正本とし、uroa_rpc.generated.hから使う。
+ * バイナリは既存形式を維持し、API用の番号や指紋をパケットへ追加しない。
  */
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include "uroa_rpc.generated.h"
 
 namespace uroa {
     /**
@@ -14,10 +17,13 @@ namespace uroa {
     class Protocol {
         public:
         static constexpr uint8_t DeviceTelemetryVersion = 3; ///< 機器種別付きTelemetryの版番号。
-        static constexpr size_t DeviceTelemetryHeaderLength = 8; ///< version・flags・sequence・millisの長さ。
-        static constexpr size_t IMU6AxisRecordLength = 13; ///< 種別1バイトと加速度・角速度の6軸。
+        static constexpr size_t DeviceTelemetryHeaderLength =
+            rpc::TelemetryHeaderLayout::ByteLength; ///< version・flags・sequence・millisの長さ。
+        static constexpr size_t IMU6AxisRecordLength =
+            rpc::ImuRecordLayout::ByteLength; ///< 種別1バイトと加速度・角速度の6軸。
         static constexpr uint8_t IMU6AxisDeviceType = 0; ///< diagramのDeviceType::IMU6Axisと共通。
-        static constexpr size_t UltrasonicRecordLength = 3; ///< 種別1バイトと距離mmのuint16。
+        static constexpr size_t UltrasonicRecordLength =
+            rpc::DistanceRecordLayout::ByteLength; ///< 種別1バイトと距離mmのuint16。
         static constexpr uint8_t UltrasonicDeviceType = 2; ///< diagramのDeviceType::UltrasonicDistanceSensorと共通。
         static constexpr uint16_t InvalidDistanceMm = 0xFFFF; ///< 距離の未測定・測定失敗を表す予約値。
         static constexpr uint16_t MinDistanceMm = 20; ///< 有効距離の下限（mm）。
@@ -31,17 +37,17 @@ namespace uroa {
          * uroa/diagram/ts/ble-wifi/device-connection.tsとpython/python-block.tsを参照する。
          */
         enum Op : uint8_t {
-            ARM = 1,
-            MOVE = 2,
-            STOP = 3,
-            STREAM = 4,
-            PING = 5,
-            INFO = 6,
-            DISABLE = 7,
-            ARM_SPEED = 8,
-            SET_SPEED = 9,
-            VM_START = 10,
-            VM_STOP = 11
+            ARM = static_cast<uint8_t>(rpc::CommandOpcode::ARM),
+            MOVE = static_cast<uint8_t>(rpc::CommandOpcode::MOVE),
+            STOP = static_cast<uint8_t>(rpc::CommandOpcode::STOP),
+            STREAM = static_cast<uint8_t>(rpc::CommandOpcode::STREAM),
+            PING = static_cast<uint8_t>(rpc::CommandOpcode::PING),
+            INFO = static_cast<uint8_t>(rpc::CommandOpcode::INFO),
+            DISABLE = static_cast<uint8_t>(rpc::CommandOpcode::DISABLE),
+            ARM_SPEED = static_cast<uint8_t>(rpc::CommandOpcode::ARM_SPEED),
+            SET_SPEED = static_cast<uint8_t>(rpc::CommandOpcode::SET_SPEED),
+            VM_START = static_cast<uint8_t>(rpc::CommandOpcode::VM_START),
+            VM_STOP = static_cast<uint8_t>(rpc::CommandOpcode::VM_STOP)
         };
 
         /**
@@ -62,7 +68,7 @@ namespace uroa {
          * @brief version、操作、sequence、CH、値と時間を含む10バイトの指令。
          */
         struct Command {
-            uint8_t bytes[10]{};
+            uint8_t bytes[rpc::CommandPacketLayout::ByteLength]{};
         };
 
         /**

@@ -2,6 +2,8 @@
 
 `uroa_protocol.h`の`uroa::Protocol`は、protocol v1と機器種別付きTelemetry version=3の読み書きを担当する。Arduino・BLE・Wi-Fiには依存しない。
 
+操作番号と固定長配置・書込みは[device.proto](../../../uroa/diagram/rpc/device.proto)から生成する。[uroa_rpc.generated.h](include/uroa_rpc.generated.h)と[uroa_rpc.generated.cpp](src/uroa_rpc.generated.cpp)を手動編集しない。生成・照合・ビルドは[検証記録](../../docs/build-and-test.md)を参照する。生成済みC++を含めるため、ESP32単独のビルドにNode.jsやProtobufランタイムは不要。
+
 - `command(data, length)`は10バイトをコピーする。不正な長さではversion=0を返す。
 - `valid(command)`はversion、reserved、opcodeを検査する。CH・値・時間の検査は教材／機器側で行う。
 - PythonBlockの開始・停止で使う操作の契約は[Opの仕様コメント](include/uroa_protocol.h)、教材側の処理は[main.cpp](../../app/diagram-control/src/main.cpp)を参照する。

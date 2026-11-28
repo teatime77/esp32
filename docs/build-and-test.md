@@ -1,5 +1,19 @@
 # ビルドと検証
 
+## .proto生成の操作番号・固定長配置（2026-11-28）
+
+uroaの[device.proto](../../uroa/diagram/rpc/device.proto)と[生成器](../../uroa/diagram/rpc/generate.mjs)から`lib/protocol/include/uroa_rpc.generated.h`・`src/uroa_rpc.generated.cpp`を生成し、Protocolの操作番号・指令サイズ・StatusとTelemetryヘッダーの書込みへ接続した。配置と契約は生成元と各ソースのコメントを参照する。生成コマンドはuroaルートで`node diagram/rpc/generate.mjs --esp32`、照合は同じコマンドへ`--check`を追加する。
+
+`app/diagram-control/platformio.ini`を読み、現在の`default_envs = supermini_esp32s3`だけを同ディレクトリーからビルドした。
+
+```powershell
+& C:\Users\hamad\.platformio\penv\Scripts\platformio.exe run
+```
+
+通常権限ではPlatformIOの`platforms.lock`への書込みで失敗し、既存キャッシュ・ロックへのアクセス権限付きで再実行して成功した（41.83秒）。RAMは59916/327680バイト、Flashは1084273/1310720バイト。`-e`の上書き、他環境のビルド、パッケージ再インストールは行っていない。
+
+両リポジトリーの生成物照合とWebの`npm.cmd run verify`も成功した。テストは従来の指定に従い作成・実行していない。生成codecの実行比較、ブラウザ・実BLE/Wi-Fi・センサー・サーボ・JPEG・Upload・実機は未確認。既存の通信形式を使い、相手とのAPI指紋交換やPython RemoteのWi-Fi対応を追加したものではない。
+
 ## RPC 第3段階：BLE整数通知（2026-11-27）
 
 [BytecodeRpc](../app/diagram-control/include/bytecode_rpc.h)に公開定義の受信・照合・動的native登録表・整数要求キューを追加し、[main.cpp](../app/diagram-control/src/main.cpp)の両VM開始経路・Stop・切断・期限へ接続した。BLEコールバックは内容をコピーし、VMと登録表はloop()だけで操作する。通常の機器呼出しは元のcontextとresetへ配送する。専用GATTの操作結果と先頭要求はmutexで保持し、onRead()で反映する。通信の正本はWeb側の[rpc-protocol.ts](../../uroa/diagram/ts/ble-wifi/rpc-protocol.ts)、操作例は[ブラウザ用ホストREADME](../app/diagram-control/browser/README.md)を参照する。

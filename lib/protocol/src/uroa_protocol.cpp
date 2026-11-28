@@ -1,6 +1,7 @@
 /**
  * @file uroa_protocol.cpp
  * @brief diagramと共有するprotocol v1と機器種別付きTelemetryのパケットを読み書きする。
+ * @details uroa_rpc.generated.hの配置へ明示的に書き込み、C++構造体のパディングを通信へ含めない。
  */
 #include "uroa_protocol.h"
 #include <string.h>
@@ -63,7 +64,9 @@ namespace uroa {
      */
     bool Protocol::valid(const Command &command) {
         const auto *b = command.bytes;
-        return b[0] == 1 && b[5] == 0 && b[1] >= ARM && b[1] <= VM_STOP;
+        using Layout = rpc::CommandPacketLayout;
+        return b[Layout::version] == 1 && b[Layout::reserved] == 0 && b[Layout::opcode] >= ARM &&
+            b[Layout::opcode] <= VM_STOP;
     }
 
     /**
@@ -73,7 +76,8 @@ namespace uroa {
      * @return 長さ・version・操作番号がSTOPに一致すればtrue。
      */
     bool Protocol::urgentStop(const uint8_t *data, size_t length) {
-        return length == 10 && data[0] == 1 && data[1] == STOP;
+        using Layout = rpc::CommandPacketLayout;
+        return length == Layout::ByteLength && data[Layout::version] == 1 && data[Layout::opcode] == STOP;
     }
 
     /**
@@ -89,17 +93,18 @@ namespace uroa {
      */
     void Protocol::status(uint8_t *out, uint8_t code, uint16_t sequence, uint8_t flags, uint8_t channel,
         uint16_t current, uint16_t target, uint16_t remaining) {
-        memset(out, 0, 12);
-        out[0] = 1;
-        out[1] = code;
-        out[4] = flags;
-        out[5] = channel;
-        write16(out + 2, sequence);
+        rpc::StatusPacket packet{};
+        packet.version = 1;
+        packet.code = code;
+        packet.sequence = sequence;
+        packet.flags = flags;
+        packet.channel = channel;
         if (channel < 16) {
-            write16(out + 6, current);
-            write16(out + 8, target);
-            write16(out + 10, remaining);
+            packet.current = current;
+            packet.target = target;
+            packet.remaining = remaining;
         }
+        rpc::encodeStatusPacket(out, packet);
     }
 
     /**
@@ -162,24 +167,23 @@ namespace uroa {
                 return 0;
             }
         }
-        out[0] = DeviceTelemetryVersion;
-        out[1] = flags;
-        write16(out + 2, sequence);
-        write32(out + 4, now);
+        const rpc::TelemetryHeader header{DeviceTelemetryVersion, flags, sequence, now};
+        rpc::encodeTelemetryHeader(out, header);
         size_t offset = DeviceTelemetryHeaderLength;
         for (size_t index = 0; index < sensorCount; ++index) {
             out[offset] = sensorTypes[index];
             if (sensorTypes[index] == IMU6AxisDeviceType) {
+                using Layout = rpc::ImuRecordLayout;
                 for (size_t axis = 0; axis < 3; ++axis) {
-                    out[offset + 1 + 2 * axis] = imuRaw[2 * axis + 1];
-                    out[offset + 2 + 2 * axis] = imuRaw[2 * axis];
-                    out[offset + 7 + 2 * axis] = imuRaw[9 + 2 * axis];
-                    out[offset + 8 + 2 * axis] = imuRaw[8 + 2 * axis];
+                    out[offset + Layout::accX + 2 * axis] = imuRaw[2 * axis + 1];
+                    out[offset + Layout::accX + 1 + 2 * axis] = imuRaw[2 * axis];
+                    out[offset + Layout::gyroX + 2 * axis] = imuRaw[9 + 2 * axis];
+                    out[offset + Layout::gyroX + 1 + 2 * axis] = imuRaw[8 + 2 * axis];
                 }
                 offset += IMU6AxisRecordLength;
             }
             else {
-                write16(out + offset + 1, distanceMm);
+                write16(out + offset + rpc::DistanceRecordLayout::distanceMm, distanceMm);
                 offset += UltrasonicRecordLength;
             }
         }
