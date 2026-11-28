@@ -1,5 +1,25 @@
 # ビルドと検証
 
+## RPC生成化3：クライアント生成物との整合（2026-11-28）
+
+uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)の生成化3で、通常指令のブラウザ側クライアントを生成した。宣言の追加に合わせ、生成ヘッダーの結果enum・内部操作番号・整合用指紋を更新した。C++の指令振分け・機能本体・codecの配置は変更していない。ブラウザ側の変更は[Webの検証記録](../../uroa/docs/build-and-test.md)を参照する。
+
+uroaルートで生成・照合した後、実行直前に現在の`default_envs = supermini_esp32s3`を確認し、diagram-controlからビルドした。
+
+```powershell
+# D:/usr/prj/uroa
+node diagram/rpc/generate.mjs --esp32
+node diagram/rpc/generate.mjs --check --esp32
+
+# D:/usr/prj/esp32/app/diagram-control
+Get-Content platformio.ini
+& C:/Users/hamad/.platformio/penv/Scripts/platformio.exe run
+```
+
+既存PlatformIOのロック・キャッシュへのアクセス権限付きで、コンパイル・リンク・firmware.bin生成に成功（46.73秒）。RAM 59916/327680バイト、Flash 1084285/1310720バイト。環境の上書き、他環境のビルド、パッケージ再インストールは行っていない。両リポジトリーの生成物照合、既存5配置の静的照合、Webの型・公開ビルド・成果物確認も成功した。
+
+テストは従来の指定に従い作成・実行していない。ブラウザ・BLE／Wi-Fi・取消や期限の実動作、Upload・実機は未確認。サーバーの振分け・応答生成は生成化4、他の通信への展開は生成化5以降で扱う。
+
 ## RPC生成化2：Command復号・Status符号化（2026-11-28）
 
 uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)に従い、[生成器](../../uroa/diagram/rpc/generate.mjs)の方向指定からCommand復号・通常形式検査と既存のStatus符号化を生成した。Protocolは生成codecを呼び、main.cppは復号済みの値を使う。未使用のCommand・IMU・距離の符号化関数は生成対象から除いた。仕様・優先STOP・実行タスクの境界は[Protocol](../lib/protocol/include/uroa_protocol.h)と生成元のコメントを参照する。

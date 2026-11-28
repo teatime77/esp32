@@ -9,9 +9,9 @@
 namespace uroa {
     namespace rpc {
         constexpr uint32_t ApiVersion = 1; ///< 呼出しAPIの版。既存Commandの版とは別。
-        constexpr char SchemaFingerprint[] = "96abe482f3caf69b9da8c28e3bea8dd753a5b1787a0d944c45a0d635e1ab6dc6"; ///< 生成物整合用。現在の通信で交換しない。
+        constexpr char SchemaFingerprint[] = "0689de5820168058524a9dfa6ac952941e4a441ae08fb7dd967838c6e53cd10c"; ///< 生成物整合用。現在の通信で交換しない。
         /**
-         * @brief 既存パケットの操作番号。
+         * @brief 既存パケットの操作・結果番号。
          */
         enum class CommandOpcode : uint8_t {
             COMMAND_UNSPECIFIED = 0,
@@ -26,6 +26,20 @@ namespace uroa {
             SET_SPEED = 9,
             VM_START = 10,
             VM_STOP = 11,
+        };
+
+        /**
+         * @brief 既存パケットの操作・結果番号。
+         */
+        enum class StatusCode : uint8_t {
+            CODE_OK = 0,
+            CODE_FORMAT = 1,
+            CODE_RANGE = 2,
+            CODE_NOT_ARMED = 3,
+            CODE_HARDWARE = 4,
+            CODE_BUSY = 5,
+            CODE_IO_ERROR = 6,
+            CODE_MODE = 7,
         };
 
         /**
@@ -64,6 +78,7 @@ namespace uroa {
             RemoteSessionAcknowledge = 589827,
             RemoteSessionEnd = 589828,
             SensorsSubscribe = 655361,
+            ControlStream = 720897,
         };
 
         /**
