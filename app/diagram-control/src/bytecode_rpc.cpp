@@ -12,6 +12,10 @@
 #include <new>
 
 namespace {
+    using namespace uroa::wire::RemoteCode;
+    using namespace uroa::wire::RemoteOperation;
+    using namespace uroa::wire::RemoteState;
+    using namespace uroa::wire::RemoteKind;
 
     /**
      * @brief 登録データのCRC-32/ISO-HDLCを求める。
@@ -50,7 +54,8 @@ bool BytecodeRpc::begin() {
  * @copydoc BytecodeRpc::enqueue
  */
 void BytecodeRpc::enqueue(const uint8_t *data, size_t length, ControlSession session) {
-    if (!frames_ || length < 8 || length > 20) {
+    if (!frames_ || length < uroa::wire::RemoteHeaderLayout::ByteLength ||
+        length > uroa::wire::RemoteHeaderLayout::ByteLength + uroa::wire::RemoteFrameLimits::Payload) {
         return;
     }
     Frame frame;
@@ -156,8 +161,12 @@ BytecodeVM::Error BytecodeRpc::invoke(BytecodeVM::NativeCall &call) {
  */
 BytecodeRpc::Code BytecodeRpc::configure() {
     const auto header = uroa::wire::readRegistryHeader(config_);
-    if (total_ < 100 || header.version != ProtocolVersion || header.count == 0 || header.count > MaxBindings ||
-        header.reserved || total_ != 100 + header.count * 10 || crc32(config_, total_) != crc_) {
+    if (total_ < uroa::wire::RegistryHeaderLayout::ByteLength || header.version != ProtocolVersion ||
+        header.count == 0 || header.count > MaxBindings || header.reserved ||
+        total_ !=
+            uroa::wire::RegistryHeaderLayout::ByteLength +
+                header.count * uroa::wire::RegistryRecordLayout::ByteLength ||
+        crc32(config_, total_) != crc_) {
         return Format;
     }
     if (std::memcmp(header.baseHash, base_.abiHash, 32) != 0) {
@@ -261,7 +270,8 @@ void BytecodeRpc::handle(const Frame &frame) {
         code = Format;
     }
     else if (header.op == Begin) {
-        if (frame.length != 14 || vm_.state == BytecodeVM::State::Running || vm_.state == BytecodeVM::State::Paused) {
+        if (frame.length != uroa::wire::RemoteBeginLayout::ByteLength || vm_.state == BytecodeVM::State::Running ||
+            vm_.state == BytecodeVM::State::Paused) {
             code = Busy;
         }
         else {
@@ -274,7 +284,7 @@ void BytecodeRpc::handle(const Frame &frame) {
             crc_ = begin.crc;
             received_ = 0;
             nextId_ = 0;
-            receiving_ = total_ >= 100 && total_ <= MaxConfig;
+            receiving_ = total_ >= uroa::wire::RegistryHeaderLayout::ByteLength && total_ <= MaxConfig;
             code = receiving_ ? Ok : Range;
         }
     }
@@ -284,21 +294,24 @@ void BytecodeRpc::handle(const Frame &frame) {
     }
     else {
         sequence_ = sequence;
-        if (header.op == Data && receiving_ && frame.length > 10 &&
-            uroa::wire::readRemoteData(data).offset == received_ && received_ + frame.length - 10 <= total_) {
-            std::memcpy(config_ + received_, data + 10, frame.length - 10);
-            received_ += frame.length - 10;
+        if (header.op == Data && receiving_ && frame.length > uroa::wire::RemoteDataLayout::ByteLength &&
+            uroa::wire::readRemoteData(data).offset == received_ &&
+            received_ + frame.length - uroa::wire::RemoteDataLayout::ByteLength <= total_) {
+            std::memcpy(config_ + received_, data + uroa::wire::RemoteDataLayout::ByteLength,
+                frame.length - uroa::wire::RemoteDataLayout::ByteLength);
+            received_ += frame.length - uroa::wire::RemoteDataLayout::ByteLength;
         }
-        else if (header.op == Commit && frame.length == 8 && receiving_ && received_ == total_) {
+        else if (header.op == Commit && frame.length == uroa::wire::RemoteHeaderLayout::ByteLength && receiving_ &&
+            received_ == total_) {
             code = configure();
             receiving_ = false;
         }
-        else if (header.op == Ack && frame.length == 12 && configured_ && count_ &&
+        else if (header.op == Ack && frame.length == uroa::wire::RemoteAckLayout::ByteLength && configured_ && count_ &&
             uroa::wire::readRemoteAck(data).id == requests_[head_].id) {
             head_ = (head_ + 1) % MaxRequests;
             --count_;
         }
-        else if (header.op == End && frame.length == 8) {
+        else if (header.op == End && frame.length == uroa::wire::RemoteHeaderLayout::ByteLength) {
             stop();
         }
         else {

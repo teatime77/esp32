@@ -25,7 +25,7 @@ Wi-Fiのプログラム・デバッグ窓口と認証付きRead、両経路で�
 
 受信器とVMはバイナリversion=1・2・3に対応する。転送層が行う形式検証は[受信器の仕様コメント](../src/bytecode_receiver.cpp)、登録スタブ表とのABI・ネイティブID照合は[VM仕様](../src/bytecode_vm.cpp)、生成スタブと機器操作の接続は[device_api.generated.cpp](../src/device_api.generated.cpp)と[device_native.cpp](../src/device_native.cpp)を参照する。
 
-受信後の明示的な開始・停止、保持コードの再実行とACKの範囲は[main.cppのrunBytecode・handleの仕様コメント](../src/main.cpp)、操作番号は[Protocol::Op](../../../lib/protocol/include/uroa_protocol.h)を参照する。VMの上限・エラーとシリアル出力は[VM仕様](../src/bytecode_vm.cpp)を参照する。VMの実行結果をBLEへ返す拡張パケットは追加しない。
+受信後の明示的な開始・停止、保持コードの再実行とACKの範囲は[main.cppのrunBytecode・handleの仕様コメント](../src/main.cpp)、操作番号は[生成したCommandOpcode](../../../lib/protocol/include/uroa_rpc.generated.h)を参照する。VMの上限・エラーとシリアル出力は[VM仕様](../src/bytecode_vm.cpp)を参照する。VMの実行結果をBLEへ返す拡張パケットは追加しない。
 
 ## DeviceInfo
 

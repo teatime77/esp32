@@ -36,21 +36,15 @@ namespace {
     using RpcCode = uroa::rpc::StatusCode;
 
     constexpr size_t DeviceInfoMaxLength = uroa::BleTransport::DeviceInfoMaxLength; ///< 機器情報の最大バイト数。
-    constexpr size_t DeviceTelemetryMaxLength = Protocol::DeviceTelemetryHeaderLength +
-        DeviceInfoMaxLength * Protocol::IMU6AxisRecordLength; ///< 最大20個のIMUレコードとヘッダー。
+    constexpr size_t DeviceTelemetryMaxLength =
+        uroa::wire::TelemetryRecordsLimits::MaxBytes; ///< 最大20個のIMUレコードとヘッダー。
     constexpr uint16_t NotificationHeaderLength =
         uroa::BleTransport::NotificationHeaderLength; ///< ATT通知のヘッダー長。
 
     /**
      * @brief diagramのDeviceTypeと共通の機器種別。宣言の受付はドライバーの実装・機器の存在を示さない。
      */
-    enum class DeviceType : uint8_t {
-        IMU6Axis = 0,
-        IMU9Axis = 1,
-        UltrasonicDistanceSensor = 2,
-        Camera = 3,
-        ServoMotor = 128,
-    };
+    using DeviceType = uroa::wire::DeviceKind::Value;
 
     /**
      * @brief 受信済み機器情報。channelとmodeはサーボの場合だけ使う。
@@ -69,8 +63,10 @@ namespace {
     ControlTransport controlTransport(bluetooth, network); ///< 通常指令の接続照合と通知配送の共通窓口。
     BytecodeReceiver bytecodeReceiver; ///< loop()で分割受信を検証し、確定後にVMへ渡す。
     BytecodeVM bytecodeVm; ///< loop()だけが操作するVM。受信器の確定バッファを借用する。
-    BytecodeDebugger bytecodeDebugger(bytecodeReceiver, bytecodeVm, controlTransport); ///< 両経路のデバッグ要求・命令フラグ・停止値の所有者。
-    ControlSession vmSession{}; ///< 最後の一括開始またはVM_STARTの受信元。loop()が更新し、別接続での実行継続を禁止する。
+    BytecodeDebugger bytecodeDebugger(
+        bytecodeReceiver, bytecodeVm, controlTransport); ///< 両経路のデバッグ要求・命令フラグ・停止値の所有者。
+    ControlSession
+        vmSession{}; ///< 最後の一括開始またはVM_STARTの受信元。loop()が更新し、別接続での実行継続を禁止する。
     uint32_t vmRevision = 0; ///< VMが照合した確定プログラムの世代。更新だけでは開始しない。
     BytecodeVM::State reportedVmState = BytecodeVM::State::Idle; ///< シリアルへ報告済みの状態。
 
@@ -123,7 +119,7 @@ namespace {
      * @brief 受信指令と、その受信元・接続世代を保持する。
      */
     struct Queued {
-        Protocol::Command command; ///< 生成codecで復号した通常指令の値。isDeviceInfo=falseのときに使う。
+        uroa::rpc::CommandPacket command; ///< 生成codecで復号した通常指令の値。isDeviceInfo=falseのときに使う。
         ControlTransport::Session session{}; ///< 受信元と接続世代。キュー取出し後も現接続へ照合する。
         bool isDeviceInfo = false; ///< trueなら通常指令ではなく機器一覧の置換要求。
         uint8_t deviceInfoLength = 0; ///< deviceInfoDataの有効バイト数。0は一覧消去。
@@ -159,7 +155,9 @@ namespace {
      */
     BytecodeVM::Error readNativeDistance(float &result);
 
-    DeviceNative nativeDevices(Wire, servos, imu, {nativeDistanceReady, enableNativeDistance, readNativeDistance}); ///< VMが使う機器ハンドル・待機・表示の所有者。setup()/loop()で操作する。
+    DeviceNative nativeDevices(Wire, servos, imu,
+        {nativeDistanceReady, enableNativeDistance,
+            readNativeDistance}); ///< VMが使う機器ハンドル・待機・表示の所有者。setup()/loop()で操作する。
     BytecodeVM::NativeApi nativeApi = device_api::makeNativeApi(nativeDevices); ///< setup()でVMへ登録する静的な表。
     BytecodeRpc bytecodeRpc(bytecodeVm, nativeApi, controlTransport); ///< loop()で操作するRPC登録と整数要求キュー。
 
@@ -219,8 +217,8 @@ namespace {
          */
         if (bytecodeVm.state == BytecodeVM::State::Error) {
             nativeDevices.reset();
-            Serial.printf("VM error=%u pc=%lu\n", unsigned(bytecodeVm.error),
-                static_cast<unsigned long>(bytecodeVm.errorPc));
+            Serial.printf(
+                "VM error=%u pc=%lu\n", unsigned(bytecodeVm.error), static_cast<unsigned long>(bytecodeVm.errorPc));
         }
         /**
          * @details
@@ -384,8 +382,8 @@ namespace {
      * @param sequence ACK対象。0は自発通知。
      * @param channel CHまたは全体。
      */
-    void status(uint8_t code, uint16_t sequence, uint8_t channel = 255) {
-        uroa::rpc::publishControlStatus(controlReplies, code, sequence, channel);
+    void status(RpcCode code, uint16_t sequence, uint8_t channel = 255) {
+        uroa::rpc::publishControlStatus(controlReplies, static_cast<uint8_t>(code), sequence, channel);
     }
 
     /**
@@ -403,13 +401,14 @@ namespace {
         if (session.source == ControlTransport::Source::Wifi && length != uroa::rpc::CommandPacketLayout::ByteLength) {
             return;
         }
+        const auto command = uroa::rpc::decodeCommandPacket(data, length);
         if (Protocol::urgentStop(data, length)) {
-            urgentSeq.store(Protocol::read16(data + uroa::rpc::CommandPacketLayout::sequence));
+            urgentSeq.store(command.sequence);
             urgentStop.store(true);
             return;
         }
         Queued queued{};
-        queued.command = Protocol::command(data, length);
+        queued.command = command;
         queued.session = session;
         if (xQueueSend(commands, &queued, 0) != pdTRUE) {
             resetDeviceInfo.store(true);
@@ -598,14 +597,14 @@ namespace {
         const size_t length = Protocol::deviceTelemetryLength(sensorTypes, count);
         if (!controlTransport.canPublishTelemetry(length)) {
             stopTelemetry();
-            status(length == 0 ? Protocol::CODE_HARDWARE : Protocol::CODE_RANGE, 0);
+            status(length == 0 ? RpcCode::CODE_HARDWARE : RpcCode::CODE_RANGE, 0);
             return;
         }
         uint8_t raw[14];
         const bool needsIMU = hasSensor(DeviceType::IMU6Axis);
         if (needsIMU && (!imu.available || !imu.readRaw(raw))) {
             stopTelemetry();
-            status(Protocol::CODE_IO_ERROR, 0);
+            status(RpcCode::CODE_IO_ERROR, 0);
             return;
         }
         if (mustStop.load() || urgentStop.load()) {
@@ -616,7 +615,7 @@ namespace {
             sensorTypes, count, needsIMU ? raw : nullptr, currentDistanceMm());
         if (written != length) {
             stopTelemetry();
-            status(Protocol::CODE_FORMAT, 0);
+            status(RpcCode::CODE_FORMAT, 0);
             return;
         }
         controlTransport.publishTelemetry(packet, written);
@@ -798,7 +797,7 @@ namespace {
      * @param allowVmStart 停止要求を処理した周回ではfalse。
      * @param session 受信元と接続世代。VM操作の直前にも再照合する。
      */
-    void handle(const Protocol::Command &command, bool allowVmStart, const ControlSession &session) {
+    void handle(const uroa::rpc::CommandPacket &command, bool allowVmStart, const ControlSession &session) {
         const ControlRpcContext context{session, allowVmStart};
         uroa::rpc::dispatchControl(command, context, controlServices);
     }
@@ -924,13 +923,16 @@ void setup() {
     bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
     // 大きいTelemetryに必要な既存MTUも維持し、コードは最大244バイトのWriteへ制限する。
     bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength > 247
-        ? DeviceTelemetryMaxLength + NotificationHeaderLength : 247;
+        ? DeviceTelemetryMaxLength + NotificationHeaderLength
+        : 247;
     bleConfig.passkey = PAIRING_CODE;
-    bytecodeReceiver.begin([](const uint8_t *data, size_t length, const ControlSession &session) {
-        controlTransport.publishBytecodeResult(data, length, session);
-    }, [](const ControlSession &session) {
-        return controlTransport.isCurrent(session);
-    });
+    bytecodeReceiver.begin(
+        [](const uint8_t *data, size_t length, const ControlSession &session) {
+            controlTransport.publishBytecodeResult(data, length, session);
+        },
+        [](const ControlSession &session) {
+            return controlTransport.isCurrent(session);
+        });
     bytecodeDebugger.begin();
     uroa::BleTransport::Callbacks bleCallbacks;
     bleCallbacks.command = [](const uint8_t *data, size_t length, uint32_t generation) {
@@ -967,7 +969,7 @@ void setup() {
         return network.configure(input);
     };
     bleCallbacks.started = [] {
-        status(Protocol::CODE_OK, 0);
+        status(RpcCode::CODE_OK, 0);
         bytecodeReceiver.publishResult();
     };
     bluetooth.begin(bleConfig, bleCallbacks);
@@ -990,14 +992,14 @@ void loop() {
         }
         lastCommand = now;
         xQueueReset(commands);
-        status(Protocol::CODE_OK, 0);
+        status(RpcCode::CODE_OK, 0);
     }
     if (urgentStop.exchange(false)) {
         vmStopRequested = true;
         servos.allOff();
         xQueueReset(commands);
         lastCommand = now;
-        status(Protocol::CODE_OK, urgentSeq.load());
+        status(RpcCode::CODE_OK, urgentSeq.load());
     }
     const ControlSession session = controlTransport.currentSession();
     if (vmStopRequested) {
@@ -1030,13 +1032,13 @@ void loop() {
         if (servos.anyArmed() || streamHz) {
             servos.allOff();
             stopTelemetry();
-            status(Protocol::CODE_NOT_ARMED, 0);
+            status(RpcCode::CODE_NOT_ARMED, 0);
         }
         network.stopControl();
     }
     const int failedChannel = servos.tick(now);
     if (failedChannel >= 0) {
-        status(Protocol::CODE_IO_ERROR, 0, failedChannel);
+        status(RpcCode::CODE_IO_ERROR, 0, failedChannel);
     }
     if ((bluetooth.connected.load() || network.connected.load()) && streamHz && now - lastSample >= 1000 / streamHz) {
         lastSample = now;

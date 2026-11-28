@@ -3,6 +3,7 @@
  * @brief BLE接続、指令受信、状態通知と認証済み設定転送を管理する。
  */
 #pragma once
+#include <uroa_wire.generated.h>
 #include <mutex>
 #include <NimBLEDevice.h>
 #include <atomic>
@@ -20,7 +21,8 @@ namespace uroa {
         std::atomic<bool> connected{false}; ///< BLE接続状態。アプリはload()で参照し、更新はライブラリーに任せる。
         std::atomic<uint32_t> generation{0}; ///< 接続・切断で更新する世代番号。アプリはload()で参照する。
         std::atomic<uint16_t> mtu{DefaultAttMtu}; ///< 接続相手と合意したATT MTU。BLEコールバックが更新する。
-        static constexpr uint16_t DeviceInfoMaxLength = 20; ///< DeviceInfoの1回の書込上限（バイト）。
+        static constexpr uint16_t DeviceInfoMaxLength =
+            wire::DeviceInfoRecordsLimits::MaxBytes; ///< DeviceInfoの1回の書込上限（バイト）。
 
         /**
          * @brief BLEの表示名、GATT UUID、ペアリングコード。

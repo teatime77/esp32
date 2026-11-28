@@ -3,6 +3,7 @@
  * @brief Wi-Fi設定、認証、HTTP/WebSocket制御と通信タスクを管理する。
  */
 #pragma once
+#include <uroa_wire.generated.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <WebSocketsServer.h>
@@ -19,8 +20,10 @@ namespace uroa {
      */
     class WifiNetwork {
         public:
-        static constexpr size_t MaxPacketLength = 268; ///< Statusと最大20個の6軸IMUレコードを収める上限。
-        static constexpr size_t DeviceInfoMaxLength = 20; ///< BLEと共通の機器一覧の生バイト数上限。
+        static constexpr size_t MaxPacketLength =
+            wire::TelemetryRecordsLimits::MaxBytes; ///< Statusと最大20個の6軸IMUレコードを収める上限。
+        static constexpr size_t DeviceInfoMaxLength =
+            wire::DeviceInfoRecordsLimits::MaxBytes; ///< BLEと共通の機器一覧の生バイト数上限。
         std::atomic<bool> connected{
             false}; ///< Wi-Fi制御権の有効状態。ルーターへの接続状態ではない。アプリはload()で参照する。
         std::atomic<uint32_t> generation{0}; ///< 制御権の取得・解除で更新する世代番号。アプリはload()で参照する。
@@ -195,12 +198,14 @@ namespace uroa {
         size_t lastIMULength = 0;
         bool haveIMU = false;
         String controlOrigin;
+
         /** @brief センサー通知から独立した、現接続の結果・停止情報のRead値。stateLockで同期する。 */
         struct ControlValue {
             uint8_t data[20]{};
             uint8_t length = 0;
             uint32_t generation = 0;
         };
+
         ControlValue bytecodeResult_;
         ControlValue debugResult_;
         ControlValue debugEvent_;

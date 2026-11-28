@@ -25,28 +25,6 @@ namespace uroa {
             packet.position = static_cast<uint32_t>(positionValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeTransferHeader(uint8_t *out, const TransferHeader &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t transferValue = static_cast<uint32_t>(packet.transfer);
-            out[2] = static_cast<uint8_t>(transferValue);
-            out[3] = static_cast<uint8_t>(transferValue >> 8);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[4] = static_cast<uint8_t>(sequenceValue);
-            out[5] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t positionValue = static_cast<uint32_t>(packet.position);
-            out[6] = static_cast<uint8_t>(positionValue);
-            out[7] = static_cast<uint8_t>(positionValue >> 8);
-            out[8] = static_cast<uint8_t>(positionValue >> 16);
-            out[9] = static_cast<uint8_t>(positionValue >> 24);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -68,33 +46,6 @@ namespace uroa {
             const uint32_t crcValue = (static_cast<uint32_t>(data[10])) | (static_cast<uint32_t>(data[11]) << 8) | (static_cast<uint32_t>(data[12]) << 16) | (static_cast<uint32_t>(data[13]) << 24);
             packet.crc = static_cast<uint32_t>(crcValue);
             return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeTransferBegin(uint8_t *out, const TransferBegin &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t transferValue = static_cast<uint32_t>(packet.transfer);
-            out[2] = static_cast<uint8_t>(transferValue);
-            out[3] = static_cast<uint8_t>(transferValue >> 8);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[4] = static_cast<uint8_t>(sequenceValue);
-            out[5] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t positionValue = static_cast<uint32_t>(packet.position);
-            out[6] = static_cast<uint8_t>(positionValue);
-            out[7] = static_cast<uint8_t>(positionValue >> 8);
-            out[8] = static_cast<uint8_t>(positionValue >> 16);
-            out[9] = static_cast<uint8_t>(positionValue >> 24);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[10] = static_cast<uint8_t>(crcValue);
-            out[11] = static_cast<uint8_t>(crcValue >> 8);
-            out[12] = static_cast<uint8_t>(crcValue >> 16);
-            out[13] = static_cast<uint8_t>(crcValue >> 24);
         }
 
         /**
@@ -184,44 +135,6 @@ namespace uroa {
             packet.crc = static_cast<uint32_t>(crcValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeBundleHeader(uint8_t *out, const BundleHeader &packet) {
-            const uint32_t signatureValue = static_cast<uint32_t>(packet.signature);
-            out[0] = static_cast<uint8_t>(signatureValue);
-            out[1] = static_cast<uint8_t>(signatureValue >> 8);
-            out[2] = static_cast<uint8_t>(signatureValue >> 16);
-            out[3] = static_cast<uint8_t>(signatureValue >> 24);
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[4] = static_cast<uint8_t>(versionValue);
-            out[5] = static_cast<uint8_t>(versionValue >> 8);
-            const uint32_t flagsValue = static_cast<uint32_t>(packet.flags);
-            out[6] = static_cast<uint8_t>(flagsValue);
-            out[7] = static_cast<uint8_t>(flagsValue >> 8);
-            const uint32_t lengthValue = static_cast<uint32_t>(packet.length);
-            out[8] = static_cast<uint8_t>(lengthValue);
-            out[9] = static_cast<uint8_t>(lengthValue >> 8);
-            out[10] = static_cast<uint8_t>(lengthValue >> 16);
-            out[11] = static_cast<uint8_t>(lengthValue >> 24);
-            const uint32_t breakpointsValue = static_cast<uint32_t>(packet.breakpoints);
-            out[12] = static_cast<uint8_t>(breakpointsValue);
-            out[13] = static_cast<uint8_t>(breakpointsValue >> 8);
-            out[14] = static_cast<uint8_t>(breakpointsValue >> 16);
-            out[15] = static_cast<uint8_t>(breakpointsValue >> 24);
-            const uint32_t pointsValue = static_cast<uint32_t>(packet.points);
-            out[16] = static_cast<uint8_t>(pointsValue);
-            out[17] = static_cast<uint8_t>(pointsValue >> 8);
-            out[18] = static_cast<uint8_t>(pointsValue >> 16);
-            out[19] = static_cast<uint8_t>(pointsValue >> 24);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[20] = static_cast<uint8_t>(crcValue);
-            out[21] = static_cast<uint8_t>(crcValue >> 8);
-            out[22] = static_cast<uint8_t>(crcValue >> 16);
-            out[23] = static_cast<uint8_t>(crcValue >> 24);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -239,25 +152,6 @@ namespace uroa {
             const uint32_t revisionValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
             packet.revision = static_cast<uint32_t>(revisionValue);
             return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDebugHeader(uint8_t *out, const DebugHeader &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t requestValue = static_cast<uint32_t>(packet.request);
-            out[2] = static_cast<uint8_t>(requestValue);
-            out[3] = static_cast<uint8_t>(requestValue >> 8);
-            const uint32_t revisionValue = static_cast<uint32_t>(packet.revision);
-            out[4] = static_cast<uint8_t>(revisionValue);
-            out[5] = static_cast<uint8_t>(revisionValue >> 8);
-            out[6] = static_cast<uint8_t>(revisionValue >> 16);
-            out[7] = static_cast<uint8_t>(revisionValue >> 24);
         }
 
         /**
@@ -283,40 +177,6 @@ namespace uroa {
             packet.imageCrc = static_cast<uint32_t>(imageCrcValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDebugBegin(uint8_t *out, const DebugBegin &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t requestValue = static_cast<uint32_t>(packet.request);
-            out[2] = static_cast<uint8_t>(requestValue);
-            out[3] = static_cast<uint8_t>(requestValue >> 8);
-            const uint32_t revisionValue = static_cast<uint32_t>(packet.revision);
-            out[4] = static_cast<uint8_t>(revisionValue);
-            out[5] = static_cast<uint8_t>(revisionValue >> 8);
-            out[6] = static_cast<uint8_t>(revisionValue >> 16);
-            out[7] = static_cast<uint8_t>(revisionValue >> 24);
-            const uint32_t countValue = static_cast<uint32_t>(packet.count);
-            out[8] = static_cast<uint8_t>(countValue);
-            out[9] = static_cast<uint8_t>(countValue >> 8);
-            out[10] = static_cast<uint8_t>(countValue >> 16);
-            out[11] = static_cast<uint8_t>(countValue >> 24);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[12] = static_cast<uint8_t>(crcValue);
-            out[13] = static_cast<uint8_t>(crcValue >> 8);
-            out[14] = static_cast<uint8_t>(crcValue >> 16);
-            out[15] = static_cast<uint8_t>(crcValue >> 24);
-            const uint32_t imageCrcValue = static_cast<uint32_t>(packet.imageCrc);
-            out[16] = static_cast<uint8_t>(imageCrcValue);
-            out[17] = static_cast<uint8_t>(imageCrcValue >> 8);
-            out[18] = static_cast<uint8_t>(imageCrcValue >> 16);
-            out[19] = static_cast<uint8_t>(imageCrcValue >> 24);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -336,30 +196,6 @@ namespace uroa {
             const uint32_t indexValue = (static_cast<uint32_t>(data[8])) | (static_cast<uint32_t>(data[9]) << 8) | (static_cast<uint32_t>(data[10]) << 16) | (static_cast<uint32_t>(data[11]) << 24);
             packet.index = static_cast<uint32_t>(indexValue);
             return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDebugData(uint8_t *out, const DebugData &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t requestValue = static_cast<uint32_t>(packet.request);
-            out[2] = static_cast<uint8_t>(requestValue);
-            out[3] = static_cast<uint8_t>(requestValue >> 8);
-            const uint32_t revisionValue = static_cast<uint32_t>(packet.revision);
-            out[4] = static_cast<uint8_t>(revisionValue);
-            out[5] = static_cast<uint8_t>(revisionValue >> 8);
-            out[6] = static_cast<uint8_t>(revisionValue >> 16);
-            out[7] = static_cast<uint8_t>(revisionValue >> 24);
-            const uint32_t indexValue = static_cast<uint32_t>(packet.index);
-            out[8] = static_cast<uint8_t>(indexValue);
-            out[9] = static_cast<uint8_t>(indexValue >> 8);
-            out[10] = static_cast<uint8_t>(indexValue >> 16);
-            out[11] = static_cast<uint8_t>(indexValue >> 24);
         }
 
         /**
@@ -383,35 +219,6 @@ namespace uroa {
             packet.offset = static_cast<uint32_t>(offsetValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDebugChunk(uint8_t *out, const DebugChunk &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t requestValue = static_cast<uint32_t>(packet.request);
-            out[2] = static_cast<uint8_t>(requestValue);
-            out[3] = static_cast<uint8_t>(requestValue >> 8);
-            const uint32_t revisionValue = static_cast<uint32_t>(packet.revision);
-            out[4] = static_cast<uint8_t>(revisionValue);
-            out[5] = static_cast<uint8_t>(revisionValue >> 8);
-            out[6] = static_cast<uint8_t>(revisionValue >> 16);
-            out[7] = static_cast<uint8_t>(revisionValue >> 24);
-            const uint32_t stopIdValue = static_cast<uint32_t>(packet.stopId);
-            out[8] = static_cast<uint8_t>(stopIdValue);
-            out[9] = static_cast<uint8_t>(stopIdValue >> 8);
-            out[10] = static_cast<uint8_t>(stopIdValue >> 16);
-            out[11] = static_cast<uint8_t>(stopIdValue >> 24);
-            const uint32_t offsetValue = static_cast<uint32_t>(packet.offset);
-            out[12] = static_cast<uint8_t>(offsetValue);
-            out[13] = static_cast<uint8_t>(offsetValue >> 8);
-            out[14] = static_cast<uint8_t>(offsetValue >> 16);
-            out[15] = static_cast<uint8_t>(offsetValue >> 24);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -432,58 +239,7 @@ namespace uroa {
             packet.stopId = static_cast<uint32_t>(stopIdValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDebugExecute(uint8_t *out, const DebugExecute &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t requestValue = static_cast<uint32_t>(packet.request);
-            out[2] = static_cast<uint8_t>(requestValue);
-            out[3] = static_cast<uint8_t>(requestValue >> 8);
-            const uint32_t revisionValue = static_cast<uint32_t>(packet.revision);
-            out[4] = static_cast<uint8_t>(revisionValue);
-            out[5] = static_cast<uint8_t>(revisionValue >> 8);
-            out[6] = static_cast<uint8_t>(revisionValue >> 16);
-            out[7] = static_cast<uint8_t>(revisionValue >> 24);
-            const uint32_t stopIdValue = static_cast<uint32_t>(packet.stopId);
-            out[8] = static_cast<uint8_t>(stopIdValue);
-            out[9] = static_cast<uint8_t>(stopIdValue >> 8);
-            out[10] = static_cast<uint8_t>(stopIdValue >> 16);
-            out[11] = static_cast<uint8_t>(stopIdValue >> 24);
-        }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        DebugResult readDebugResult(const uint8_t *data) {
-            DebugResult packet{};
-            const uint32_t versionValue = (static_cast<uint32_t>(data[0]));
-            packet.version = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = (static_cast<uint32_t>(data[1]));
-            packet.op = static_cast<uint8_t>(opValue);
-            const uint32_t requestValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8);
-            packet.request = static_cast<uint16_t>(requestValue);
-            const uint32_t codeValue = (static_cast<uint32_t>(data[4]));
-            packet.code = static_cast<uint8_t>(codeValue);
-            const uint32_t stateValue = (static_cast<uint32_t>(data[5]));
-            packet.state = static_cast<uint8_t>(stateValue);
-            const uint32_t reservedValue = (static_cast<uint32_t>(data[6])) | (static_cast<uint32_t>(data[7]) << 8);
-            packet.reserved = static_cast<uint16_t>(reservedValue);
-            const uint32_t revisionValue = (static_cast<uint32_t>(data[8])) | (static_cast<uint32_t>(data[9]) << 8) | (static_cast<uint32_t>(data[10]) << 16) | (static_cast<uint32_t>(data[11]) << 24);
-            packet.revision = static_cast<uint32_t>(revisionValue);
-            const uint32_t valueValue = (static_cast<uint32_t>(data[12])) | (static_cast<uint32_t>(data[13]) << 8) | (static_cast<uint32_t>(data[14]) << 16) | (static_cast<uint32_t>(data[15]) << 24);
-            packet.value = static_cast<uint32_t>(valueValue);
-            const uint32_t extraValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
-            packet.extra = static_cast<uint32_t>(extraValue);
-            return packet;
-        }
         /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
@@ -583,31 +339,6 @@ namespace uroa {
         }
 
         /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        SnapshotHeader readSnapshotHeader(const uint8_t *data) {
-            SnapshotHeader packet{};
-            const uint32_t versionValue = (static_cast<uint32_t>(data[0]));
-            packet.version = static_cast<uint8_t>(versionValue);
-            const uint32_t reasonValue = (static_cast<uint32_t>(data[1]));
-            packet.reason = static_cast<uint8_t>(reasonValue);
-            const uint32_t slotBytesValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8);
-            packet.slotBytes = static_cast<uint16_t>(slotBytesValue);
-            const uint32_t pcValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
-            packet.pc = static_cast<uint32_t>(pcValue);
-            const uint32_t bpValue = (static_cast<uint32_t>(data[8])) | (static_cast<uint32_t>(data[9]) << 8) | (static_cast<uint32_t>(data[10]) << 16) | (static_cast<uint32_t>(data[11]) << 24);
-            packet.bp = static_cast<uint32_t>(bpValue);
-            const uint32_t spValue = (static_cast<uint32_t>(data[12])) | (static_cast<uint32_t>(data[13]) << 8) | (static_cast<uint32_t>(data[14]) << 16) | (static_cast<uint32_t>(data[15]) << 24);
-            packet.sp = static_cast<uint32_t>(spValue);
-            const uint32_t globalsValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
-            packet.globals = static_cast<uint32_t>(globalsValue);
-            const uint32_t stackValue = (static_cast<uint32_t>(data[20])) | (static_cast<uint32_t>(data[21]) << 8) | (static_cast<uint32_t>(data[22]) << 16) | (static_cast<uint32_t>(data[23]) << 24);
-            packet.stack = static_cast<uint32_t>(stackValue);
-            return packet;
-        }
-        /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
          * @param packet 検証済みの値。
@@ -648,23 +379,6 @@ namespace uroa {
         }
 
         /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        SnapshotValue readSnapshotValue(const uint8_t *data) {
-            SnapshotValue packet{};
-            const uint32_t tagValue = (static_cast<uint32_t>(data[0]));
-            packet.tag = static_cast<uint8_t>(tagValue);
-            const uint32_t reservedValue = (static_cast<uint32_t>(data[1]));
-            packet.reserved = static_cast<uint8_t>(reservedValue);
-            const uint32_t classIdValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8);
-            packet.classId = static_cast<uint16_t>(classIdValue);
-            const uint32_t payloadValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
-            packet.payload = static_cast<uint32_t>(payloadValue);
-            return packet;
-        }
-        /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
          * @param packet 検証済みの値。
@@ -685,19 +399,6 @@ namespace uroa {
         }
 
         /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        StringHeader readStringHeader(const uint8_t *data) {
-            StringHeader packet{};
-            const uint32_t idValue = (static_cast<uint32_t>(data[0])) | (static_cast<uint32_t>(data[1]) << 8) | (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
-            packet.id = static_cast<uint32_t>(idValue);
-            const uint32_t lengthValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
-            packet.length = static_cast<uint32_t>(lengthValue);
-            return packet;
-        }
-        /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
          * @param packet 検証済みの値。
@@ -715,17 +416,6 @@ namespace uroa {
             out[7] = static_cast<uint8_t>(lengthValue >> 24);
         }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        Word32 readWord32(const uint8_t *data) {
-            Word32 packet{};
-            const uint32_t valueValue = (static_cast<uint32_t>(data[0])) | (static_cast<uint32_t>(data[1]) << 8) | (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
-            packet.value = static_cast<uint32_t>(valueValue);
-            return packet;
-        }
         /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
@@ -750,16 +440,6 @@ namespace uroa {
             packet.value = static_cast<uint16_t>(valueValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writePc(uint8_t *out, const Pc &packet) {
-            const uint32_t valueValue = static_cast<uint32_t>(packet.value);
-            out[0] = static_cast<uint8_t>(valueValue);
-            out[1] = static_cast<uint8_t>(valueValue >> 8);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -777,25 +457,6 @@ namespace uroa {
             const uint32_t nonceValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
             packet.nonce = static_cast<uint32_t>(nonceValue);
             return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeRemoteHeader(uint8_t *out, const RemoteHeader &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[2] = static_cast<uint8_t>(sequenceValue);
-            out[3] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t nonceValue = static_cast<uint32_t>(packet.nonce);
-            out[4] = static_cast<uint8_t>(nonceValue);
-            out[5] = static_cast<uint8_t>(nonceValue >> 8);
-            out[6] = static_cast<uint8_t>(nonceValue >> 16);
-            out[7] = static_cast<uint8_t>(nonceValue >> 24);
         }
 
         /**
@@ -819,33 +480,6 @@ namespace uroa {
             packet.crc = static_cast<uint32_t>(crcValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeRemoteBegin(uint8_t *out, const RemoteBegin &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[2] = static_cast<uint8_t>(sequenceValue);
-            out[3] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t nonceValue = static_cast<uint32_t>(packet.nonce);
-            out[4] = static_cast<uint8_t>(nonceValue);
-            out[5] = static_cast<uint8_t>(nonceValue >> 8);
-            out[6] = static_cast<uint8_t>(nonceValue >> 16);
-            out[7] = static_cast<uint8_t>(nonceValue >> 24);
-            const uint32_t totalValue = static_cast<uint32_t>(packet.total);
-            out[8] = static_cast<uint8_t>(totalValue);
-            out[9] = static_cast<uint8_t>(totalValue >> 8);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[10] = static_cast<uint8_t>(crcValue);
-            out[11] = static_cast<uint8_t>(crcValue >> 8);
-            out[12] = static_cast<uint8_t>(crcValue >> 16);
-            out[13] = static_cast<uint8_t>(crcValue >> 24);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -865,28 +499,6 @@ namespace uroa {
             const uint32_t offsetValue = (static_cast<uint32_t>(data[8])) | (static_cast<uint32_t>(data[9]) << 8);
             packet.offset = static_cast<uint16_t>(offsetValue);
             return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeRemoteData(uint8_t *out, const RemoteData &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[2] = static_cast<uint8_t>(sequenceValue);
-            out[3] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t nonceValue = static_cast<uint32_t>(packet.nonce);
-            out[4] = static_cast<uint8_t>(nonceValue);
-            out[5] = static_cast<uint8_t>(nonceValue >> 8);
-            out[6] = static_cast<uint8_t>(nonceValue >> 16);
-            out[7] = static_cast<uint8_t>(nonceValue >> 24);
-            const uint32_t offsetValue = static_cast<uint32_t>(packet.offset);
-            out[8] = static_cast<uint8_t>(offsetValue);
-            out[9] = static_cast<uint8_t>(offsetValue >> 8);
         }
 
         /**
@@ -908,58 +520,7 @@ namespace uroa {
             packet.id = static_cast<uint32_t>(idValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeRemoteAck(uint8_t *out, const RemoteAck &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[1] = static_cast<uint8_t>(opValue);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[2] = static_cast<uint8_t>(sequenceValue);
-            out[3] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t nonceValue = static_cast<uint32_t>(packet.nonce);
-            out[4] = static_cast<uint8_t>(nonceValue);
-            out[5] = static_cast<uint8_t>(nonceValue >> 8);
-            out[6] = static_cast<uint8_t>(nonceValue >> 16);
-            out[7] = static_cast<uint8_t>(nonceValue >> 24);
-            const uint32_t idValue = static_cast<uint32_t>(packet.id);
-            out[8] = static_cast<uint8_t>(idValue);
-            out[9] = static_cast<uint8_t>(idValue >> 8);
-            out[10] = static_cast<uint8_t>(idValue >> 16);
-            out[11] = static_cast<uint8_t>(idValue >> 24);
-        }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        RemoteResult readRemoteResult(const uint8_t *data) {
-            RemoteResult packet{};
-            const uint32_t versionValue = (static_cast<uint32_t>(data[0]));
-            packet.version = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = (static_cast<uint32_t>(data[1]));
-            packet.op = static_cast<uint8_t>(opValue);
-            const uint32_t sequenceValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8);
-            packet.sequence = static_cast<uint16_t>(sequenceValue);
-            const uint32_t nonceValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
-            packet.nonce = static_cast<uint32_t>(nonceValue);
-            const uint32_t codeValue = (static_cast<uint32_t>(data[8]));
-            packet.code = static_cast<uint8_t>(codeValue);
-            const uint32_t stateValue = (static_cast<uint32_t>(data[9]));
-            packet.state = static_cast<uint8_t>(stateValue);
-            const uint32_t receivedValue = (static_cast<uint32_t>(data[10])) | (static_cast<uint32_t>(data[11]) << 8);
-            packet.received = static_cast<uint16_t>(receivedValue);
-            const uint32_t reservedValue = (static_cast<uint32_t>(data[12])) | (static_cast<uint32_t>(data[13]) << 8) | (static_cast<uint32_t>(data[14]) << 16) | (static_cast<uint32_t>(data[15]) << 24);
-            packet.reserved = static_cast<uint32_t>(reservedValue);
-            const uint32_t extraValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
-            packet.extra = static_cast<uint32_t>(extraValue);
-            return packet;
-        }
         /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
@@ -997,33 +558,6 @@ namespace uroa {
             out[19] = static_cast<uint8_t>(extraValue >> 24);
         }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        RemoteEvent readRemoteEvent(const uint8_t *data) {
-            RemoteEvent packet{};
-            const uint32_t versionValue = (static_cast<uint32_t>(data[0]));
-            packet.version = static_cast<uint8_t>(versionValue);
-            const uint32_t kindValue = (static_cast<uint32_t>(data[1]));
-            packet.kind = static_cast<uint8_t>(kindValue);
-            const uint32_t nonceValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8) | (static_cast<uint32_t>(data[4]) << 16) | (static_cast<uint32_t>(data[5]) << 24);
-            packet.nonce = static_cast<uint32_t>(nonceValue);
-            const uint32_t idValue = (static_cast<uint32_t>(data[6])) | (static_cast<uint32_t>(data[7]) << 8) | (static_cast<uint32_t>(data[8]) << 16) | (static_cast<uint32_t>(data[9]) << 24);
-            packet.id = static_cast<uint32_t>(idValue);
-            const uint32_t objectValue = (static_cast<uint32_t>(data[10])) | (static_cast<uint32_t>(data[11]) << 8);
-            packet.object = static_cast<uint16_t>(objectValue);
-            const uint32_t methodValue = (static_cast<uint32_t>(data[12])) | (static_cast<uint32_t>(data[13]) << 8);
-            packet.method = static_cast<uint16_t>(methodValue);
-            const uint32_t argcValue = (static_cast<uint32_t>(data[14]));
-            packet.argc = static_cast<uint8_t>(argcValue);
-            const uint32_t errorValue = (static_cast<uint32_t>(data[15]));
-            packet.error = static_cast<uint8_t>(errorValue);
-            const uint32_t valueValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
-            packet.value = static_cast<int32_t>(valueValue >= 2147483648u ? static_cast<int64_t>(valueValue) - 4294967296LL : valueValue);
-            return packet;
-        }
         /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
@@ -1079,23 +613,6 @@ namespace uroa {
             packet.registryHash = data + 68;
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeRegistryHeader(uint8_t *out, const RegistryHeader &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[0] = static_cast<uint8_t>(versionValue);
-            const uint32_t countValue = static_cast<uint32_t>(packet.count);
-            out[1] = static_cast<uint8_t>(countValue);
-            const uint32_t reservedValue = static_cast<uint32_t>(packet.reserved);
-            out[2] = static_cast<uint8_t>(reservedValue);
-            out[3] = static_cast<uint8_t>(reservedValue >> 8);
-            memcpy(out + 4, packet.baseHash, 32);
-            memcpy(out + 36, packet.rpcHash, 32);
-            memcpy(out + 68, packet.registryHash, 32);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -1118,29 +635,6 @@ namespace uroa {
             packet.reserved = static_cast<uint8_t>(reservedValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeRegistryRecord(uint8_t *out, const RegistryRecord &packet) {
-            const uint32_t nativeValue = static_cast<uint32_t>(packet.native);
-            out[0] = static_cast<uint8_t>(nativeValue);
-            out[1] = static_cast<uint8_t>(nativeValue >> 8);
-            const uint32_t objectValue = static_cast<uint32_t>(packet.object);
-            out[2] = static_cast<uint8_t>(objectValue);
-            out[3] = static_cast<uint8_t>(objectValue >> 8);
-            const uint32_t methodValue = static_cast<uint32_t>(packet.method);
-            out[4] = static_cast<uint8_t>(methodValue);
-            out[5] = static_cast<uint8_t>(methodValue >> 8);
-            const uint32_t classIdValue = static_cast<uint32_t>(packet.classId);
-            out[6] = static_cast<uint8_t>(classIdValue);
-            out[7] = static_cast<uint8_t>(classIdValue >> 8);
-            const uint32_t argcValue = static_cast<uint32_t>(packet.argc);
-            out[8] = static_cast<uint8_t>(argcValue);
-            const uint32_t reservedValue = static_cast<uint32_t>(packet.reserved);
-            out[9] = static_cast<uint8_t>(reservedValue);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -1153,15 +647,6 @@ namespace uroa {
             packet.op = static_cast<uint8_t>(opValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeProvisionFrame(uint8_t *out, const ProvisionFrame &packet) {
-            const uint32_t opValue = static_cast<uint32_t>(packet.op);
-            out[0] = static_cast<uint8_t>(opValue);
-        }
 
         /**
          * @brief 検査済み固定領域を復号する。
@@ -1173,15 +658,6 @@ namespace uroa {
             const uint32_t deviceTypeValue = (static_cast<uint32_t>(data[0]));
             packet.deviceType = static_cast<uint8_t>(deviceTypeValue);
             return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDeviceTag(uint8_t *out, const DeviceTag &packet) {
-            const uint32_t deviceTypeValue = static_cast<uint32_t>(packet.deviceType);
-            out[0] = static_cast<uint8_t>(deviceTypeValue);
         }
 
         /**
@@ -1199,157 +675,11 @@ namespace uroa {
             packet.mode = static_cast<uint8_t>(modeValue);
             return packet;
         }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDeviceServo(uint8_t *out, const DeviceServo &packet) {
-            const uint32_t deviceTypeValue = static_cast<uint32_t>(packet.deviceType);
-            out[0] = static_cast<uint8_t>(deviceTypeValue);
-            const uint32_t channelValue = static_cast<uint32_t>(packet.channel);
-            out[1] = static_cast<uint8_t>(channelValue);
-            const uint32_t modeValue = static_cast<uint32_t>(packet.mode);
-            out[2] = static_cast<uint8_t>(modeValue);
-        }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        RemoteBeginBody readRemoteBeginBody(const uint8_t *data) {
-            RemoteBeginBody packet{};
-            const uint32_t totalValue = (static_cast<uint32_t>(data[0])) | (static_cast<uint32_t>(data[1]) << 8);
-            packet.total = static_cast<uint16_t>(totalValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8) | (static_cast<uint32_t>(data[4]) << 16) | (static_cast<uint32_t>(data[5]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
-            return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeRemoteBeginBody(uint8_t *out, const RemoteBeginBody &packet) {
-            const uint32_t totalValue = static_cast<uint32_t>(packet.total);
-            out[0] = static_cast<uint8_t>(totalValue);
-            out[1] = static_cast<uint8_t>(totalValue >> 8);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[2] = static_cast<uint8_t>(crcValue);
-            out[3] = static_cast<uint8_t>(crcValue >> 8);
-            out[4] = static_cast<uint8_t>(crcValue >> 16);
-            out[5] = static_cast<uint8_t>(crcValue >> 24);
-        }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        Offset16 readOffset16(const uint8_t *data) {
-            Offset16 packet{};
-            const uint32_t valueValue = (static_cast<uint32_t>(data[0])) | (static_cast<uint32_t>(data[1]) << 8);
-            packet.value = static_cast<uint16_t>(valueValue);
-            return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeOffset16(uint8_t *out, const Offset16 &packet) {
-            const uint32_t valueValue = static_cast<uint32_t>(packet.value);
-            out[0] = static_cast<uint8_t>(valueValue);
-            out[1] = static_cast<uint8_t>(valueValue >> 8);
-        }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        DebugListBody readDebugListBody(const uint8_t *data) {
-            DebugListBody packet{};
-            const uint32_t countValue = (static_cast<uint32_t>(data[0])) | (static_cast<uint32_t>(data[1]) << 8) | (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
-            packet.count = static_cast<uint32_t>(countValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
-            const uint32_t imageCrcValue = (static_cast<uint32_t>(data[8])) | (static_cast<uint32_t>(data[9]) << 8) | (static_cast<uint32_t>(data[10]) << 16) | (static_cast<uint32_t>(data[11]) << 24);
-            packet.imageCrc = static_cast<uint32_t>(imageCrcValue);
-            return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDebugListBody(uint8_t *out, const DebugListBody &packet) {
-            const uint32_t countValue = static_cast<uint32_t>(packet.count);
-            out[0] = static_cast<uint8_t>(countValue);
-            out[1] = static_cast<uint8_t>(countValue >> 8);
-            out[2] = static_cast<uint8_t>(countValue >> 16);
-            out[3] = static_cast<uint8_t>(countValue >> 24);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[4] = static_cast<uint8_t>(crcValue);
-            out[5] = static_cast<uint8_t>(crcValue >> 8);
-            out[6] = static_cast<uint8_t>(crcValue >> 16);
-            out[7] = static_cast<uint8_t>(crcValue >> 24);
-            const uint32_t imageCrcValue = static_cast<uint32_t>(packet.imageCrc);
-            out[8] = static_cast<uint8_t>(imageCrcValue);
-            out[9] = static_cast<uint8_t>(imageCrcValue >> 8);
-            out[10] = static_cast<uint8_t>(imageCrcValue >> 16);
-            out[11] = static_cast<uint8_t>(imageCrcValue >> 24);
-        }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        DebugChunkBody readDebugChunkBody(const uint8_t *data) {
-            DebugChunkBody packet{};
-            const uint32_t stopIdValue = (static_cast<uint32_t>(data[0])) | (static_cast<uint32_t>(data[1]) << 8) | (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
-            packet.stopId = static_cast<uint32_t>(stopIdValue);
-            const uint32_t offsetValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
-            packet.offset = static_cast<uint32_t>(offsetValue);
-            return packet;
-        }
-        /**
-         * @brief 固定領域を書く。
-         * @param out 出力領域。
-         * @param packet 検証済みの値。
-         */
-        void writeDebugChunkBody(uint8_t *out, const DebugChunkBody &packet) {
-            const uint32_t stopIdValue = static_cast<uint32_t>(packet.stopId);
-            out[0] = static_cast<uint8_t>(stopIdValue);
-            out[1] = static_cast<uint8_t>(stopIdValue >> 8);
-            out[2] = static_cast<uint8_t>(stopIdValue >> 16);
-            out[3] = static_cast<uint8_t>(stopIdValue >> 24);
-            const uint32_t offsetValue = static_cast<uint32_t>(packet.offset);
-            out[4] = static_cast<uint8_t>(offsetValue);
-            out[5] = static_cast<uint8_t>(offsetValue >> 8);
-            out[6] = static_cast<uint8_t>(offsetValue >> 16);
-            out[7] = static_cast<uint8_t>(offsetValue >> 24);
-        }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        TelemetryHeader readTelemetryHeader(const uint8_t *data) {
-            TelemetryHeader packet{};
-            const uint32_t versionValue = (static_cast<uint32_t>(data[0]));
-            packet.version = static_cast<uint8_t>(versionValue);
-            const uint32_t flagsValue = (static_cast<uint32_t>(data[1]));
-            packet.flags = static_cast<uint8_t>(flagsValue);
-            const uint32_t sequenceValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8);
-            packet.sequence = static_cast<uint16_t>(sequenceValue);
-            const uint32_t millisValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8) | (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
-            packet.millis = static_cast<uint32_t>(millisValue);
-            return packet;
-        }
         /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
@@ -1370,29 +700,6 @@ namespace uroa {
             out[7] = static_cast<uint8_t>(millisValue >> 24);
         }
 
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        ImuRecord readImuRecord(const uint8_t *data) {
-            ImuRecord packet{};
-            const uint32_t deviceTypeValue = (static_cast<uint32_t>(data[0]));
-            packet.deviceType = static_cast<uint8_t>(deviceTypeValue);
-            const uint32_t accXValue = (static_cast<uint32_t>(data[1])) | (static_cast<uint32_t>(data[2]) << 8);
-            packet.accX = static_cast<int16_t>(accXValue >= 32768u ? static_cast<int64_t>(accXValue) - 65536LL : accXValue);
-            const uint32_t accYValue = (static_cast<uint32_t>(data[3])) | (static_cast<uint32_t>(data[4]) << 8);
-            packet.accY = static_cast<int16_t>(accYValue >= 32768u ? static_cast<int64_t>(accYValue) - 65536LL : accYValue);
-            const uint32_t accZValue = (static_cast<uint32_t>(data[5])) | (static_cast<uint32_t>(data[6]) << 8);
-            packet.accZ = static_cast<int16_t>(accZValue >= 32768u ? static_cast<int64_t>(accZValue) - 65536LL : accZValue);
-            const uint32_t gyroXValue = (static_cast<uint32_t>(data[7])) | (static_cast<uint32_t>(data[8]) << 8);
-            packet.gyroX = static_cast<int16_t>(gyroXValue >= 32768u ? static_cast<int64_t>(gyroXValue) - 65536LL : gyroXValue);
-            const uint32_t gyroYValue = (static_cast<uint32_t>(data[9])) | (static_cast<uint32_t>(data[10]) << 8);
-            packet.gyroY = static_cast<int16_t>(gyroYValue >= 32768u ? static_cast<int64_t>(gyroYValue) - 65536LL : gyroYValue);
-            const uint32_t gyroZValue = (static_cast<uint32_t>(data[11])) | (static_cast<uint32_t>(data[12]) << 8);
-            packet.gyroZ = static_cast<int16_t>(gyroZValue >= 32768u ? static_cast<int64_t>(gyroZValue) - 65536LL : gyroZValue);
-            return packet;
-        }
         /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
@@ -1422,19 +729,6 @@ namespace uroa {
         }
 
         /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
-        DistanceRecord readDistanceRecord(const uint8_t *data) {
-            DistanceRecord packet{};
-            const uint32_t deviceTypeValue = (static_cast<uint32_t>(data[0]));
-            packet.deviceType = static_cast<uint8_t>(deviceTypeValue);
-            const uint32_t distanceMmValue = (static_cast<uint32_t>(data[1])) | (static_cast<uint32_t>(data[2]) << 8);
-            packet.distanceMm = static_cast<uint16_t>(distanceMmValue);
-            return packet;
-        }
-        /**
          * @brief 固定領域を書く。
          * @param out 出力領域。
          * @param packet 検証済みの値。
@@ -1451,104 +745,11 @@ namespace uroa {
 }
 namespace uroa {
     namespace wire {
-        bool validTransferHeader(const TransferHeader &packet) {
-            return true;
-        }
-        bool validTransferBegin(const TransferBegin &packet) {
-            return true;
-        }
-        bool validTransferResult(const TransferResult &packet) {
-            return true;
-        }
-        bool validBundleHeader(const BundleHeader &packet) {
-            return true;
-        }
-        bool validDebugHeader(const DebugHeader &packet) {
-            return true;
-        }
-        bool validDebugBegin(const DebugBegin &packet) {
-            return true;
-        }
-        bool validDebugData(const DebugData &packet) {
-            return true;
-        }
-        bool validDebugChunk(const DebugChunk &packet) {
-            return true;
-        }
-        bool validDebugExecute(const DebugExecute &packet) {
-            return true;
-        }
-        bool validDebugResult(const DebugResult &packet) {
-            return true;
-        }
-        bool validDebugEvent(const DebugEvent &packet) {
-            return true;
-        }
-        bool validSnapshotHeader(const SnapshotHeader &packet) {
-            return true;
-        }
-        bool validSnapshotValue(const SnapshotValue &packet) {
-            return true;
-        }
-        bool validStringHeader(const StringHeader &packet) {
-            return true;
-        }
-        bool validWord32(const Word32 &packet) {
-            return true;
-        }
-        bool validPc(const Pc &packet) {
-            return true;
-        }
-        bool validRemoteHeader(const RemoteHeader &packet) {
-            return true;
-        }
-        bool validRemoteBegin(const RemoteBegin &packet) {
-            return true;
-        }
-        bool validRemoteData(const RemoteData &packet) {
-            return true;
-        }
-        bool validRemoteAck(const RemoteAck &packet) {
-            return true;
-        }
-        bool validRemoteResult(const RemoteResult &packet) {
-            return true;
-        }
-        bool validRemoteEvent(const RemoteEvent &packet) {
-            return true;
-        }
-        bool validRegistryHeader(const RegistryHeader &packet) {
-            return true;
-        }
-        bool validRegistryRecord(const RegistryRecord &packet) {
-            return true;
-        }
-        bool validProvisionFrame(const ProvisionFrame &packet) {
-            return true;
-        }
-        bool validDeviceTag(const DeviceTag &packet) {
-            return true;
-        }
         bool validDeviceServo(const DeviceServo &packet) {
             return (packet.channel <= 15) && (packet.mode <= 1);
         }
-        bool validRemoteBeginBody(const RemoteBeginBody &packet) {
-            return true;
-        }
-        bool validOffset16(const Offset16 &packet) {
-            return true;
-        }
-        bool validDebugListBody(const DebugListBody &packet) {
-            return true;
-        }
-        bool validDebugChunkBody(const DebugChunkBody &packet) {
-            return true;
-        }
         bool validTelemetryHeader(const TelemetryHeader &packet) {
             return (packet.version == 3);
-        }
-        bool validImuRecord(const ImuRecord &packet) {
-            return true;
         }
         bool validDistanceRecord(const DistanceRecord &packet) {
             return (packet.distanceMm == 65535 || (packet.distanceMm >= 20 && packet.distanceMm <= 4000));
@@ -1601,7 +802,7 @@ namespace uroa {
             for (size_t index = 0; index < count; ++index) {
                 switch (kinds[index]) {
                     case 0:
-                        if (values.imuRecord.deviceType != 0 || !validImuRecord(values.imuRecord)) {
+                        if (values.imuRecord.deviceType != 0) {
                             return 0;
                         }
                         break;

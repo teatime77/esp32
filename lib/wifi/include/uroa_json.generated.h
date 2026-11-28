@@ -8,25 +8,6 @@
 namespace uroa {
     namespace jsonwire {
         /**
-         * @brief EndpointFieldsのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct EndpointFields {
-            const char *id; ///< JSONの値。
-            const char *name; ///< JSONの値。
-            const char *host; ///< JSONの値。
-            const char *ip; ///< JSONの値。
-            uint32_t port; ///< JSONの値。
-            uint32_t wsPort; ///< JSONの値。
-            uint32_t cameraPort; ///< JSONの値。
-            bool camera; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        EndpointFields readEndpointFields(JsonVariantConst input);
-        /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
          * @param id idの値。
@@ -40,37 +21,12 @@ namespace uroa {
          */
         void writeEndpointFields(JsonObject out, const String &id, const String &name, const String &host, const String &ip, uint32_t port, uint32_t wsPort, uint32_t cameraPort, bool camera);
         /**
-         * @brief ProvisionStatusのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct ProvisionStatus {
-            const char *state; ///< JSONの値。
-            const char *error; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        ProvisionStatus readProvisionStatus(JsonVariantConst input);
-        /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
          * @param state stateの値。
          * @param error errorの値。
          */
         void writeProvisionStatus(JsonObject out, const String &state, const String &error);
-        /**
-         * @brief SecretFieldのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct SecretField {
-            const char *key; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        SecretField readSecretField(JsonVariantConst input);
         /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
@@ -91,32 +47,6 @@ namespace uroa {
          */
         ProvisionQuery readProvisionQuery(JsonVariantConst input);
         /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         * @param op opの値。
-         * @param page pageの値。
-         */
-        void writeProvisionQuery(JsonObject out, const String &op, int32_t page);
-        /**
-         * @brief ProvisionListのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct ProvisionList {
-            const char *op; ///< JSONの値。
-            uint32_t page; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        ProvisionList readProvisionList(JsonVariantConst input);
-        /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         * @param page pageの値。
-         */
-        void writeProvisionList(JsonObject out, uint32_t page);
-        /**
          * @brief ProvisionConfigureのJSON値。文字列と配列はDocumentを借用する。
          */
         struct ProvisionConfigure {
@@ -130,27 +60,6 @@ namespace uroa {
          * @return 借用した値。寿命を越えて保存しない。
          */
         ProvisionConfigure readProvisionConfigure(JsonVariantConst input);
-        /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         * @param ssid ssidの値。
-         * @param password passwordの値。
-         */
-        void writeProvisionConfigure(JsonObject out, const String &ssid, const String &password);
-        /**
-         * @brief WifiNetworkRowのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct WifiNetworkRow {
-            const char *ssid; ///< JSONの値。
-            int32_t rssi; ///< JSONの値。
-            bool open; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        WifiNetworkRow readWifiNetworkRow(JsonVariantConst input);
         /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
@@ -173,13 +82,6 @@ namespace uroa {
          */
         HttpClaim readHttpClaim(JsonVariantConst input);
         /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         * @param challenge challengeの値。
-         * @param proof proofの値。
-         */
-        void writeHttpClaim(JsonObject out, const String &challenge, const String &proof);
-        /**
          * @brief SocketClaimのJSON値。文字列と配列はDocumentを借用する。
          */
         struct SocketClaim {
@@ -194,27 +96,6 @@ namespace uroa {
          * @return 借用した値。寿命を越えて保存しない。
          */
         SocketClaim readSocketClaim(JsonVariantConst input);
-        /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         * @param challenge challengeの値。
-         * @param proof proofの値。
-         * @param origin originの値。
-         */
-        void writeSocketClaim(JsonObject out, const String &challenge, const String &proof, const String &origin);
-        /**
-         * @brief ReadyFieldsのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct ReadyFields {
-            const char *session; ///< JSONの値。
-            const char *proof; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        ReadyFields readReadyFields(JsonVariantConst input);
         /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
@@ -241,51 +122,12 @@ namespace uroa {
         /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
-         * @param op opの値。
-         * @param session sessionの値。
-         * @param counter counterの値。
-         * @param data dataの値。
-         * @param mac macの値。
-         */
-        void writeSocketCommand(JsonObject out, const String &op, const String &session, uint32_t counter, const String &data, const String &mac);
-        /**
-         * @brief ReadReplyのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct ReadReply {
-            const char *session; ///< JSONの値。
-            const char *counter; ///< JSONの値。
-            const char *data; ///< JSONの値。
-            const char *proof; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        ReadReply readReadReply(JsonVariantConst input);
-        /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
          * @param session sessionの値。
          * @param counter counterの値。
          * @param data dataの値。
          * @param proof proofの値。
          */
         void writeReadReply(JsonObject out, const String &session, const String &counter, const String &data, const String &proof);
-        /**
-         * @brief SignedFieldsのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct SignedFields {
-            const char *session; ///< JSONの値。
-            const char *counter; ///< JSONの値。
-            const char *proof; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        SignedFields readSignedFields(JsonVariantConst input);
         /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
@@ -295,20 +137,6 @@ namespace uroa {
          */
         void writeSignedFields(JsonObject out, const String &session, const String &counter, const String &proof);
         /**
-         * @brief SocketPacketのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct SocketPacket {
-            const char *data; ///< JSONの値。
-            uint32_t counter; ///< JSONの値。
-            const char *proof; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        SocketPacket readSocketPacket(JsonVariantConst input);
-        /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
          * @param data dataの値。
@@ -316,96 +144,13 @@ namespace uroa {
          * @param proof proofの値。
          */
         void writeSocketPacket(JsonObject out, const String &data, uint32_t counter, const String &proof);
-        /**
-         * @brief EventsReplyのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct EventsReply {
-            JsonArrayConst packets; ///< JSONの値。
-            const char *session; ///< JSONの値。
-            const char *counter; ///< JSONの値。
-            const char *proof; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        EventsReply readEventsReply(JsonVariantConst input);
-        /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         * @param packets packetsの値。
-         * @param session sessionの値。
-         * @param counter counterの値。
-         * @param proof proofの値。
-         */
-        void writeEventsReply(JsonObject out, const String &packets, const String &session, const String &counter, const String &proof);
         extern const char AcceptedJson[]; ///< 宣言した固定JSON。
-        /**
-         * @brief AcceptedのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct Accepted {
-            bool accepted; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        Accepted readAccepted(JsonVariantConst input);
-        /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         */
-        void writeAccepted(JsonObject out);
-        /**
-         * @brief RawBytesのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct RawBytes {
-            const char *data; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        RawBytes readRawBytes(JsonVariantConst input);
-        /**
-         * @brief 宣言順のJSONフィールドを書く。
-         * @param out 出力オブジェクト。
-         * @param data dataの値。
-         */
-        void writeRawBytes(JsonObject out, const String &data);
-        /**
-         * @brief ChallengeFieldsのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct ChallengeFields {
-            const char *challenge; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        ChallengeFields readChallengeFields(JsonVariantConst input);
         /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。
          * @param challenge challengeの値。
          */
         void writeChallengeFields(JsonObject out, const String &challenge);
-        /**
-         * @brief ListPagingのJSON値。文字列と配列はDocumentを借用する。
-         */
-        struct ListPaging {
-            uint32_t pages; ///< JSONの値。
-        };
-        /**
-         * @brief Document内の値を借用して読む。
-         * @param input 解析済みJSON。
-         * @return 借用した値。寿命を越えて保存しない。
-         */
-        ListPaging readListPaging(JsonVariantConst input);
         /**
          * @brief 宣言順のJSONフィールドを書く。
          * @param out 出力オブジェクト。

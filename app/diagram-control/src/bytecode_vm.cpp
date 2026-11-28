@@ -59,16 +59,6 @@ namespace {
         return true;
     }
 
-    /**
-     * @brief little endianの32bit整数を書き込む。
-     * @param data 書込み可能な4バイト。
-     * @param value 書込む整数。
-     */
-    void write32(uint8_t *data, uint32_t value) {
-        for (size_t byte = 0; byte < 4; ++byte) {
-            data[byte] = uint8_t(value >> (byte * 8));
-        }
-    }
 
     /**
      * @brief 値をSnapshotの8バイトへ変換する。GC参照はclassIdだけを送り、生アドレス・本体IDを送らない。
@@ -1955,11 +1945,13 @@ const BytecodeVM::Value *BytecodeVM::debugValueAt(uint32_t index) const {
  * HeapReferenceはclassIdだけを送る。本体ID・メンバー・配列内容をSnapshotへ含めない。
  */
 size_t BytecodeVM::debugSnapshotLength() const {
-    if (state != State::Paused || sp > MaxStack || globalCount > MaxGlobals ||
-        (sp && !stack_) || (globalCount && !globals)) {
+    using namespace uroa::wire;
+    if (state != State::Paused || sp > MaxStack || globalCount > MaxGlobals || (sp && !stack_) ||
+        (globalCount && !globals)) {
         return 0;
     }
-    size_t length = 28 + 8 * (globalCount + sp);
+    size_t length = SnapshotHeaderLayout::ByteLength + Word32Layout::ByteLength +
+        SnapshotValueLayout::ByteLength * (globalCount + sp);
     const uint32_t count = debugValueCount();
     for (uint32_t index = 0; index < count; ++index) {
         const Value &current = *debugValueAt(index);
@@ -1974,10 +1966,11 @@ size_t BytecodeVM::debugSnapshotLength() const {
         const Value &value = current;
         const char *text = nullptr;
         size_t bytes = 0;
-        if (!stringBytes(value, text, bytes) || bytes > 256 * 1024 || length + 8 + bytes > 256 * 1024) {
+        if (!stringBytes(value, text, bytes) || bytes > 256 * 1024 ||
+            length + StringHeaderLayout::ByteLength + bytes > 256 * 1024) {
             return 0;
         }
-        length += 8 + bytes;
+        length += StringHeaderLayout::ByteLength + bytes;
     }
     return length;
 }
@@ -1991,20 +1984,22 @@ size_t BytecodeVM::debugSnapshotLength() const {
  * BPチェーンはReturnPc/SavedBpとdiagramのCALL表から復元する。値・文字列は同じ停止中のもの。
  */
 bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
+    using namespace uroa::wire;
     if (!data || length == 0 || length != debugSnapshotLength()) {
         return false;
     }
     std::memset(data, 0, length);
-    const uroa::wire::SnapshotHeader header{6, pauseReason, 8, pc, bp, sp, globalCount, sp};
+    const SnapshotHeader header{SnapshotHeaderLayout::versionDefault, pauseReason, SnapshotValueLayout::ByteLength, pc,
+        bp, sp, globalCount, sp};
     uroa::wire::writeSnapshotHeader(data, header);
     for (uint32_t index = 0; index < globalCount + sp; ++index) {
         const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
-        snapshotValue(data + 24 + index * 8, value);
+        snapshotValue(data + SnapshotHeaderLayout::ByteLength + index * SnapshotValueLayout::ByteLength, value);
     }
-    size_t offset = 24 + 8 * (globalCount + sp);
+    size_t offset = SnapshotHeaderLayout::ByteLength + SnapshotValueLayout::ByteLength * (globalCount + sp);
     uint32_t count = 0;
     const size_t countOffset = offset;
-    offset += 4;
+    offset += Word32Layout::ByteLength;
     for (uint32_t index = 0; index < debugValueCount(); ++index) {
         if (!firstDebugString(index)) {
             continue;
@@ -2012,13 +2007,13 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
         const Value &value = *debugValueAt(index);
         const char *text = nullptr;
         size_t bytes = 0;
-        if (!stringBytes(value, text, bytes) || offset + 8 + bytes > length) {
+        if (!stringBytes(value, text, bytes) || offset + StringHeaderLayout::ByteLength + bytes > length) {
             return false;
         }
         const uroa::wire::StringHeader entry{value.address, static_cast<uint32_t>(bytes)};
         uroa::wire::writeStringHeader(data + offset, entry);
-        std::memcpy(data + offset + 8, text, bytes);
-        offset += 8 + bytes;
+        std::memcpy(data + offset + StringHeaderLayout::ByteLength, text, bytes);
+        offset += StringHeaderLayout::ByteLength + bytes;
         ++count;
     }
     uroa::wire::writeWord32(data + countOffset, uroa::wire::Word32{count});

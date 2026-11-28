@@ -16,6 +16,10 @@
 using BytecodeFormat::Opcode;
 
 namespace {
+    using namespace uroa::wire::TransferCode;
+    using namespace uroa::wire::TransferOperation;
+    using namespace uroa::wire::TransferState;
+
     /**
      * @brief 長さ付きバイト列がUnicodeスカラー値のUTF-8表現か検証する。
      * @param data 文字列の先頭。NUL終端は要求しない。
@@ -126,7 +130,7 @@ void BytecodeReceiver::reject(Code code) {
     pending_.reset();
     receiving_ = false;
     sealed_ = false;
-    state_ = 3;
+    state_ = Failed;
     dirty_ = true;
 }
 
@@ -151,9 +155,10 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
         error_ = Ok;
         receiving_ = false;
         sealed_ = false;
-        state_ = 0;
+        state_ = Idle;
     }
-    if (length < 10 || length > MaxFrame || data[0] != 2) {
+    if (length < uroa::wire::TransferHeaderLayout::ByteLength || length > MaxFrame ||
+        data[uroa::wire::TransferHeaderLayout::version] != uroa::wire::TransferHeaderLayout::versionDefault) {
         reject(Format);
         xSemaphoreGive(lock_);
         return;
@@ -163,18 +168,18 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
     const uint16_t id = header.transfer;
     const uint16_t seq = header.sequence;
     const uint32_t pos = header.position;
-    if (op == 1 && id > transferId_ && seq == 1 && !deploymentPending) {
+    if (op == Begin && id > transferId_ && seq == 1 && !deploymentPending) {
         pending_.reset();
         transferId_ = id;
         sequence_ = 1;
-        operation_ = 1;
+        operation_ = Begin;
         error_ = Ok;
         received_ = 0;
         total_ = pos;
-        state_ = 1;
+        state_ = Receiving;
         sealed_ = false;
         receiving_ = false;
-        if (length != 14 || pos < 40 || pos > MaxBundle) {
+        if (length != uroa::wire::TransferBeginLayout::ByteLength || pos < 40 || pos > MaxBundle) {
             reject(Range);
         }
         else {
@@ -193,7 +198,7 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
         return;
     }
     // 古い転送と同じCOMMITの重複は処理せず、確定した結果を維持する。
-    if (id != transferId_ || error_ != Ok || (!receiving_ && op == 3) || sealed_) {
+    if (id != transferId_ || error_ != Ok || (!receiving_ && op == Commit) || sealed_) {
         xSemaphoreGive(lock_);
         return;
     }
@@ -203,16 +208,19 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
     else {
         sequence_ = seq;
         operation_ = op;
-        if (op == 2 && length > 10 && pos == received_ && length - 10 <= total_ - received_) {
-            std::memcpy(pending_.get() + received_, data + 10, length - 10);
-            received_ += length - 10;
+        if (op == Data && length > uroa::wire::TransferHeaderLayout::ByteLength && pos == received_ &&
+            length - uroa::wire::TransferHeaderLayout::ByteLength <= total_ - received_) {
+            std::memcpy(pending_.get() + received_, data + uroa::wire::TransferHeaderLayout::ByteLength,
+                length - uroa::wire::TransferHeaderLayout::ByteLength);
+            received_ += length - uroa::wire::TransferHeaderLayout::ByteLength;
             lastReceive_ = millis();
         }
-        else if (op == 3 && length == 10 && pos == total_ && received_ == total_) {
+        else if (op == Commit && length == uroa::wire::TransferHeaderLayout::ByteLength && pos == total_ &&
+            received_ == total_) {
             sealed_ = true;
             receiving_ = false;
         }
-        else if (op == 4 && length == 10 && pos == 0) {
+        else if (op == Abort && length == uroa::wire::TransferHeaderLayout::ByteLength && pos == 0) {
             reject(Start);
         }
         else {
@@ -242,8 +250,8 @@ void BytecodeReceiver::process(bool connected, ControlSession session) {
         transferId_ = 0;
         sequence_ = 0;
         error_ = Ok;
-        state_ = 0;
-        operation_ = 0;
+        state_ = Idle;
+        operation_ = None;
         received_ = 0;
         total_ = 0;
         dirty_ = true;
@@ -317,18 +325,21 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
     const uint32_t length = header.length;
     const uint32_t bpCount = header.breakpoints;
     const uint32_t pointsCount = header.points;
-    const size_t pcOffset = 24 + size_t(length) + length % 2;
-    if (header.signature != 0x32525055 || header.version != 1 || header.flags > 1 || length < 16 ||
-        length > MaxLength || bpCount > 4096 || pointsCount > 65536 ||
+    const size_t pcOffset = uroa::wire::BundleHeaderLayout::ByteLength + size_t(length) + length % 2;
+    if (header.signature != uroa::wire::BundleHeaderLayout::signatureDefault ||
+        header.version != uroa::wire::BundleHeaderLayout::versionDefault || header.flags > 1 || length < 16 ||
+        length > MaxLength || bpCount > uroa::wire::ProgramBundleLimits::Breakpoints ||
+        pointsCount > uroa::wire::ProgramBundleLimits::Points ||
         uint64_t(pcOffset) + uint64_t(bpCount + pointsCount) * 2 != total_) {
         return Format;
     }
-    if ((length % 2 && p[24 + length] != 0) || crc32(p + 24, length) != header.crc) {
+    if ((length % 2 && p[uroa::wire::BundleHeaderLayout::ByteLength + length] != 0) ||
+        crc32(p + uroa::wire::BundleHeaderLayout::ByteLength, length) != header.crc) {
         return Crc;
     }
-    const Code valid = validate(p + 24, length);
-    if (valid != Ok || !validatePcs(p + 24, length, p + pcOffset, bpCount) ||
-        !validatePcs(p + 24, length, p + pcOffset + bpCount * 2, pointsCount)) {
+    const Code valid = validate(p + uroa::wire::BundleHeaderLayout::ByteLength, length);
+    if (valid != Ok || !validatePcs(p + uroa::wire::BundleHeaderLayout::ByteLength, length, p + pcOffset, bpCount) ||
+        !validatePcs(p + uroa::wire::BundleHeaderLayout::ByteLength, length, p + pcOffset + bpCount * 2, pointsCount)) {
         return Invalid;
     }
     if (!current_(session_) || programRevision == UINT32_MAX) {
@@ -340,7 +351,7 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
     breakpointCount = bpCount;
     stepCount = pointsCount;
     // ESP32はlittle endian。new[]先頭+偶数offsetのPC列はuint16_tとして整列する。
-    std::memmove(pending_.get(), p + 24, length);
+    std::memmove(pending_.get(), p + uroa::wire::BundleHeaderLayout::ByteLength, length);
     program = std::move(pending_);
     breakpoints = reinterpret_cast<const uint16_t *>(program.get() + pcOffset);
     stepPoints = breakpoints + bpCount;
@@ -363,7 +374,7 @@ void BytecodeReceiver::completeDeployment(bool success) {
             reject(Start);
         }
         else {
-            state_ = startRequested ? 4 : 2;
+            state_ = startRequested ? Started : Ready;
             dirty_ = true;
         }
     }
@@ -391,7 +402,7 @@ void BytecodeReceiver::cancelDeployment() {
  */
 void BytecodeReceiver::publishResult() {
     uroa::wire::TransferResult packet{};
-    packet.version = 2;
+    packet.version = uroa::wire::TransferResultLayout::versionDefault;
     packet.frame = MaxFrame;
     ControlSession session;
     if (lock_) {
@@ -409,7 +420,7 @@ void BytecodeReceiver::publishResult() {
     }
     else {
         packet.code = Memory;
-        packet.state = 3;
+        packet.state = Failed;
     }
     uint8_t result[uroa::wire::TransferResultLayout::ByteLength];
     uroa::wire::writeTransferResult(result, packet);

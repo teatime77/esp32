@@ -9,7 +9,7 @@
 namespace uroa {
     namespace rpc {
         constexpr uint32_t ApiVersion = 1; ///< 呼出しAPIの版。既存Commandの版とは別。
-        constexpr char SchemaFingerprint[] = "e63a208abaad21d1e3eb8b386df79c77d692008c4b41a685e4afb2b99cb3007f"; ///< 生成物整合用。現在の通信で交換しない。
+        constexpr char SchemaFingerprint[] = "89f89326643c61ac3d1279c1cdf8d7cd68bbe6b9463e835a0f56ef7d5d846051"; ///< 生成物整合用。現在の通信で交換しない。
         /**
          * @brief 既存パケットの操作・結果番号。
          */
@@ -164,72 +164,6 @@ namespace uroa {
          * @param packet 呼出元が確定した幅・固定値の値。
          */
         void encodeStatusPacket(uint8_t *out, const StatusPacket &packet);
-
-        /**
-         * @brief 宣言順・little endian・パディングなしの位置。sizeofで通信サイズを求めない。
-         */
-        struct TelemetryHeaderLayout {
-            static constexpr size_t ByteLength = 8; ///< パケット全長。
-            static constexpr size_t version = 0; ///< 8bitの先頭位置。
-            static constexpr uint8_t versionValue = 3; ///< 通常形式の固定値。
-            static constexpr size_t flags = 1; ///< 8bitの先頭位置。
-            static constexpr size_t sequence = 2; ///< 16bitの先頭位置。
-            static constexpr size_t millis = 4; ///< 32bitの先頭位置。
-        };
-
-        /**
-         * @brief 固定長パケットの値。メモリー上の配置を直接送らない。
-         */
-        struct TelemetryHeader {
-            uint8_t version; ///< 8bitの値。
-            uint8_t flags; ///< 8bitの値。
-            uint16_t sequence; ///< 16bitの値。
-            uint32_t millis; ///< 32bitの値。
-        };
-
-        /**
-         * @brief 宣言順・little endian・パディングなしの位置。sizeofで通信サイズを求めない。
-         */
-        struct ImuRecordLayout {
-            static constexpr size_t ByteLength = 13; ///< パケット全長。
-            static constexpr size_t deviceType = 0; ///< 8bitの先頭位置。
-            static constexpr size_t accX = 1; ///< 16bitの先頭位置。
-            static constexpr size_t accY = 3; ///< 16bitの先頭位置。
-            static constexpr size_t accZ = 5; ///< 16bitの先頭位置。
-            static constexpr size_t gyroX = 7; ///< 16bitの先頭位置。
-            static constexpr size_t gyroY = 9; ///< 16bitの先頭位置。
-            static constexpr size_t gyroZ = 11; ///< 16bitの先頭位置。
-        };
-
-        /**
-         * @brief 固定長パケットの値。メモリー上の配置を直接送らない。
-         */
-        struct ImuRecord {
-            uint8_t deviceType; ///< 8bitの値。
-            int16_t accX; ///< 16bitの値。
-            int16_t accY; ///< 16bitの値。
-            int16_t accZ; ///< 16bitの値。
-            int16_t gyroX; ///< 16bitの値。
-            int16_t gyroY; ///< 16bitの値。
-            int16_t gyroZ; ///< 16bitの値。
-        };
-
-        /**
-         * @brief 宣言順・little endian・パディングなしの位置。sizeofで通信サイズを求めない。
-         */
-        struct DistanceRecordLayout {
-            static constexpr size_t ByteLength = 3; ///< パケット全長。
-            static constexpr size_t deviceType = 0; ///< 8bitの先頭位置。
-            static constexpr size_t distanceMm = 1; ///< 16bitの先頭位置。
-        };
-
-        /**
-         * @brief 固定長パケットの値。メモリー上の配置を直接送らない。
-         */
-        struct DistanceRecord {
-            uint8_t deviceType; ///< 8bitの値。
-            uint16_t distanceMm; ///< 16bitの値。
-        };
 
         /**
          * @brief 固定値とCHの条件に従ってStatusの値を作る。

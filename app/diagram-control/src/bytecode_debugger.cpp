@@ -13,6 +13,8 @@
 #include <new>
 
 namespace {
+    using namespace uroa::wire::DebugCode;
+    using namespace uroa::wire::DebugOperation;
 
     /**
      * @brief CRC-32/ISO-HDLC。
@@ -147,7 +149,7 @@ void BytecodeDebugger::process(bool enabled, ControlSession session) {
         revision_ = receiver_.programRevision;
         std::memset(event_, 0, sizeof event_);
         if (changedSession) {
-            operation_ = 0;
+            operation_ = None;
             reply(Ok);
         }
     }
@@ -231,8 +233,8 @@ bool BytecodeDebugger::installDeployment() {
  * @param extra 操作別値。
  */
 void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
-    const uroa::wire::DebugResult packet{1, operation_, requestId_, static_cast<uint8_t>(code),
-        static_cast<uint8_t>(vm_.state), 0, receiver_.programRevision, value, extra};
+    const uroa::wire::DebugResult packet{uroa::wire::DebugResultLayout::versionDefault, operation_, requestId_,
+        static_cast<uint8_t>(code), static_cast<uint8_t>(vm_.state), 0, receiver_.programRevision, value, extra};
     uroa::wire::writeDebugResult(result_, packet);
     transport_.publishDebugResult(result_, sizeof result_, session_);
 }
@@ -257,12 +259,12 @@ void BytecodeDebugger::handle(const Request &request) {
     requestId_ = id;
     operation_ = header.op;
     lastRequest_ = request;
-    if (header.version != 1 || operation_ < 1 || operation_ > 13) {
+    if (header.version != uroa::wire::DebugHeaderLayout::versionDefault || operation_ < Begin || operation_ > Out) {
         reply(Format);
         return;
     }
-    if (operation_ == 4) {
-        if (request.length != 8 || header.revision != 0) {
+    if (operation_ == Query) {
+        if (request.length != uroa::wire::DebugHeaderLayout::ByteLength || header.revision != 0) {
             reply(Format);
         }
         else {
@@ -274,8 +276,8 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Stale);
         return;
     }
-    if (operation_ == 5) {
-        if (request.length != 16) {
+    if (operation_ == Chunk) {
+        if (request.length != uroa::wire::DebugChunkLayout::ByteLength) {
             reply(Format);
             return;
         }
@@ -294,8 +296,8 @@ void BytecodeDebugger::handle(const Request &request) {
         }
         return;
     }
-    if (operation_ == 6) {
-        if (request.length != 8) {
+    if (operation_ == Clear) {
+        if (request.length != uroa::wire::DebugHeaderLayout::ByteLength) {
             reply(Format);
             return;
         }
@@ -303,8 +305,8 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Ok);
         return;
     }
-    if (operation_ >= 10) {
-        if (request.length != 12) {
+    if (operation_ >= Continue) {
+        if (request.length != uroa::wire::DebugExecuteLayout::ByteLength) {
             reply(Format);
             return;
         }
@@ -313,7 +315,7 @@ void BytecodeDebugger::handle(const Request &request) {
             reply(Stale);
             return;
         }
-        const auto action = static_cast<BytecodeVM::DebugAction>(operation_ - 10);
+        const auto action = static_cast<BytecodeVM::DebugAction>(operation_ - Continue);
         if (!vm_.resumeDebug(action)) {
             reply(Invalid);
             return;
@@ -328,8 +330,8 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Busy);
         return;
     }
-    const uint8_t transferOperation = operation_ >= 7 ? operation_ - 6 : operation_;
-    if (transferOperation == 1) {
+    const uint8_t transferOperation = operation_ >= PointsBegin ? operation_ - (PointsBegin - Begin) : operation_;
+    if (transferOperation == Begin) {
         if (request.length != uroa::wire::DebugBeginLayout::ByteLength) {
             reply(Invalid);
             return;
@@ -340,7 +342,8 @@ void BytecodeDebugger::handle(const Request &request) {
             return;
         }
         const uint32_t count = begin.count;
-        if (count > (operation_ == 7 ? 65536U : 4096U)) {
+        if (count > (operation_ == PointsBegin ? uroa::wire::ProgramBundleLimits::Points
+                                               : uroa::wire::ProgramBundleLimits::Breakpoints)) {
             reply(Range);
             return;
         }
@@ -353,7 +356,7 @@ void BytecodeDebugger::handle(const Request &request) {
             }
         }
         cancelTransfer();
-        pointsTransfer_ = operation_ == 7;
+        pointsTransfer_ = operation_ == PointsBegin;
         pending_ = std::move(pending);
         count_ = count;
         expectedCrc_ = begin.crc;
@@ -362,16 +365,18 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Ok);
         return;
     }
-    if (!receiving_ || pointsTransfer_ != (operation_ >= 7)) {
+    if (!receiving_ || pointsTransfer_ != (operation_ >= PointsBegin)) {
         reply(Order);
         return;
     }
-    if (transferOperation == 2) {
-        if (request.length < 14 || request.length > 20 || (request.length - 12) % 2 != 0) {
+    if (transferOperation == Data) {
+        if (request.length < uroa::wire::DebugDataLayout::ByteLength + uroa::wire::PcLayout::ByteLength ||
+            request.length > uroa::wire::DebugHeaderLayout::ByteLength + uroa::wire::DebugFrameLimits::Payload ||
+            (request.length - uroa::wire::DebugDataLayout::ByteLength) % 2 != 0) {
             reply(Format);
             return;
         }
-        const uint32_t count = (request.length - 12) / 2;
+        const uint32_t count = (request.length - uroa::wire::DebugDataLayout::ByteLength) / 2;
         if (uroa::wire::readDebugData(data).index != received_ || count > count_ - received_) {
             reply(Order);
             return;
@@ -391,7 +396,7 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Ok, received_);
         return;
     }
-    if (request.length != 8 || received_ != count_) {
+    if (request.length != uroa::wire::DebugHeaderLayout::ByteLength || received_ != count_) {
         reply(Order);
         return;
     }
@@ -414,9 +419,9 @@ void BytecodeDebugger::publishState() {
         return;
     }
     const uint32_t now = millis();
-    if (vm_.state == BytecodeVM::State::Running && uroa::wire::readDebugEvent(event_).version == 2 &&
-        uroa::wire::readDebugEvent(event_).state == uint8_t(vm_.state) &&
-        uroa::wire::readDebugEvent(event_).revision == receiver_.programRevision &&
+    const auto previous = uroa::wire::readDebugEvent(event_);
+    if (vm_.state == BytecodeVM::State::Running && previous.version == uroa::wire::DebugEventLayout::versionDefault &&
+        previous.state == uint8_t(vm_.state) && previous.revision == receiver_.programRevision &&
         uint32_t(now - lastProgressMs_) < 1000) {
         return;
     }
@@ -452,7 +457,8 @@ void BytecodeDebugger::publishState() {
         }
     }
     const bool paused = vm_.state == BytecodeVM::State::Paused;
-    const uroa::wire::DebugEvent packet{2, static_cast<uint8_t>(vm_.state), static_cast<uint8_t>(snapshotError_),
+    const uroa::wire::DebugEvent packet{uroa::wire::DebugEventLayout::versionDefault, static_cast<uint8_t>(vm_.state),
+        static_cast<uint8_t>(snapshotError_),
         static_cast<uint8_t>(vm_.state == BytecodeVM::State::Error ? uint8_t(vm_.error) : 0),
         paused                                      ? stopId_
             : vm_.state == BytecodeVM::State::Error ? vm_.errorPc

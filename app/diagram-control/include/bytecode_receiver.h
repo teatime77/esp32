@@ -3,6 +3,7 @@
  * @brief 一括転送をmutex付き領域へ蓄積し、loop()で検証・確定する。
  */
 #pragma once
+#include <uroa_wire.generated.h>
 #include <Arduino.h>
 #include <functional>
 #include <memory>
@@ -20,8 +21,11 @@
 class BytecodeReceiver {
     public:
     static constexpr size_t MaxLength = BytecodeFormat::MaxLength; ///< コード全体の上限。共通形式定義に従う。
-    static constexpr size_t MaxBundle = 24 + MaxLength + 4096 * 2 + 65536 * 2; ///< PC一覧込み上限。
-    static constexpr size_t MaxFrame = 1024; ///< Wi-Fiの最大フレーム。BLEは合意MTUに制限する。
+    static constexpr size_t MaxBundle = uroa::wire::BundleHeaderLayout::ByteLength + MaxLength +
+        (uroa::wire::ProgramBundleLimits::Breakpoints + uroa::wire::ProgramBundleLimits::Points) *
+            uroa::wire::PcLayout::ByteLength; ///< PC一覧込み上限。
+    static constexpr size_t MaxFrame = uroa::wire::TransferHeaderLayout::ByteLength +
+        uroa::wire::ProgramFrameLimits::Payload; ///< Wi-Fiの最大フレーム。BLEは合意MTUに制限する。
     std::unique_ptr<uint8_t[]> program; ///< loop()が確定するコードと末尾のPC一覧の所有領域。
     size_t programLength = 0; ///< コード部分だけの長さ。
     uint32_t programCrc32 = 0; ///< フラグ設定前のコードCRC。
@@ -68,7 +72,7 @@ class BytecodeReceiver {
     void publishResult();
 
     private:
-    enum Code : uint8_t { Ok, Format, Order, Range, Memory, Crc, Invalid, Timeout, Busy, Start }; ///< Result.code。
+    using Code = uroa::wire::TransferCode::Value; ///< Result.code。
     /**
      * @brief コード全体を検証する。
      * @param data コード。
@@ -96,7 +100,8 @@ class BytecodeReceiver {
      */
     void reject(Code code);
     SemaphoreHandle_t lock_ = nullptr; ///< 受信状態・領域・Resultの排他。
-    std::function<void(const uint8_t *, size_t, const ControlSession &)> publish_; ///< begin()で登録するResult配送先。受信器のmutexを解放してから呼ぶ。
+    std::function<void(const uint8_t *, size_t, const ControlSession &)>
+        publish_; ///< begin()で登録するResult配送先。受信器のmutexを解放してから呼ぶ。
     std::function<bool(const ControlSession &)> current_; ///< begin()で登録する現接続の照合処理。受信時と確定時に呼ぶ。
     std::unique_ptr<uint8_t[]> pending_; ///< 通信タスクが蓄積する未確定バンドルの所有領域。mutexで保護する。
     ControlSession session_{}; ///< 受信中の通信経路と接続世代。変更時は未完了受信を破棄する。
@@ -104,7 +109,7 @@ class BytecodeReceiver {
     uint16_t sequence_ = 0; ///< 最後に受理したフレームの連番。次の受信が直後の番号かを検査する。
     uint8_t operation_ = 0; ///< 最後に受理した操作番号。publishResult()がResultへ格納する。
     uint8_t state_ = 0; ///< Resultの状態番号。0=待機、1=受信、2=保持完了、3=失敗、4=開始完了。
-    Code error_ = Ok; ///< 現在の転送で最初に生じたエラー。reject()が後続エラーによる上書きを防ぐ。
+    Code error_ = Code::Ok; ///< 現在の転送で最初に生じたエラー。reject()が後続エラーによる上書きを防ぐ。
     uint32_t received_ = 0; ///< バンドルへコピー済みのバイト数。DATAのoffsetとCOMMIT時に照合する。
     uint32_t total_ = 0; ///< BEGINで指定されたバンドル全体のバイト数。MaxBundle以下に制限する。
     uint32_t expectedCrc_ = 0; ///< BEGINで指定されたバンドル全体のCRC-32。adopt()が照合する。

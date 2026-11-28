@@ -3,6 +3,7 @@
  * @brief BLE／Wi-Fiデバッグ要求のキュー、命令フラグと停止Snapshotをloop()で管理する。
  */
 #pragma once
+#include <uroa_wire.generated.h>
 #include <Arduino.h>
 #include <atomic>
 #include <memory>
@@ -59,15 +60,18 @@ class BytecodeDebugger {
     /**
      * @brief 専用ACKの結果番号。TypeScript側のdebugProtocol.errorsと共通。
      */
-    enum Code : uint8_t { Ok, Format, Order, Range, Memory, Crc, Invalid, Busy, Stale, Timeout };
+    using Code = uroa::wire::DebugCode::Value;
+
     /**
      * @brief 通信タスクから渡す固定長のコピー。
      */
     struct Request {
         ControlSession session{}; ///< 通信タスクが要求をコピーしたときの経路と接続世代。
         uint8_t length = 0; ///< bytes内の有効バイト数。enqueue()が8〜20バイトに制限する。
-        uint8_t bytes[20]{}; ///< 通信コールバックの入力からコピーした固定長の要求領域。
+        uint8_t bytes[uroa::wire::DebugHeaderLayout::ByteLength +
+            uroa::wire::DebugFrameLimits::Payload]{}; ///< 通信コールバックの入力からコピーした固定長の要求領域。
     };
+
     /**
      * @brief 要求を検査して処理する。
      * @param request 現接続の要求。
@@ -111,8 +115,10 @@ class BytecodeDebugger {
     Request lastRequest_; ///< 同一要求の再送を識別し、保持済みACKを再配送するための直前の要求。
     uint16_t requestId_ = 0; ///< 現在の接続で最後に受理した要求ID。handle()が単調増加を検査する。
     uint8_t operation_ = 0; ///< 直前に受理したデバッグ操作番号。reply()がACKへ格納する。
-    uint8_t result_[20]{}; ///< reply()が構築し、同じ要求の再送でも使う20バイトのACK。
-    uint8_t event_[20]{}; ///< 最後に配送した20バイトの状態イベント。publishState()が重複を除く。
+    uint8_t result_
+        [uroa::wire::DebugResultLayout::ByteLength]{}; ///< reply()が構築し、同じ要求の再送でも使う20バイトのACK。
+    uint8_t event_[uroa::wire::DebugEventLayout::
+            ByteLength]{}; ///< 最後に配送した20バイトの状態イベント。publishState()が重複を除く。
     uint32_t lastProgressMs_ = 0; ///< RunningのPC・命令数を最大1秒に1回公開する。
     bool receiving_ = false; ///< PC一覧の段階受信中か。handle()が開始し、確定・取消・期限切れで解除する。
     bool pointsTransfer_ = false; ///< 7/8/9ではステップ停止点、それ以外は行ブレークポイント。
@@ -126,5 +132,5 @@ class BytecodeDebugger {
     std::unique_ptr<uint8_t[]> snapshot_; ///< 一時停止時の不変Snapshotの所有領域。再開・Stop・接続変更で破棄する。
     uint32_t snapshotLength_ = 0; ///< snapshot_の有効バイト数。取得要求のoffset検査に使う。
     uint32_t snapshotCrc_ = 0; ///< 停止Snapshot全体のCRC-32。状態イベントへ格納する。
-    Code snapshotError_ = Ok; ///< Snapshotの確保・直列化結果。invalidateSnapshot()でOkへ戻す。
+    Code snapshotError_ = Code::Ok; ///< Snapshotの確保・直列化結果。invalidateSnapshot()でOkへ戻す。
 };

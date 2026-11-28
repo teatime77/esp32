@@ -40,7 +40,7 @@ BLE・Wi-FiのTelemetryはversion=3とし、8バイトヘッダーの後へ登�
 
 DeviceInfoはBLEとWi-Fiの両経路で登録する。機器一覧の形式は[device-telemetry.ts](../../uroa/diagram/ts/ble-wifi/device-telemetry.ts)、配送・完了の範囲は[control-connection.tsのsendDeviceInfo()](../../uroa/diagram/ts/ble-wifi/control-connection.ts)、内容検証・置換・停止と接続世代の照合は[main.cpp](../app/diagram-control/src/main.cpp)を正本とする。Wi-Fiの認証と配送は[dispatchControl()](../lib/wifi/src/uroa_wifi.cpp)を参照する。
 
-Protocolのcommand/statusは既存version=1、IMUはversion=3、Plotはversion=2を使う。NVS形式、Wi-Fiのポート80/81/82、HMAC認証、CORS、BLEの認証済み分割設定窓口は既存実装を引き継ぐ。
+Command/Statusは生成codecで既存version=1、IMUはversion=3、Plotはversion=2を使う。通常指令の型・番号・codecは[生成ヘッダー](../lib/protocol/include/uroa_rpc.generated.h)を直接参照し、Protocolの旧command/valid/status等の互換APIは削除した。Protocolは[優先STOPと測定値のTelemetry変換](../lib/protocol/include/uroa_protocol.h)を担当する。NVS形式、Wi-Fiのポート80/81/82、HMAC認証、CORS、BLEの認証済み分割設定窓口は既存実装を引き継ぐ。
 
 BLEはNimBLE-Arduino、Wi-FiはArduinoJsonとWebSockets、ServoはAdafruit PWM Servo DriverとBusIO、DisplayはAdafruit SSD1306・GFX・BusIOに依存する。バージョンは各`library.json`を参照する。IMU、Protocol、Plotには追加の外部ライブラリー依存はない。
 

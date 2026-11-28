@@ -25,6 +25,186 @@ namespace uroa {
             constexpr char rpcResult[] = "f364140e-00b0-4240-ba50-05ca45bf8abc"; ///< 既存GATT UUID。
             constexpr char rpcEvent[] = "f364140f-00b0-4240-ba50-05ca45bf8abc"; ///< 既存GATT UUID。
         }
+        namespace TransferOperation {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                None = 0,
+                Begin = 1,
+                Data = 2,
+                Commit = 3,
+                Abort = 4,
+            };
+        }
+        namespace TransferCode {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                Ok = 0,
+                Format = 1,
+                Order = 2,
+                Range = 3,
+                Memory = 4,
+                Crc = 5,
+                Invalid = 6,
+                Timeout = 7,
+                Busy = 8,
+                Start = 9,
+            };
+        }
+        namespace TransferState {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                Idle = 0,
+                Receiving = 1,
+                Ready = 2,
+                Failed = 3,
+                Started = 4,
+            };
+        }
+        namespace DebugCode {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                Ok = 0,
+                Format = 1,
+                Order = 2,
+                Range = 3,
+                Memory = 4,
+                Crc = 5,
+                Invalid = 6,
+                Busy = 7,
+                Stale = 8,
+                Timeout = 9,
+            };
+        }
+        namespace DebugOperation {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                None = 0,
+                Begin = 1,
+                Data = 2,
+                Commit = 3,
+                Query = 4,
+                Chunk = 5,
+                Clear = 6,
+                PointsBegin = 7,
+                PointsData = 8,
+                PointsCommit = 9,
+                Continue = 10,
+                Over = 11,
+                In = 12,
+                Out = 13,
+            };
+        }
+        namespace RemoteCode {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                Ok = 0,
+                Format = 1,
+                Order = 2,
+                Range = 3,
+                Busy = 4,
+                Mismatch = 5,
+                Timeout = 6,
+            };
+        }
+        namespace RemoteOperation {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                None = 0,
+                Begin = 1,
+                Data = 2,
+                Commit = 3,
+                Ack = 4,
+                End = 5,
+            };
+        }
+        namespace RemoteState {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                Unregistered = 0,
+                Receiving = 1,
+                Configured = 2,
+            };
+        }
+        namespace RemoteKind {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                Empty = 0,
+                Pending = 1,
+                Fault = 2,
+            };
+        }
+        namespace ProvisionOperation {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                Reset = 0,
+                Append = 1,
+                Commit = 2,
+            };
+        }
+        namespace DeviceKind {
+            /**
+             * @brief 既存通信の番号。生バイトの値はcodecが保持し、意味は所有者が検査する。
+             */
+            enum Value : uint8_t {
+                IMU6Axis = 0,
+                IMU9Axis = 1,
+                UltrasonicDistanceSensor = 2,
+                Camera = 3,
+                ServoMotor = 128,
+            };
+        }
+        namespace RegistryHeaderLimits {
+            constexpr size_t BaseHash = 32; ///< .protoの最大長・件数。
+            constexpr size_t RpcHash = 32; ///< .protoの最大長・件数。
+            constexpr size_t RegistryHash = 32; ///< .protoの最大長・件数。
+        }
+        namespace ProgramFrameLimits {
+            constexpr size_t Payload = 1014; ///< .protoの最大長・件数。
+        }
+        namespace ProgramBundleLimits {
+            constexpr size_t Image = 131072; ///< .protoの最大長・件数。
+            constexpr size_t Breakpoints = 4096; ///< .protoの最大長・件数。
+            constexpr size_t Points = 65536; ///< .protoの最大長・件数。
+        }
+        namespace DebugFrameLimits {
+            constexpr size_t Payload = 12; ///< .protoの最大長・件数。
+        }
+        namespace RemoteFrameLimits {
+            constexpr size_t Payload = 12; ///< .protoの最大長・件数。
+        }
+        namespace RegistryLimits {
+            constexpr size_t Records = 32; ///< .protoの最大長・件数。
+        }
+        namespace SnapshotStringLimits {
+            constexpr size_t Utf8 = 262144; ///< .protoの最大長・件数。
+        }
+        namespace SnapshotBodyLimits {
+            constexpr size_t Values = 2048; ///< .protoの最大長・件数。
+            constexpr size_t Strings = 2048; ///< .protoの最大長・件数。
+        }
+        namespace ProvisionBodyLimits {
+            constexpr size_t JsonUtf8 = 383; ///< .protoの最大長・件数。
+        }
         /**
          * @brief TransferHeaderの既存wire配置。
          */
@@ -53,12 +233,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         TransferHeader readTransferHeader(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 10バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeTransferHeader(uint8_t *out, const TransferHeader &packet);
 
         /**
          * @brief TransferBeginの既存wire配置。
@@ -90,12 +264,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         TransferBegin readTransferBegin(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 14バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeTransferBegin(uint8_t *out, const TransferBegin &packet);
 
         /**
          * @brief TransferResultの既存wire配置。
@@ -146,6 +314,7 @@ namespace uroa {
         struct BundleHeaderLayout {
             static constexpr size_t ByteLength = 24; ///< 固定領域の長さ。
             static constexpr size_t signature = 0; ///< フィールド位置。
+            static constexpr uint32_t signatureDefault = 844255317; ///< 宣言した既定値。
             static constexpr size_t version = 4; ///< フィールド位置。
             static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
             static constexpr size_t flags = 6; ///< フィールド位置。
@@ -172,12 +341,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         BundleHeader readBundleHeader(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 24バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeBundleHeader(uint8_t *out, const BundleHeader &packet);
 
         /**
          * @brief DebugHeaderの既存wire配置。
@@ -205,12 +368,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         DebugHeader readDebugHeader(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 8バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDebugHeader(uint8_t *out, const DebugHeader &packet);
 
         /**
          * @brief DebugBeginの既存wire配置。
@@ -244,12 +401,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         DebugBegin readDebugBegin(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 20バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDebugBegin(uint8_t *out, const DebugBegin &packet);
 
         /**
          * @brief DebugDataの既存wire配置。
@@ -279,12 +430,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         DebugData readDebugData(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 12バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDebugData(uint8_t *out, const DebugData &packet);
 
         /**
          * @brief DebugChunkの既存wire配置。
@@ -316,12 +461,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         DebugChunk readDebugChunk(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 16バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDebugChunk(uint8_t *out, const DebugChunk &packet);
 
         /**
          * @brief DebugExecuteの既存wire配置。
@@ -351,12 +490,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         DebugExecute readDebugExecute(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 12バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDebugExecute(uint8_t *out, const DebugExecute &packet);
 
         /**
          * @brief DebugResultの既存wire配置。
@@ -388,12 +521,6 @@ namespace uroa {
             uint32_t value; ///< wire上の値。
             uint32_t extra; ///< wire上の値。
         };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 20バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        DebugResult readDebugResult(const uint8_t *data);
         /**
          * @brief 固定長の値を書き込む。
          * @param out 20バイト以上の出力領域。
@@ -471,12 +598,6 @@ namespace uroa {
             uint32_t stack; ///< wire上の値。
         };
         /**
-         * @brief 検査済み領域を復号する。
-         * @param data 24バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        SnapshotHeader readSnapshotHeader(const uint8_t *data);
-        /**
          * @brief 固定長の値を書き込む。
          * @param out 24バイト以上の出力領域。
          * @param packet 幅とbytesの寿命を保証した値。
@@ -503,12 +624,6 @@ namespace uroa {
             uint32_t payload; ///< wire上の値。
         };
         /**
-         * @brief 検査済み領域を復号する。
-         * @param data 8バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        SnapshotValue readSnapshotValue(const uint8_t *data);
-        /**
          * @brief 固定長の値を書き込む。
          * @param out 8バイト以上の出力領域。
          * @param packet 幅とbytesの寿命を保証した値。
@@ -531,12 +646,6 @@ namespace uroa {
             uint32_t length; ///< wire上の値。
         };
         /**
-         * @brief 検査済み領域を復号する。
-         * @param data 8バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        StringHeader readStringHeader(const uint8_t *data);
-        /**
          * @brief 固定長の値を書き込む。
          * @param out 8バイト以上の出力領域。
          * @param packet 幅とbytesの寿命を保証した値。
@@ -556,12 +665,6 @@ namespace uroa {
         struct Word32 {
             uint32_t value; ///< wire上の値。
         };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 4バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        Word32 readWord32(const uint8_t *data);
         /**
          * @brief 固定長の値を書き込む。
          * @param out 4バイト以上の出力領域。
@@ -588,12 +691,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         Pc readPc(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 2バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writePc(uint8_t *out, const Pc &packet);
 
         /**
          * @brief RemoteHeaderの既存wire配置。
@@ -621,12 +718,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         RemoteHeader readRemoteHeader(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 8バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeRemoteHeader(uint8_t *out, const RemoteHeader &packet);
 
         /**
          * @brief RemoteBeginの既存wire配置。
@@ -658,12 +749,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         RemoteBegin readRemoteBegin(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 14バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeRemoteBegin(uint8_t *out, const RemoteBegin &packet);
 
         /**
          * @brief RemoteDataの既存wire配置。
@@ -693,12 +778,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         RemoteData readRemoteData(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 10バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeRemoteData(uint8_t *out, const RemoteData &packet);
 
         /**
          * @brief RemoteAckの既存wire配置。
@@ -728,12 +807,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         RemoteAck readRemoteAck(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 12バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeRemoteAck(uint8_t *out, const RemoteAck &packet);
 
         /**
          * @brief RemoteResultの既存wire配置。
@@ -765,12 +838,6 @@ namespace uroa {
             uint32_t reserved; ///< wire上の値。
             uint32_t extra; ///< wire上の値。
         };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 20バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        RemoteResult readRemoteResult(const uint8_t *data);
         /**
          * @brief 固定長の値を書き込む。
          * @param out 20バイト以上の出力領域。
@@ -809,12 +876,6 @@ namespace uroa {
             int32_t value; ///< wire上の値。
         };
         /**
-         * @brief 検査済み領域を復号する。
-         * @param data 20バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        RemoteEvent readRemoteEvent(const uint8_t *data);
-        /**
          * @brief 固定長の値を書き込む。
          * @param out 20バイト以上の出力領域。
          * @param packet 幅とbytesの寿命を保証した値。
@@ -851,12 +912,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         RegistryHeader readRegistryHeader(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 100バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeRegistryHeader(uint8_t *out, const RegistryHeader &packet);
 
         /**
          * @brief RegistryRecordの既存wire配置。
@@ -887,12 +942,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         RegistryRecord readRegistryRecord(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 10バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeRegistryRecord(uint8_t *out, const RegistryRecord &packet);
 
         /**
          * @brief ProvisionFrameの既存wire配置。
@@ -913,12 +962,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         ProvisionFrame readProvisionFrame(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 1バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeProvisionFrame(uint8_t *out, const ProvisionFrame &packet);
 
         /**
          * @brief DeviceTagの既存wire配置。
@@ -939,12 +982,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         DeviceTag readDeviceTag(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 1バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDeviceTag(uint8_t *out, const DeviceTag &packet);
 
         /**
          * @brief DeviceServoの既存wire配置。
@@ -971,124 +1008,6 @@ namespace uroa {
          * @return bytesはdataと同じ寿命の借用。
          */
         DeviceServo readDeviceServo(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 3バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDeviceServo(uint8_t *out, const DeviceServo &packet);
-
-        /**
-         * @brief RemoteBeginBodyの既存wire配置。
-         */
-        struct RemoteBeginBodyLayout {
-            static constexpr size_t ByteLength = 6; ///< 固定領域の長さ。
-            static constexpr size_t total = 0; ///< フィールド位置。
-            static constexpr size_t crc = 2; ///< フィールド位置。
-        };
-        /**
-         * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
-         */
-        struct RemoteBeginBody {
-            uint16_t total; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
-        };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 6バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        RemoteBeginBody readRemoteBeginBody(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 6バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeRemoteBeginBody(uint8_t *out, const RemoteBeginBody &packet);
-
-        /**
-         * @brief Offset16の既存wire配置。
-         */
-        struct Offset16Layout {
-            static constexpr size_t ByteLength = 2; ///< 固定領域の長さ。
-            static constexpr size_t value = 0; ///< フィールド位置。
-        };
-        /**
-         * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
-         */
-        struct Offset16 {
-            uint16_t value; ///< wire上の値。
-        };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 2バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        Offset16 readOffset16(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 2バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeOffset16(uint8_t *out, const Offset16 &packet);
-
-        /**
-         * @brief DebugListBodyの既存wire配置。
-         */
-        struct DebugListBodyLayout {
-            static constexpr size_t ByteLength = 12; ///< 固定領域の長さ。
-            static constexpr size_t count = 0; ///< フィールド位置。
-            static constexpr size_t crc = 4; ///< フィールド位置。
-            static constexpr size_t imageCrc = 8; ///< フィールド位置。
-        };
-        /**
-         * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
-         */
-        struct DebugListBody {
-            uint32_t count; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
-            uint32_t imageCrc; ///< wire上の値。
-        };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 12バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        DebugListBody readDebugListBody(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 12バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDebugListBody(uint8_t *out, const DebugListBody &packet);
-
-        /**
-         * @brief DebugChunkBodyの既存wire配置。
-         */
-        struct DebugChunkBodyLayout {
-            static constexpr size_t ByteLength = 8; ///< 固定領域の長さ。
-            static constexpr size_t stopId = 0; ///< フィールド位置。
-            static constexpr size_t offset = 4; ///< フィールド位置。
-        };
-        /**
-         * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
-         */
-        struct DebugChunkBody {
-            uint32_t stopId; ///< wire上の値。
-            uint32_t offset; ///< wire上の値。
-        };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 8バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        DebugChunkBody readDebugChunkBody(const uint8_t *data);
-        /**
-         * @brief 固定長の値を書き込む。
-         * @param out 8バイト以上の出力領域。
-         * @param packet 幅とbytesの寿命を保証した値。
-         */
-        void writeDebugChunkBody(uint8_t *out, const DebugChunkBody &packet);
 
         /**
          * @brief TelemetryHeaderの既存wire配置。
@@ -1110,12 +1029,6 @@ namespace uroa {
             uint16_t sequence; ///< wire上の値。
             uint32_t millis; ///< wire上の値。
         };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 8バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        TelemetryHeader readTelemetryHeader(const uint8_t *data);
         /**
          * @brief 固定長の値を書き込む。
          * @param out 8バイト以上の出力領域。
@@ -1149,12 +1062,6 @@ namespace uroa {
             int16_t gyroZ; ///< wire上の値。
         };
         /**
-         * @brief 検査済み領域を復号する。
-         * @param data 13バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        ImuRecord readImuRecord(const uint8_t *data);
-        /**
          * @brief 固定長の値を書き込む。
          * @param out 13バイト以上の出力領域。
          * @param packet 幅とbytesの寿命を保証した値。
@@ -1180,12 +1087,6 @@ namespace uroa {
             uint16_t distanceMm; ///< wire上の値。
         };
         /**
-         * @brief 検査済み領域を復号する。
-         * @param data 3バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        DistanceRecord readDistanceRecord(const uint8_t *data);
-        /**
          * @brief 固定長の値を書き込む。
          * @param out 3バイト以上の出力領域。
          * @param packet 幅とbytesの寿命を保証した値。
@@ -1201,187 +1102,7 @@ namespace uroa {
          * @param packet 復号した値。
          * @return wire上の値が有効ならtrue。
          */
-        bool validTransferHeader(const TransferHeader &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validTransferBegin(const TransferBegin &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validTransferResult(const TransferResult &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validBundleHeader(const BundleHeader &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugHeader(const DebugHeader &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugBegin(const DebugBegin &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugData(const DebugData &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugChunk(const DebugChunk &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugExecute(const DebugExecute &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugResult(const DebugResult &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugEvent(const DebugEvent &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validSnapshotHeader(const SnapshotHeader &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validSnapshotValue(const SnapshotValue &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validStringHeader(const StringHeader &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validWord32(const Word32 &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validPc(const Pc &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRemoteHeader(const RemoteHeader &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRemoteBegin(const RemoteBegin &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRemoteData(const RemoteData &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRemoteAck(const RemoteAck &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRemoteResult(const RemoteResult &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRemoteEvent(const RemoteEvent &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRegistryHeader(const RegistryHeader &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRegistryRecord(const RegistryRecord &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validProvisionFrame(const ProvisionFrame &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDeviceTag(const DeviceTag &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
         bool validDeviceServo(const DeviceServo &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validRemoteBeginBody(const RemoteBeginBody &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validOffset16(const Offset16 &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugListBody(const DebugListBody &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
-        bool validDebugChunkBody(const DebugChunkBody &packet);
         /**
          * @brief 生成元の固定値・範囲・予約値を検査する。
          * @param packet 復号した値。
@@ -1393,19 +1114,21 @@ namespace uroa {
          * @param packet 復号した値。
          * @return wire上の値が有効ならtrue。
          */
-        bool validImuRecord(const ImuRecord &packet);
-        /**
-         * @brief 生成元の固定値・範囲・予約値を検査する。
-         * @param packet 復号した値。
-         * @return wire上の値が有効ならtrue。
-         */
         bool validDistanceRecord(const DistanceRecord &packet);
+        namespace DeviceInfoRecordsLimits {
+            constexpr size_t MaxRecords = 20; ///< 教材の登録件数上限。
+            constexpr size_t MaxBytes = 20; ///< 教材の列全体の上限。
+        }
         /**
          * @brief 種別からレコード長を求める。
          * @param kind 種別。
          * @return 不明な種別なら0。
          */
         size_t DeviceInfoRecordsRecordLength(uint8_t kind);
+        namespace TelemetryRecordsLimits {
+            constexpr size_t MaxRecords = 20; ///< 教材の登録件数上限。
+            constexpr size_t MaxBytes = 268; ///< 教材の列全体の上限。
+        }
         /**
          * @brief 種別からレコード長を求める。
          * @param kind 種別。

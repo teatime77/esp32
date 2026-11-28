@@ -8,18 +8,6 @@
 #include <new>
 namespace uroa {
     namespace jsonwire {
-        EndpointFields readEndpointFields(JsonVariantConst input) {
-            EndpointFields value{};
-            value.id = input["id"] | "";
-            value.name = input["name"] | "";
-            value.host = input["host"] | "";
-            value.ip = input["ip"] | "";
-            value.port = input["port"] | uint32_t(0);
-            value.wsPort = input["wsPort"] | uint32_t(0);
-            value.cameraPort = input["cameraPort"] | uint32_t(0);
-            value.camera = input["camera"] | false;
-            return value;
-        }
         void writeEndpointFields(JsonObject out, const String &id, const String &name, const String &host, const String &ip, uint32_t port, uint32_t wsPort, uint32_t cameraPort, bool camera) {
             out["id"] = id;
             out["name"] = name;
@@ -30,20 +18,9 @@ namespace uroa {
             out["cameraPort"] = cameraPort;
             out["camera"] = camera;
         }
-        ProvisionStatus readProvisionStatus(JsonVariantConst input) {
-            ProvisionStatus value{};
-            value.state = input["state"] | "";
-            value.error = input["error"] | "";
-            return value;
-        }
         void writeProvisionStatus(JsonObject out, const String &state, const String &error) {
             out["state"] = state;
             out["error"] = error;
-        }
-        SecretField readSecretField(JsonVariantConst input) {
-            SecretField value{};
-            value.key = input["key"] | "";
-            return value;
         }
         void writeSecretField(JsonObject out, const String &key) {
             out["key"] = key;
@@ -54,37 +31,11 @@ namespace uroa {
             value.page = input["page"] | int32_t(0);
             return value;
         }
-        void writeProvisionQuery(JsonObject out, const String &op, int32_t page) {
-            out["op"] = op;
-            out["page"] = page;
-        }
-        ProvisionList readProvisionList(JsonVariantConst input) {
-            ProvisionList value{};
-            value.op = input["op"] | "";
-            value.page = input["page"] | uint32_t(0);
-            return value;
-        }
-        void writeProvisionList(JsonObject out, uint32_t page) {
-            out["op"] = "list";
-            out["page"] = page;
-        }
         ProvisionConfigure readProvisionConfigure(JsonVariantConst input) {
             ProvisionConfigure value{};
             value.op = input["op"] | "";
             value.ssid = input["ssid"] | "";
             value.password = input["password"] | "";
-            return value;
-        }
-        void writeProvisionConfigure(JsonObject out, const String &ssid, const String &password) {
-            out["op"] = "configure";
-            out["ssid"] = ssid;
-            out["password"] = password;
-        }
-        WifiNetworkRow readWifiNetworkRow(JsonVariantConst input) {
-            WifiNetworkRow value{};
-            value.ssid = input["ssid"] | "";
-            value.rssi = input["rssi"] | int32_t(0);
-            value.open = input["open"] | false;
             return value;
         }
         void writeWifiNetworkRow(JsonObject out, const String &ssid, int32_t rssi, bool open) {
@@ -98,28 +49,12 @@ namespace uroa {
             value.proof = input["proof"] | "";
             return value;
         }
-        void writeHttpClaim(JsonObject out, const String &challenge, const String &proof) {
-            out["challenge"] = challenge;
-            out["proof"] = proof;
-        }
         SocketClaim readSocketClaim(JsonVariantConst input) {
             SocketClaim value{};
             value.op = input["op"] | "";
             value.challenge = input["challenge"] | "";
             value.proof = input["proof"] | "";
             value.origin = input["origin"] | "";
-            return value;
-        }
-        void writeSocketClaim(JsonObject out, const String &challenge, const String &proof, const String &origin) {
-            out["op"] = "claim";
-            out["challenge"] = challenge;
-            out["proof"] = proof;
-            out["origin"] = origin;
-        }
-        ReadyFields readReadyFields(JsonVariantConst input) {
-            ReadyFields value{};
-            value.session = input["session"] | "";
-            value.proof = input["proof"] | "";
             return value;
         }
         void writeReadyFields(JsonObject out, const String &session, const String &proof) {
@@ -135,94 +70,25 @@ namespace uroa {
             value.mac = input["mac"] | "";
             return value;
         }
-        void writeSocketCommand(JsonObject out, const String &op, const String &session, uint32_t counter, const String &data, const String &mac) {
-            out["op"] = op;
-            out["session"] = session;
-            out["counter"] = counter;
-            out["data"] = data;
-            out["mac"] = mac;
-        }
-        ReadReply readReadReply(JsonVariantConst input) {
-            ReadReply value{};
-            value.session = input["session"] | "";
-            value.counter = input["counter"] | "";
-            value.data = input["data"] | "";
-            value.proof = input["proof"] | "";
-            return value;
-        }
         void writeReadReply(JsonObject out, const String &session, const String &counter, const String &data, const String &proof) {
             out["session"] = session;
             out["counter"] = counter;
             out["data"] = data;
             out["proof"] = proof;
         }
-        SignedFields readSignedFields(JsonVariantConst input) {
-            SignedFields value{};
-            value.session = input["session"] | "";
-            value.counter = input["counter"] | "";
-            value.proof = input["proof"] | "";
-            return value;
-        }
         void writeSignedFields(JsonObject out, const String &session, const String &counter, const String &proof) {
             out["session"] = session;
             out["counter"] = counter;
             out["proof"] = proof;
-        }
-        SocketPacket readSocketPacket(JsonVariantConst input) {
-            SocketPacket value{};
-            value.data = input["data"] | "";
-            value.counter = input["counter"] | uint32_t(0);
-            value.proof = input["proof"] | "";
-            return value;
         }
         void writeSocketPacket(JsonObject out, const String &data, uint32_t counter, const String &proof) {
             out["data"] = data;
             out["counter"] = counter;
             out["proof"] = proof;
         }
-        EventsReply readEventsReply(JsonVariantConst input) {
-            EventsReply value{};
-            value.packets = input["packets"].as<JsonArrayConst>();
-            value.session = input["session"] | "";
-            value.counter = input["counter"] | "";
-            value.proof = input["proof"] | "";
-            return value;
-        }
-        void writeEventsReply(JsonObject out, const String &packets, const String &session, const String &counter, const String &proof) {
-            out["packets"] = packets;
-            out["session"] = session;
-            out["counter"] = counter;
-            out["proof"] = proof;
-        }
         const char AcceptedJson[] = "{\"accepted\":true}";
-        Accepted readAccepted(JsonVariantConst input) {
-            Accepted value{};
-            value.accepted = input["accepted"] | false;
-            return value;
-        }
-        void writeAccepted(JsonObject out) {
-            out["accepted"] = true;
-        }
-        RawBytes readRawBytes(JsonVariantConst input) {
-            RawBytes value{};
-            value.data = input["data"] | "";
-            return value;
-        }
-        void writeRawBytes(JsonObject out, const String &data) {
-            out["data"] = data;
-        }
-        ChallengeFields readChallengeFields(JsonVariantConst input) {
-            ChallengeFields value{};
-            value.challenge = input["challenge"] | "";
-            return value;
-        }
         void writeChallengeFields(JsonObject out, const String &challenge) {
             out["challenge"] = challenge;
-        }
-        ListPaging readListPaging(JsonVariantConst input) {
-            ListPaging value{};
-            value.pages = input["pages"] | uint32_t(0);
-            return value;
         }
         void writeListPaging(JsonObject out, uint32_t pages) {
             out["pages"] = pages;

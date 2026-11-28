@@ -1,6 +1,6 @@
 # UroaBLE
 
-BLE初期応答・MTU通知・設定ヘッダーの読み書きは[wire.proto](../../../uroa/diagram/rpc/wire.proto)の生成codecを使う。教材の`lib_deps`には既存の`UroaProtocol`も含める。GATTの所有・暗号化・認証・コピー配送は[uroa_ble.cpp](src/uroa_ble.cpp)が担当する。
+機器一覧の上限と種別を含む通信番号は生成定義を参照する。BLE初期応答・MTU通知・設定ヘッダーの読み書きは[wire.proto](../../../uroa/diagram/rpc/wire.proto)の生成codecを使う。教材の`lib_deps`には既存の`UroaProtocol`も含める。GATTの所有・暗号化・認証・コピー配送は[uroa_ble.cpp](src/uroa_ble.cpp)が担当する。
 
 ResultとDebug Eventの通信タスク・loop()間の排他・GATT反映は[uroa_ble.cppのonRead()](src/uroa_ble.cpp)、一括転送のフレーム・サイズ・開始条件は[転送仕様コメント](../../../uroa/diagram/ts/ble-wifi/bytecode-transfer.ts)、実行進捗のEventは[デバッグ通信の仕様コメント](../../../uroa/diagram/ts/ble-wifi/debug-protocol.ts)を参照する。
 

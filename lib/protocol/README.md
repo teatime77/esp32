@@ -1,16 +1,13 @@
 # UroaProtocol
 
-`uroa_protocol.h`の`uroa::Protocol`は、protocol v1と機器種別付きTelemetry version=3の読み書きを担当する。Arduino・BLE・Wi-Fiには依存しない。
+`uroa_protocol.h`の`uroa::Protocol`は、優先STOPの判定と、測定値を機器種別付きTelemetry version=3へ渡す処理を担当する。Arduino・BLE・Wi-Fiには依存しない。
 
 操作番号・固定長配置と、指定方向のcodec・通常形式検査は[device.proto](../../../uroa/diagram/rpc/device.proto)から生成する。[uroa_rpc.generated.h](include/uroa_rpc.generated.h)と[uroa_rpc.generated.cpp](src/uroa_rpc.generated.cpp)を手動編集しない。生成・照合・ビルドは[検証記録](../../docs/build-and-test.md)を参照する。生成済みC++を含めるため、ESP32単独のビルドにNode.jsやProtobufランタイムは不要。
 
-- `command(data, length)`は生成codecで復号した値型を返す。通信サイズと不正入力の扱いは[仕様コメント](include/uroa_protocol.h)を参照する。
-- `valid(command)`はversion、reserved、opcodeを検査する。CH・値・時間の検査は教材／機器側で行う。
-- PythonBlockの開始・停止で使う操作の契約は[Opの仕様コメント](include/uroa_protocol.h)、教材側の処理は[main.cpp](../../app/diagram-control/src/main.cpp)を参照する。
-- `urgentStop(data, length)`は従来互換の優先STOP判定。reserved等を検査する通常経路とは意図的に分かれている。
-- `status(out, ...)`には12バイト以上の出力領域を渡す。
-- Statusの値の組立ても生成した`makeStatusPacket()`へ委譲する。通常指令の振分け・通知は教材の[生成サービス](../../app/diagram-control/include/control_rpc.generated.h)を使い、機器状態の取得とloop()の実行責任は教材側へ残す。
-- Command復号・Status符号化に加え、Telemetry全体の検査と組立ても生成codecへ接続した。IMU・距離の値、混在列と制約の正本は[device.proto](../../../uroa/diagram/rpc/device.proto)・[wire.proto](../../../uroa/diagram/rpc/wire.proto)。[uroa_wire.generated.h](include/uroa_wire.generated.h)・[実装](src/uroa_wire.generated.cpp)も手動編集しない。
+- Commandの値型・復号・通常形式検査とStatus作成は、[uroa_rpc.generated.h](include/uroa_rpc.generated.h)の生成APIを直接使う。Protocolの旧command/valid/status・汎用read/write・Op/Codeの互換窓口は生成化6で削除した。
+- 通常指令の受理・振分け・応答は教材の[生成サービス](../../app/diagram-control/include/control_rpc.generated.h)、loop()での機器・VM処理は[main.cpp](../../app/diagram-control/src/main.cpp)を参照する。
+- `urgentStop(data, length)`の条件は[仕様コメント](include/uroa_protocol.h)を参照する。通常の形式検査と分けて維持する。
+- Telemetryの値・混在列・制約と転送等の固定領域は[device.proto](../../../uroa/diagram/rpc/device.proto)・[wire.proto](../../../uroa/diagram/rpc/wire.proto)から[uroa_wire.generated.h](include/uroa_wire.generated.h)・[実装](src/uroa_wire.generated.cpp)へ一度だけ生成する。必要な方向だけを出力し、生成物は手動編集しない。
 - `deviceTelemetryLength(sensorTypes, sensorCount)`は、サーボを除いたDeviceInfo順のセンサー種別から必要な通知長を計算する。未対応種別・不正な配列・サイズのオーバーフローでは0を返す。センサー0件はヘッダー8バイト。
 - `deviceTelemetry(out, capacity, flags, sequence, now, sensorTypes, sensorCount, imuRaw, distanceMm)`はversion=3のヘッダーと、指定順のIMU（種別0・13バイト）／超音波距離（種別2・3バイト）を連結する。IMUの14バイト生データと距離は呼出側が測定して渡し、同種別の複数レコードでは同じ物理センサーの結果を共有する。全引数と容量を検査してから書く。成功時は使用バイト数、引数不正・未対応種別・容量不足では0を返し、出力を変更しない。IMUを含まなければ`imuRaw=nullptr`でよい。
 
@@ -20,7 +17,7 @@
 
 ## 速度操作の拡張（0.3.0以降）
 
-version=1の10byte指令へ`ARM_SPEED=8`（value=0・duration=0）と`SET_SPEED=9`（value=符号付き0.01%、−10000〜10000・duration=0）を追加する。負数はlittle endianの2の補数。`readSigned16()`で読み出す。既存の操作1〜7、UUID、サイズ、角度の単位は維持する。
+version=1の10byte指令へ`ARM_SPEED=8`（value=0・duration=0）と`SET_SPEED=9`（value=符号付き0.01%、−10000〜10000・duration=0）を追加する。負数はlittle endianの2の補数。符号変換は生成した通常指令の振分けで行う。既存の操作1〜7、UUID、サイズ、角度の単位は維持する。
 
 12byte Statusのflags bit4（`FLAG_SPEED=0x10`）は指定CHの速度モードを示す。この場合current/targetは符号付き0.01%で読み、残り時間は0。角度モードでは従来どおり符号なし0.01度。コード7はモード不一致で、無効化してから別モードで有効化する。
 

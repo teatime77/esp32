@@ -5,6 +5,7 @@
  * 通信コールバックはenqueue()だけを呼び、VM・登録表・要求の操作はloop()へ集約する。
  */
 #pragma once
+#include <uroa_wire.generated.h>
 #include "bytecode_vm.h"
 #include "control_transport.h"
 #include <atomic>
@@ -56,40 +57,14 @@ class BytecodeRpc {
     void stop();
 
     private:
-    static constexpr uint8_t ProtocolVersion = 1; ///< BLE専用RPCの版。
-    static constexpr size_t MaxBindings = 32; ///< コンストラクタも含む動的nativeの上限。
-    static constexpr size_t MaxConfig = 100 + 10 * MaxBindings; ///< 署名・指紋登録の上限。
+    static constexpr uint8_t ProtocolVersion = uroa::wire::RemoteHeaderLayout::versionDefault; ///< BLE専用RPCの版。
+    static constexpr size_t MaxBindings =
+        uroa::wire::RegistryLimits::Records; ///< コンストラクタも含む動的nativeの上限。
+    static constexpr size_t MaxConfig = uroa::wire::RegistryHeaderLayout::ByteLength +
+        uroa::wire::RegistryRecordLayout::ByteLength * MaxBindings; ///< 署名・指紋登録の上限。
     static constexpr size_t MaxRequests = 8; ///< ブラウザ受付未確認の要求数上限。
 
-    enum Code : uint8_t {
-        Ok,
-        Format,
-        Order,
-        Range,
-        Busy,
-        Mismatch,
-        Timeout
-    }; ///< RPC専用の受付結果。
-
-    enum Operation : uint8_t {
-        Begin = 1,
-        Data,
-        Commit,
-        Ack,
-        End
-    }; ///< Control操作。
-
-    enum ConfigState : uint8_t {
-        Unregistered,
-        Receiving,
-        Configured
-    }; ///< Resultの登録状態。
-
-    enum EventKind : uint8_t {
-        Empty,
-        Pending,
-        Fault
-    }; ///< Eventの種別。
+    using Code = uroa::wire::RemoteCode::Value; ///< RPC専用の受付結果。
 
     /**
      * @brief 通信タスクから渡す最大20バイトのフレーム。
@@ -159,7 +134,7 @@ class BytecodeRpc {
     bool receiving_ = false; ///< 設定を受信中か。
     bool configured_ = false; ///< COMMIT済みか。
     bool used_ = false; ///< 設定をVM開始へ使用済みか。
-    Code fault_ = Ok; ///< キュー飽和・配送期限等の最初の障害。
+    Code fault_ = Code::Ok; ///< キュー飽和・配送期限等の最初の障害。
     std::unique_ptr<BytecodeVM::NativeEntry[]> entries_; ///< 基本表とRPCを合わせたID昇順の表。
     BytecodeVM::NativeApi api_{}; ///< entries_とconfig_の指紋を借用する動的表。
     Request requests_[MaxRequests]{}; ///< GC参照を持たない要求リング。

@@ -432,10 +432,12 @@ namespace uroa {
         }
         const auto frame = wire::readProvisionFrame(reinterpret_cast<const uint8_t *>(value.data()));
         // 分割JSONの順序と認証・上限・消去はこの所有者が維持する。
-        if (frame.op == 0) {
+        if (frame.op == wire::ProvisionOperation::Reset) {
             input_ = "";
         }
-        if (value.size() > 1 && input_.length() + value.size() - 1 < 384) {
+        if (value.size() > 1 &&
+            input_.length() + value.size() - wire::ProvisionFrameLayout::ByteLength <=
+                wire::ProvisionBodyLimits::JsonUtf8) {
             for (size_t i = 1; i < value.size(); ++i) {
                 input_ += char(value[i]);
             }
@@ -445,7 +447,7 @@ namespace uroa {
             reply_ = "{\"error\":\"Request too large\"}";
             return;
         }
-        if (frame.op != 2) {
+        if (frame.op != wire::ProvisionOperation::Commit) {
             return;
         }
         reply_ = owner_.callbacks_.configure(input_);
