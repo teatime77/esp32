@@ -84,7 +84,7 @@ const uint32_t generation = bluetooth.generation.load();
 
 - `include/config.h`: ピン、サーボ範囲、UUID、期限、公開の教材設定。
 - `src/main.cpp`: 初期化、16件の指令キュー、接続世代、優先STOP、5秒期限監視、サーボ補間、登録センサー通知、超音波測定タスク。
-- `include/bytecode_receiver.h`・`src/bytecode_receiver.cpp`: 分割バイトコード専用の4件キュー、CRC・形式の検証、正常なCOMMITだけをRAMへ確定する処理。
+- `include/bytecode_receiver.h`・`src/bytecode_receiver.cpp`: mutexで排他する分割受信領域、全長・受信位置とコード／PCの意味検証、正常なCOMMITだけをRAMへ確定する処理。追加CRCは使わない。
 - `include/network.h`・`src/network.cpp`: 共通WifiNetworkへの設定とコールバックの受け渡し。
 - `include/camera.h`・`src/camera.cpp`: Senseカメラと公開の`cameraReady` atomic。カメラ処理も宣言と実装を分離する。
 

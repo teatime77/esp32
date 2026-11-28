@@ -1,11 +1,11 @@
 /**
  * @file bytecode_receiver.cpp
- * @brief 一括転送version=2を蓄積しloop()でコード・PCを検証する。
+ * @brief 一括転送version=3を蓄積しloop()でコード・PCを検証する。
  * @details 通信の中心契約はuroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭。
- * 受信領域の確保・コピーは通信タスクでmutex排他し、CRC・命令検証・確定はloop()で行う。
+ * 受信領域の確保・コピーは通信タスクでmutex排他し、命令検証・確定はloop()で行う。
  * 確定コードはRAMへ保持し、Flash保存は行わない。
  * フレーム・Bundle・Resultの固定領域はwire.protoの生成codecを使う。
- * コード本体の命令検証・CRC・分割順序・所有権と検証後の確定は本ファイルに残す。
+ * コード本体の命令検証・受信位置・所有権と検証後の確定を扱う。通信CRCと自動再送は持たない。
  */
 #include <uroa_wire.generated.h>
 #include "bytecode_receiver.h"
@@ -89,22 +89,6 @@ namespace {
         return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
     }
 
-    /**
-     * @brief CRC-32/ISO-HDLC。
-     * @param data 入力。
-     * @param length 長さ。
-     * @return CRC。
-     */
-    uint32_t crc32(const uint8_t *data, size_t length) {
-        uint32_t crc = 0xFFFFFFFF;
-        for (size_t i = 0; i < length; ++i) {
-            crc ^= data[i];
-            for (int bit = 0; bit < 8; ++bit) {
-                crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
-            }
-        }
-        return crc ^ 0xFFFFFFFF;
-    }
 }
 
 /**
@@ -139,7 +123,7 @@ void BytecodeReceiver::reject(Code code) {
  * @param data フレーム。
  * @param length 長さ。
  * @param session 接続世代。
- * @details BEGINで最大MaxBundleまで確保する。DATAは順序・範囲だけを検査し、CRCやVMを処理しない。
+ * @details BEGINで最大MaxBundleまで確保する。DATAは順序・範囲だけを検査し、VMを操作しない。
  * mutex内のメモリ確保失敗もResultで保持する。キュー4件という受信容量の制限は使用しない。
  * 新旧コードとPC一覧を同時保持できるRAMが必要。確保失敗はエラーにし、部分コードを実行しない。
  */
@@ -179,11 +163,11 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
         state_ = Receiving;
         sealed_ = false;
         receiving_ = false;
-        if (length != uroa::wire::TransferBeginLayout::ByteLength || pos < 40 || pos > MaxBundle) {
+        if (length != uroa::wire::TransferHeaderLayout::ByteLength ||
+            pos < uroa::wire::BundleHeaderLayout::ByteLength || pos > MaxBundle) {
             reject(Range);
         }
         else {
-            expectedCrc_ = uroa::wire::readTransferBegin(data).crc;
             pending_.reset(new (std::nothrow) uint8_t[pos]);
             if (!pending_) {
                 reject(Memory);
@@ -318,9 +302,7 @@ bool BytecodeReceiver::validatePcs(const uint8_t *image, size_t imageLength, con
  */
 BytecodeReceiver::Code BytecodeReceiver::adopt() {
     const uint8_t *p = pending_.get();
-    if (!p || total_ < 40 || crc32(p, total_) != expectedCrc_) {
-        return Crc;
-    }
+    // BEGINでヘッダーを収める全長を確認し、全バイト受信後にだけ呼ぶ。
     const auto header = uroa::wire::readBundleHeader(p);
     const uint32_t length = header.length;
     const uint32_t bpCount = header.breakpoints;
@@ -333,10 +315,6 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
         uint64_t(pcOffset) + uint64_t(bpCount + pointsCount) * 2 != total_) {
         return Format;
     }
-    if ((length % 2 && p[uroa::wire::BundleHeaderLayout::ByteLength + length] != 0) ||
-        crc32(p + uroa::wire::BundleHeaderLayout::ByteLength, length) != header.crc) {
-        return Crc;
-    }
     const Code valid = validate(p + uroa::wire::BundleHeaderLayout::ByteLength, length);
     if (valid != Ok || !validatePcs(p + uroa::wire::BundleHeaderLayout::ByteLength, length, p + pcOffset, bpCount) ||
         !validatePcs(p + uroa::wire::BundleHeaderLayout::ByteLength, length, p + pcOffset + bpCount * 2, pointsCount)) {
@@ -346,7 +324,6 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
         return Start;
     }
     startRequested = (header.flags & 1) != 0;
-    programCrc32 = header.crc;
     programLength = length;
     breakpointCount = bpCount;
     stepCount = pointsCount;
@@ -413,7 +390,6 @@ void BytecodeReceiver::publishResult() {
         packet.state = state_;
         packet.received = received_;
         packet.revision = programRevision;
-        packet.crc = programCrc32;
         session = session_;
         dirty_ = false;
         xSemaphoreGive(lock_);

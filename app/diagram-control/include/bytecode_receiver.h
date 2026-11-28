@@ -13,7 +13,7 @@
 #include "bytecode_format.h"
 
 /**
- * @brief 通信タスクは受信領域の確保・コピーだけ、loop()はCRC・コード・PCの検証と確定を行う。
+ * @brief 通信タスクは受信領域の確保・コピーだけ、loop()はコード・PCの検証と確定を行う。
  * @details 通信仕様の正本はuroa/diagram/ts/ble-wifi/bytecode-transfer.ts先頭。
  * enqueue/process/公開結果はmutexで排他し、I2CとVM操作は通信コールバックで行わない。
  * programとdeploymentの公開メンバーはloop()だけが更新する。VMはprogramを借用する。
@@ -28,7 +28,6 @@ class BytecodeReceiver {
         uroa::wire::ProgramFrameLimits::Payload; ///< Wi-Fiの最大フレーム。BLEは合意MTUに制限する。
     std::unique_ptr<uint8_t[]> program; ///< loop()が確定するコードと末尾のPC一覧の所有領域。
     size_t programLength = 0; ///< コード部分だけの長さ。
-    uint32_t programCrc32 = 0; ///< フラグ設定前のコードCRC。
     uint32_t programRevision = 0; ///< 正常な全体検証で更新する世代。
     bool deploymentPending = false; ///< loop()がPC設定・開始結果を確定するまでtrue。
     bool startRequested = false; ///< 今回のバンドルの開始フラグ。
@@ -112,7 +111,6 @@ class BytecodeReceiver {
     Code error_ = Code::Ok; ///< 現在の転送で最初に生じたエラー。reject()が後続エラーによる上書きを防ぐ。
     uint32_t received_ = 0; ///< バンドルへコピー済みのバイト数。DATAのoffsetとCOMMIT時に照合する。
     uint32_t total_ = 0; ///< BEGINで指定されたバンドル全体のバイト数。MaxBundle以下に制限する。
-    uint32_t expectedCrc_ = 0; ///< BEGINで指定されたバンドル全体のCRC-32。adopt()が照合する。
     uint32_t lastReceive_ = 0; ///< 最後に受理したBEGIN/DATAのmillis。process()が15秒の期限を監視する。
     bool receiving_ = false; ///< BEGIN後、COMMIT前の段階受信中か。mutex内で更新する。
     bool sealed_ = false; ///< COMMIT受理後の全体検証待ち。loop()のprocess()が取り出して解除する。

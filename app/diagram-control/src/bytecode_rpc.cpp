@@ -1,7 +1,8 @@
 /**
  * @file bytecode_rpc.cpp
  * @brief BLEの登録・受付確認をloop()で処理し、VMの整数通知をキューへコピーする。
- * @details 登録表・要求・Result/Eventはwire.protoの生成codecを使う。
+ * @details 登録・要求・Result/Event version=2。通信CRCは持たず、全長と受信位置を確認する。
+ * 登録表・要求・Result/Eventはwire.protoの生成codecを使う。
  * 署名の照合・所有キュー・nonce・接続世代とWorker受付ACKの契約は本ファイルとrpc-protocol.tsが管理する。
  */
 #include <uroa_wire.generated.h>
@@ -17,22 +18,6 @@ namespace {
     using namespace uroa::wire::RemoteState;
     using namespace uroa::wire::RemoteKind;
 
-    /**
-     * @brief 登録データのCRC-32/ISO-HDLCを求める。
-     * @param data 登録データ。
-     * @param length データ長。
-     * @return CRC-32。
-     */
-    uint32_t crc32(const uint8_t *data, size_t length) {
-        uint32_t crc = 0xFFFFFFFF;
-        for (size_t index = 0; index < length; ++index) {
-            crc ^= data[index];
-            for (uint8_t bit = 0; bit < 8; ++bit) {
-                crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
-            }
-        }
-        return crc ^ 0xFFFFFFFF;
-    }
 }
 
 /**
@@ -165,8 +150,7 @@ BytecodeRpc::Code BytecodeRpc::configure() {
         header.count == 0 || header.count > MaxBindings || header.reserved ||
         total_ !=
             uroa::wire::RegistryHeaderLayout::ByteLength +
-                header.count * uroa::wire::RegistryRecordLayout::ByteLength ||
-        crc32(config_, total_) != crc_) {
+                header.count * uroa::wire::RegistryRecordLayout::ByteLength) {
         return Format;
     }
     if (std::memcmp(header.baseHash, base_.abiHash, 32) != 0) {
@@ -281,7 +265,6 @@ void BytecodeRpc::handle(const Frame &frame) {
             sequence_ = sequence;
             const auto begin = uroa::wire::readRemoteBegin(data);
             total_ = begin.total;
-            crc_ = begin.crc;
             received_ = 0;
             nextId_ = 0;
             receiving_ = total_ >= uroa::wire::RegistryHeaderLayout::ByteLength && total_ <= MaxConfig;

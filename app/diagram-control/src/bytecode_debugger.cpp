@@ -4,7 +4,8 @@
  * @details バイト単位の共通仕様はuroa/diagram/ts/ble-wifi/debug-protocol.tsを参照する。
  * lib/bleとlib/wifiはコピーだけ、main.cppはloop()の順序、bytecode_vm.cppは停止と値の直列化を担当する。
  * 行からPCへの変換はdiagramの生成器が担当する。
- * 要求・結果・Eventの固定領域はwire.protoの生成codecを使い、PC・CRC・停止IDの照合はここで行う。
+ * 要求・結果・Eventはwire.protoの生成codecを使い、PC・programRevision・停止IDを照合する。
+ * Control/Result version=2、Event version=3。追加CRCと自動再送・直前要求コピーは持たない。
  */
 #include <uroa_wire.generated.h>
 #include "bytecode_debugger.h"
@@ -16,22 +17,6 @@ namespace {
     using namespace uroa::wire::DebugCode;
     using namespace uroa::wire::DebugOperation;
 
-    /**
-     * @brief CRC-32/ISO-HDLC。
-     * @param data 内容。
-     * @param length 長さ。
-     * @return CRC。
-     */
-    uint32_t crc32(const uint8_t *data, size_t length) {
-        uint32_t crc = 0xFFFFFFFF;
-        for (size_t index = 0; index < length; ++index) {
-            crc ^= data[index];
-            for (size_t bit = 0; bit < 8; ++bit) {
-                crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
-            }
-        }
-        return crc ^ 0xFFFFFFFF;
-    }
 }
 
 /**
@@ -122,7 +107,6 @@ void BytecodeDebugger::clearFlags() {
 void BytecodeDebugger::invalidateSnapshot() {
     snapshot_.reset();
     snapshotLength_ = 0;
-    snapshotCrc_ = 0;
     snapshotAttempted_ = false;
     snapshotError_ = Ok;
 }
@@ -142,7 +126,6 @@ void BytecodeDebugger::process(bool enabled, ControlSession session) {
         invalidateSnapshot();
         if (changedSession) {
             requestId_ = 0;
-            lastRequest_ = Request{};
         }
         enabled_ = enabled;
         session_ = session;
@@ -174,7 +157,7 @@ void BytecodeDebugger::process(bool enabled, ControlSession session) {
  * @brief 全PCの順序・命令境界を確認した後だけフラグを全置換する。
  * @return 成功時true。
  * @details
- * 受信器のCRCはフラグ設定前のイメージを識別する。変更するのは検証済み命令先頭のbit7だけで、
+ * 対象コードはprogramRevisionで識別する。変更するのは検証済み命令先頭のbit7だけで、
  * プログラム世代は変えない。ステップ用の転送ではVMの独立した停止点表へ設定する。
  */
 bool BytecodeDebugger::applyBreakpoints() {
@@ -235,8 +218,9 @@ bool BytecodeDebugger::installDeployment() {
 void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
     const uroa::wire::DebugResult packet{uroa::wire::DebugResultLayout::versionDefault, operation_, requestId_,
         static_cast<uint8_t>(code), static_cast<uint8_t>(vm_.state), 0, receiver_.programRevision, value, extra};
-    uroa::wire::writeDebugResult(result_, packet);
-    transport_.publishDebugResult(result_, sizeof result_, session_);
+    uint8_t result[uroa::wire::DebugResultLayout::ByteLength];
+    uroa::wire::writeDebugResult(result, packet);
+    transport_.publishDebugResult(result, sizeof result, session_);
 }
 
 /**
@@ -248,17 +232,11 @@ void BytecodeDebugger::handle(const Request &request) {
     const uint8_t *data = request.bytes;
     const auto header = uroa::wire::readDebugHeader(data);
     const uint16_t id = header.request;
-    if (id == requestId_ && id != 0 && request.length == lastRequest_.length &&
-        std::memcmp(data, lastRequest_.bytes, request.length) == 0) {
-        transport_.publishDebugResult(result_, sizeof result_, session_);
-        return;
-    }
     if (id == 0 || id <= requestId_) {
         return;
     }
     requestId_ = id;
     operation_ = header.op;
-    lastRequest_ = request;
     if (header.version != uroa::wire::DebugHeaderLayout::versionDefault || operation_ < Begin || operation_ > Out) {
         reply(Format);
         return;
@@ -268,7 +246,7 @@ void BytecodeDebugger::handle(const Request &request) {
             reply(Format);
         }
         else {
-            reply(Ok, receiver_.programCrc32, receiver_.programLength);
+            reply(Ok, 0, receiver_.programLength);
         }
         return;
     }
@@ -337,10 +315,6 @@ void BytecodeDebugger::handle(const Request &request) {
             return;
         }
         const auto begin = uroa::wire::readDebugBegin(data);
-        if (begin.imageCrc != receiver_.programCrc32) {
-            reply(Invalid);
-            return;
-        }
         const uint32_t count = begin.count;
         if (count > (operation_ == PointsBegin ? uroa::wire::ProgramBundleLimits::Points
                                                : uroa::wire::ProgramBundleLimits::Breakpoints)) {
@@ -359,7 +333,6 @@ void BytecodeDebugger::handle(const Request &request) {
         pointsTransfer_ = operation_ == PointsBegin;
         pending_ = std::move(pending);
         count_ = count;
-        expectedCrc_ = begin.crc;
         receiving_ = true;
         lastReceive_ = millis();
         reply(Ok);
@@ -400,16 +373,14 @@ void BytecodeDebugger::handle(const Request &request) {
         reply(Order);
         return;
     }
-    // ESP32はlittle endianだが、通信CRCも明示的な2バイト値の列として計算する。
-    const uint32_t actualCrc = crc32(reinterpret_cast<const uint8_t *>(pending_.get()), count_ * 2);
     const uint32_t accepted = count_;
-    const Code result = actualCrc != expectedCrc_ ? Crc : applyBreakpoints() ? Ok : Invalid;
+    const Code result = applyBreakpoints() ? Ok : Invalid;
     cancelTransfer();
     reply(result, result == Ok ? accepted : 0);
 }
 
 /**
- * @brief 状態変化とRunningの進捗を通知する。Event v2の契約はWebのdebug-protocol.ts先頭を参照する。
+ * @brief 状態変化とRunningの進捗を通知する。Event v3の契約はWebのdebug-protocol.ts先頭を参照する。
  * @details
  * PausedはVMだけを止め、既存の出力・補間は維持する。既存Stop・切断・通信期限の停止は優先する。
  * 停止値は一度だけコピーして保持し、再開時はinvalidateSnapshot()で失効させる。
@@ -451,9 +422,6 @@ void BytecodeDebugger::publishState() {
                 snapshotLength_ = 0;
                 snapshotError_ = Invalid;
             }
-            else {
-                snapshotCrc_ = crc32(snapshot_.get(), snapshotLength_);
-            }
         }
     }
     const bool paused = vm_.state == BytecodeVM::State::Paused;
@@ -463,7 +431,7 @@ void BytecodeDebugger::publishState() {
         paused                                      ? stopId_
             : vm_.state == BytecodeVM::State::Error ? vm_.errorPc
                                                     : 0,
-        receiver_.programRevision, paused ? snapshotLength_ : vm_.instructions, paused ? snapshotCrc_ : vm_.pc};
+        receiver_.programRevision, paused ? snapshotLength_ : vm_.instructions, paused ? 0 : vm_.pc};
     uint8_t event[uroa::wire::DebugEventLayout::ByteLength];
     uroa::wire::writeDebugEvent(event, packet);
     if (std::memcmp(event_, event, sizeof event_) != 0) {

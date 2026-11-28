@@ -129,7 +129,6 @@ class BytecodeRpc {
     uint8_t config_[MaxConfig]{}; ///< 検証後も保持する指紋と動的ID表。
     uint16_t total_ = 0; ///< BEGINで指定された設定長。
     uint16_t received_ = 0; ///< DATAで保持した設定長。
-    uint32_t crc_ = 0; ///< 設定全体のCRC-32。
     uint32_t lastFrame_ = 0; ///< 設定受信の期限判定。
     bool receiving_ = false; ///< 設定を受信中か。
     bool configured_ = false; ///< COMMIT済みか。

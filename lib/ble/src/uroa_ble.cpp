@@ -103,9 +103,9 @@ namespace uroa {
             packet.version = wire::DebugResultLayout::versionDefault;
             wire::writeDebugResult(initial, packet);
             debugResult_->setValue(initial, sizeof initial);
-            // 起動直後のEventは従来のversion=1・残り0を維持する。実イベントはversion=2。
+            // 初期Eventも同じ版を使い、未開始の状態を返す。
             wire::DebugEvent event{};
-            event.version = packet.version;
+            event.version = wire::DebugEventLayout::versionDefault;
             wire::writeDebugEvent(initial, event);
             {
                 std::lock_guard<std::mutex> guard(readValueMutex_);
@@ -130,7 +130,7 @@ namespace uroa {
                 std::lock_guard<std::mutex> guard(readValueMutex_);
                 std::memcpy(rpcResultValue_, initial, 20);
                 wire::RemoteEvent event{};
-                event.version = packet.version;
+                event.version = wire::RemoteEventLayout::versionDefault;
                 wire::writeRemoteEvent(initial, event);
                 std::memcpy(rpcEventValue_, initial, 20);
             }

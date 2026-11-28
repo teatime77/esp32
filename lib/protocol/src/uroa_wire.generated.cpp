@@ -31,28 +31,6 @@ namespace uroa {
          * @param data 入力領域。
          * @return 値と借用bytes。
          */
-        TransferBegin readTransferBegin(const uint8_t *data) {
-            TransferBegin packet{};
-            const uint32_t versionValue = (static_cast<uint32_t>(data[0]));
-            packet.version = static_cast<uint8_t>(versionValue);
-            const uint32_t opValue = (static_cast<uint32_t>(data[1]));
-            packet.op = static_cast<uint8_t>(opValue);
-            const uint32_t transferValue = (static_cast<uint32_t>(data[2])) | (static_cast<uint32_t>(data[3]) << 8);
-            packet.transfer = static_cast<uint16_t>(transferValue);
-            const uint32_t sequenceValue = (static_cast<uint32_t>(data[4])) | (static_cast<uint32_t>(data[5]) << 8);
-            packet.sequence = static_cast<uint16_t>(sequenceValue);
-            const uint32_t positionValue = (static_cast<uint32_t>(data[6])) | (static_cast<uint32_t>(data[7]) << 8) | (static_cast<uint32_t>(data[8]) << 16) | (static_cast<uint32_t>(data[9]) << 24);
-            packet.position = static_cast<uint32_t>(positionValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[10])) | (static_cast<uint32_t>(data[11]) << 8) | (static_cast<uint32_t>(data[12]) << 16) | (static_cast<uint32_t>(data[13]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
-            return packet;
-        }
-
-        /**
-         * @brief 検査済み固定領域を復号する。
-         * @param data 入力領域。
-         * @return 値と借用bytes。
-         */
         TransferResult readTransferResult(const uint8_t *data) {
             TransferResult packet{};
             const uint32_t versionValue = (static_cast<uint32_t>(data[0]));
@@ -71,8 +49,8 @@ namespace uroa {
             packet.received = static_cast<uint32_t>(receivedValue);
             const uint32_t revisionValue = (static_cast<uint32_t>(data[12])) | (static_cast<uint32_t>(data[13]) << 8) | (static_cast<uint32_t>(data[14]) << 16) | (static_cast<uint32_t>(data[15]) << 24);
             packet.revision = static_cast<uint32_t>(revisionValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
+            const uint32_t reservedValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
+            packet.reserved = static_cast<uint32_t>(reservedValue);
             return packet;
         }
         /**
@@ -105,11 +83,11 @@ namespace uroa {
             out[13] = static_cast<uint8_t>(revisionValue >> 8);
             out[14] = static_cast<uint8_t>(revisionValue >> 16);
             out[15] = static_cast<uint8_t>(revisionValue >> 24);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[16] = static_cast<uint8_t>(crcValue);
-            out[17] = static_cast<uint8_t>(crcValue >> 8);
-            out[18] = static_cast<uint8_t>(crcValue >> 16);
-            out[19] = static_cast<uint8_t>(crcValue >> 24);
+            const uint32_t reservedValue = static_cast<uint32_t>(packet.reserved);
+            out[16] = static_cast<uint8_t>(reservedValue);
+            out[17] = static_cast<uint8_t>(reservedValue >> 8);
+            out[18] = static_cast<uint8_t>(reservedValue >> 16);
+            out[19] = static_cast<uint8_t>(reservedValue >> 24);
         }
 
         /**
@@ -131,8 +109,6 @@ namespace uroa {
             packet.breakpoints = static_cast<uint32_t>(breakpointsValue);
             const uint32_t pointsValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
             packet.points = static_cast<uint32_t>(pointsValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[20])) | (static_cast<uint32_t>(data[21]) << 8) | (static_cast<uint32_t>(data[22]) << 16) | (static_cast<uint32_t>(data[23]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
             return packet;
         }
 
@@ -171,10 +147,6 @@ namespace uroa {
             packet.revision = static_cast<uint32_t>(revisionValue);
             const uint32_t countValue = (static_cast<uint32_t>(data[8])) | (static_cast<uint32_t>(data[9]) << 8) | (static_cast<uint32_t>(data[10]) << 16) | (static_cast<uint32_t>(data[11]) << 24);
             packet.count = static_cast<uint32_t>(countValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[12])) | (static_cast<uint32_t>(data[13]) << 8) | (static_cast<uint32_t>(data[14]) << 16) | (static_cast<uint32_t>(data[15]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
-            const uint32_t imageCrcValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
-            packet.imageCrc = static_cast<uint32_t>(imageCrcValue);
             return packet;
         }
 
@@ -298,8 +270,8 @@ namespace uroa {
             packet.revision = static_cast<uint32_t>(revisionValue);
             const uint32_t sizeValue = (static_cast<uint32_t>(data[12])) | (static_cast<uint32_t>(data[13]) << 8) | (static_cast<uint32_t>(data[14]) << 16) | (static_cast<uint32_t>(data[15]) << 24);
             packet.size = static_cast<uint32_t>(sizeValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
+            const uint32_t pcValue = (static_cast<uint32_t>(data[16])) | (static_cast<uint32_t>(data[17]) << 8) | (static_cast<uint32_t>(data[18]) << 16) | (static_cast<uint32_t>(data[19]) << 24);
+            packet.pc = static_cast<uint32_t>(pcValue);
             return packet;
         }
         /**
@@ -331,11 +303,11 @@ namespace uroa {
             out[13] = static_cast<uint8_t>(sizeValue >> 8);
             out[14] = static_cast<uint8_t>(sizeValue >> 16);
             out[15] = static_cast<uint8_t>(sizeValue >> 24);
-            const uint32_t crcValue = static_cast<uint32_t>(packet.crc);
-            out[16] = static_cast<uint8_t>(crcValue);
-            out[17] = static_cast<uint8_t>(crcValue >> 8);
-            out[18] = static_cast<uint8_t>(crcValue >> 16);
-            out[19] = static_cast<uint8_t>(crcValue >> 24);
+            const uint32_t pcValue = static_cast<uint32_t>(packet.pc);
+            out[16] = static_cast<uint8_t>(pcValue);
+            out[17] = static_cast<uint8_t>(pcValue >> 8);
+            out[18] = static_cast<uint8_t>(pcValue >> 16);
+            out[19] = static_cast<uint8_t>(pcValue >> 24);
         }
 
         /**
@@ -476,8 +448,6 @@ namespace uroa {
             packet.nonce = static_cast<uint32_t>(nonceValue);
             const uint32_t totalValue = (static_cast<uint32_t>(data[8])) | (static_cast<uint32_t>(data[9]) << 8);
             packet.total = static_cast<uint16_t>(totalValue);
-            const uint32_t crcValue = (static_cast<uint32_t>(data[10])) | (static_cast<uint32_t>(data[11]) << 8) | (static_cast<uint32_t>(data[12]) << 16) | (static_cast<uint32_t>(data[13]) << 24);
-            packet.crc = static_cast<uint32_t>(crcValue);
             return packet;
         }
 

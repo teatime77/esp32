@@ -9,7 +9,7 @@
 namespace uroa {
     namespace rpc {
         constexpr uint32_t ApiVersion = 1; ///< 呼出しAPIの版。既存Commandの版とは別。
-        constexpr char SchemaFingerprint[] = "89f89326643c61ac3d1279c1cdf8d7cd68bbe6b9463e835a0f56ef7d5d846051"; ///< 生成物整合用。現在の通信で交換しない。
+        constexpr char SchemaFingerprint[] = "92ae4f0b1d046edf6bde2f7eb63446ab08a1a2bd30bc76601ddc9cd12fc1dacc"; ///< 生成物整合用。現在の通信で交換しない。
         /**
          * @brief 既存パケットの操作・結果番号。
          */

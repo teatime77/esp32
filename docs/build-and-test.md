@@ -1,5 +1,34 @@
 # ビルドと検証
 
+## 通信簡略化4-A：冗長検査・再送の削除（2026-11-28）
+
+uroaの[段階別計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)を改訂した後、初回改善を実装した。コード・PC一覧・Snapshot・Python RPC登録表の追加CRCと、デバッグの自動再送に対応する直前要求コピーを削除した。長さ・容量・受信位置・世代・コード／PCの意味検証と停止・認証の責任は維持する。正本は[wire.proto](../../uroa/diagram/rpc/wire.proto)と担当ソースコメントを参照する。ブラウザとファームウェアを同時に更新する。転送手順の生成・共通化はまだ完了していない。
+
+実行直前に`platformio.ini`の現在の`default_envs = supermini_esp32s3`を確認し、diagram-controlからビルドした。別環境は指定していない。
+
+```powershell
+# D:/usr/prj/uroa
+node diagram/rpc/generate.mjs --esp32
+node diagram/rpc/generate.mjs --check --esp32
+
+# D:/usr/prj/esp32/app/diagram-control
+Get-Content platformio.ini
+& C:/Users/hamad/.platformio/penv/Scripts/platformio.exe run
+```
+
+最終ビルドは成功（65.26秒）。RAMは59,844 / 327,680バイト、Flashは1,088,653 / 1,310,720バイトで、変更前よりRAM 72バイト、Flash 728バイト減少した。SuperMiniだけのビルドで、他の環境とXIAO専用カメラ本体は未確認。
+
+共通VMと生成codecをEmscripten 4.0.23でも再ビルドし、成功した。取得済みSDKと固定tcc資産を利用し、次をdiagram-controlで実行した。
+
+```powershell
+$env:EMSDK_PYTHON='C:/Users/hamad/.platformio/penv/Scripts/python.exe'
+$env:EM_CONFIG="$env:TEMP/uroa-browser-kernel/emsdk/.emscripten"
+$env:PYTHONDONTWRITEBYTECODE='1'
+& C:/Users/hamad/.platformio/penv/Scripts/python.exe -B browser/build.py --emsdk "$env:TEMP/uroa-browser-kernel/emsdk" --output D:/usr/prj/uroa/public/diagram/runtime/v1
+```
+
+JS／Wasm／assets.jsonに差分は生じなかった。Webのverifyと行数は[uroaの記録](../../uroa/docs/build-and-test.md)を参照する。生成物照合とソース差分で両側の契約・責任分担を確認した。テストの作成・実行、ブラウザ・実BLE／Wi-Fi・Upload・実機確認は行っていない。動的指紋の整理は4-B、Future・配列・Python RPCのWi-Fi配送は後続作業。
+
 ## RPC生成化6：旧実装の整理と生成方向の限定（2026-11-28）
 
 uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)の生成化6を実施した。Telemetryの型・配置をwire生成物へ一本化し、不要な逆方向codec・検査・JSON型を削除した。通信の番号・版・長さ・上限は生成定義へ集約した。Protocolの旧command/valid/status・Op/Code等の互換窓口と汎用読書きを削除し、main.cppから生成APIを直接使う。VMで未使用だったwrite32も削除した。優先STOPの判定・CRC・世代・タスクの責任は維持した。正本は生成元と各ソースコメントを参照する。

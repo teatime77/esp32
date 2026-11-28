@@ -47,7 +47,7 @@ namespace uroa {
                 Order = 2,
                 Range = 3,
                 Memory = 4,
-                Crc = 5,
+                Reserved5 = 5,
                 Invalid = 6,
                 Timeout = 7,
                 Busy = 8,
@@ -76,7 +76,7 @@ namespace uroa {
                 Order = 2,
                 Range = 3,
                 Memory = 4,
-                Crc = 5,
+                Reserved5 = 5,
                 Invalid = 6,
                 Busy = 7,
                 Stale = 8,
@@ -211,7 +211,7 @@ namespace uroa {
         struct TransferHeaderLayout {
             static constexpr size_t ByteLength = 10; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 3; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t transfer = 2; ///< フィールド位置。
             static constexpr size_t sequence = 4; ///< フィールド位置。
@@ -235,43 +235,12 @@ namespace uroa {
         TransferHeader readTransferHeader(const uint8_t *data);
 
         /**
-         * @brief TransferBeginの既存wire配置。
-         */
-        struct TransferBeginLayout {
-            static constexpr size_t ByteLength = 14; ///< 固定領域の長さ。
-            static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
-            static constexpr size_t op = 1; ///< フィールド位置。
-            static constexpr size_t transfer = 2; ///< フィールド位置。
-            static constexpr size_t sequence = 4; ///< フィールド位置。
-            static constexpr size_t position = 6; ///< フィールド位置。
-            static constexpr size_t crc = 10; ///< フィールド位置。
-        };
-        /**
-         * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
-         */
-        struct TransferBegin {
-            uint8_t version; ///< wire上の値。
-            uint8_t op; ///< wire上の値。
-            uint16_t transfer; ///< wire上の値。
-            uint16_t sequence; ///< wire上の値。
-            uint32_t position; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
-        };
-        /**
-         * @brief 検査済み領域を復号する。
-         * @param data 14バイト以上の領域。
-         * @return bytesはdataと同じ寿命の借用。
-         */
-        TransferBegin readTransferBegin(const uint8_t *data);
-
-        /**
          * @brief TransferResultの既存wire配置。
          */
         struct TransferResultLayout {
             static constexpr size_t ByteLength = 20; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 3; ///< 宣言した既定値。
             static constexpr size_t code = 1; ///< フィールド位置。
             static constexpr size_t transfer = 2; ///< フィールド位置。
             static constexpr size_t frame = 4; ///< フィールド位置。
@@ -279,7 +248,7 @@ namespace uroa {
             static constexpr size_t state = 7; ///< フィールド位置。
             static constexpr size_t received = 8; ///< フィールド位置。
             static constexpr size_t revision = 12; ///< フィールド位置。
-            static constexpr size_t crc = 16; ///< フィールド位置。
+            static constexpr size_t reserved = 16; ///< フィールド位置。
         };
         /**
          * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
@@ -293,7 +262,7 @@ namespace uroa {
             uint8_t state; ///< wire上の値。
             uint32_t received; ///< wire上の値。
             uint32_t revision; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
+            uint32_t reserved; ///< wire上の値。
         };
         /**
          * @brief 検査済み領域を復号する。
@@ -312,16 +281,15 @@ namespace uroa {
          * @brief BundleHeaderの既存wire配置。
          */
         struct BundleHeaderLayout {
-            static constexpr size_t ByteLength = 24; ///< 固定領域の長さ。
+            static constexpr size_t ByteLength = 20; ///< 固定領域の長さ。
             static constexpr size_t signature = 0; ///< フィールド位置。
             static constexpr uint32_t signatureDefault = 844255317; ///< 宣言した既定値。
             static constexpr size_t version = 4; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t flags = 6; ///< フィールド位置。
             static constexpr size_t length = 8; ///< フィールド位置。
             static constexpr size_t breakpoints = 12; ///< フィールド位置。
             static constexpr size_t points = 16; ///< フィールド位置。
-            static constexpr size_t crc = 20; ///< フィールド位置。
         };
         /**
          * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
@@ -333,11 +301,10 @@ namespace uroa {
             uint32_t length; ///< wire上の値。
             uint32_t breakpoints; ///< wire上の値。
             uint32_t points; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
         };
         /**
          * @brief 検査済み領域を復号する。
-         * @param data 24バイト以上の領域。
+         * @param data 20バイト以上の領域。
          * @return bytesはdataと同じ寿命の借用。
          */
         BundleHeader readBundleHeader(const uint8_t *data);
@@ -348,7 +315,7 @@ namespace uroa {
         struct DebugHeaderLayout {
             static constexpr size_t ByteLength = 8; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t request = 2; ///< フィールド位置。
             static constexpr size_t revision = 4; ///< フィールド位置。
@@ -373,15 +340,13 @@ namespace uroa {
          * @brief DebugBeginの既存wire配置。
          */
         struct DebugBeginLayout {
-            static constexpr size_t ByteLength = 20; ///< 固定領域の長さ。
+            static constexpr size_t ByteLength = 12; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t request = 2; ///< フィールド位置。
             static constexpr size_t revision = 4; ///< フィールド位置。
             static constexpr size_t count = 8; ///< フィールド位置。
-            static constexpr size_t crc = 12; ///< フィールド位置。
-            static constexpr size_t imageCrc = 16; ///< フィールド位置。
         };
         /**
          * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
@@ -392,12 +357,10 @@ namespace uroa {
             uint16_t request; ///< wire上の値。
             uint32_t revision; ///< wire上の値。
             uint32_t count; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
-            uint32_t imageCrc; ///< wire上の値。
         };
         /**
          * @brief 検査済み領域を復号する。
-         * @param data 20バイト以上の領域。
+         * @param data 12バイト以上の領域。
          * @return bytesはdataと同じ寿命の借用。
          */
         DebugBegin readDebugBegin(const uint8_t *data);
@@ -408,7 +371,7 @@ namespace uroa {
         struct DebugDataLayout {
             static constexpr size_t ByteLength = 12; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t request = 2; ///< フィールド位置。
             static constexpr size_t revision = 4; ///< フィールド位置。
@@ -437,7 +400,7 @@ namespace uroa {
         struct DebugChunkLayout {
             static constexpr size_t ByteLength = 16; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t request = 2; ///< フィールド位置。
             static constexpr size_t revision = 4; ///< フィールド位置。
@@ -468,7 +431,7 @@ namespace uroa {
         struct DebugExecuteLayout {
             static constexpr size_t ByteLength = 12; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t request = 2; ///< フィールド位置。
             static constexpr size_t revision = 4; ///< フィールド位置。
@@ -497,7 +460,7 @@ namespace uroa {
         struct DebugResultLayout {
             static constexpr size_t ByteLength = 20; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t request = 2; ///< フィールド位置。
             static constexpr size_t code = 4; ///< フィールド位置。
@@ -534,14 +497,14 @@ namespace uroa {
         struct DebugEventLayout {
             static constexpr size_t ByteLength = 20; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 3; ///< 宣言した既定値。
             static constexpr size_t state = 1; ///< フィールド位置。
             static constexpr size_t code = 2; ///< フィールド位置。
             static constexpr size_t error = 3; ///< フィールド位置。
             static constexpr size_t stopId = 4; ///< フィールド位置。
             static constexpr size_t revision = 8; ///< フィールド位置。
             static constexpr size_t size = 12; ///< フィールド位置。
-            static constexpr size_t crc = 16; ///< フィールド位置。
+            static constexpr size_t pc = 16; ///< フィールド位置。
         };
         /**
          * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
@@ -554,7 +517,7 @@ namespace uroa {
             uint32_t stopId; ///< wire上の値。
             uint32_t revision; ///< wire上の値。
             uint32_t size; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
+            uint32_t pc; ///< wire上の値。
         };
         /**
          * @brief 検査済み領域を復号する。
@@ -698,7 +661,7 @@ namespace uroa {
         struct RemoteHeaderLayout {
             static constexpr size_t ByteLength = 8; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t sequence = 2; ///< フィールド位置。
             static constexpr size_t nonce = 4; ///< フィールド位置。
@@ -723,14 +686,13 @@ namespace uroa {
          * @brief RemoteBeginの既存wire配置。
          */
         struct RemoteBeginLayout {
-            static constexpr size_t ByteLength = 14; ///< 固定領域の長さ。
+            static constexpr size_t ByteLength = 10; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t sequence = 2; ///< フィールド位置。
             static constexpr size_t nonce = 4; ///< フィールド位置。
             static constexpr size_t total = 8; ///< フィールド位置。
-            static constexpr size_t crc = 10; ///< フィールド位置。
         };
         /**
          * @brief 復号値。bytesは受信バッファーを借用し、直接構造体を送らない。
@@ -741,11 +703,10 @@ namespace uroa {
             uint16_t sequence; ///< wire上の値。
             uint32_t nonce; ///< wire上の値。
             uint16_t total; ///< wire上の値。
-            uint32_t crc; ///< wire上の値。
         };
         /**
          * @brief 検査済み領域を復号する。
-         * @param data 14バイト以上の領域。
+         * @param data 10バイト以上の領域。
          * @return bytesはdataと同じ寿命の借用。
          */
         RemoteBegin readRemoteBegin(const uint8_t *data);
@@ -756,7 +717,7 @@ namespace uroa {
         struct RemoteDataLayout {
             static constexpr size_t ByteLength = 10; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t sequence = 2; ///< フィールド位置。
             static constexpr size_t nonce = 4; ///< フィールド位置。
@@ -785,7 +746,7 @@ namespace uroa {
         struct RemoteAckLayout {
             static constexpr size_t ByteLength = 12; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t sequence = 2; ///< フィールド位置。
             static constexpr size_t nonce = 4; ///< フィールド位置。
@@ -814,7 +775,7 @@ namespace uroa {
         struct RemoteResultLayout {
             static constexpr size_t ByteLength = 20; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t op = 1; ///< フィールド位置。
             static constexpr size_t sequence = 2; ///< フィールド位置。
             static constexpr size_t nonce = 4; ///< フィールド位置。
@@ -851,7 +812,7 @@ namespace uroa {
         struct RemoteEventLayout {
             static constexpr size_t ByteLength = 20; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t kind = 1; ///< フィールド位置。
             static constexpr size_t nonce = 2; ///< フィールド位置。
             static constexpr size_t id = 6; ///< フィールド位置。
@@ -888,7 +849,7 @@ namespace uroa {
         struct RegistryHeaderLayout {
             static constexpr size_t ByteLength = 100; ///< 固定領域の長さ。
             static constexpr size_t version = 0; ///< フィールド位置。
-            static constexpr uint32_t versionDefault = 1; ///< 宣言した既定値。
+            static constexpr uint32_t versionDefault = 2; ///< 宣言した既定値。
             static constexpr size_t count = 1; ///< フィールド位置。
             static constexpr size_t reserved = 2; ///< フィールド位置。
             static constexpr size_t baseHash = 4; ///< フィールド位置。

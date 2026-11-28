@@ -104,7 +104,7 @@ class BytecodeDebugger {
      */
     void reply(Code code, uint32_t value = 0, uint32_t extra = 0);
 
-    BytecodeReceiver &receiver_; ///< 稼働中借用する受信器。確定コード・CRC・プログラム世代を参照する。
+    BytecodeReceiver &receiver_; ///< 稼働中借用する受信器。確定コード・プログラム世代を参照する。
     BytecodeVM &vm_; ///< loop()で停止点の設定・再開・Snapshot取得を行うVMの借用参照。
     ControlTransport &transport_; ///< 現接続の照合とデバッグ結果の配送を委譲する借用参照。
     QueueHandle_t requests_ = nullptr; ///< setup()が確保し、稼働中保持する。
@@ -112,11 +112,8 @@ class BytecodeDebugger {
     bool enabled_ = false; ///< process()が更新する、現接続でデバッグ要求を処理できる状態。
     ControlSession session_{}; ///< process()が採用した通信経路と接続世代。返信と失効判定に使う。
     uint32_t revision_ = 0; ///< 命令フラグと停止点を設定したプログラム世代。process()が照合する。
-    Request lastRequest_; ///< 同一要求の再送を識別し、保持済みACKを再配送するための直前の要求。
     uint16_t requestId_ = 0; ///< 現在の接続で最後に受理した要求ID。handle()が単調増加を検査する。
     uint8_t operation_ = 0; ///< 直前に受理したデバッグ操作番号。reply()がACKへ格納する。
-    uint8_t result_
-        [uroa::wire::DebugResultLayout::ByteLength]{}; ///< reply()が構築し、同じ要求の再送でも使う20バイトのACK。
     uint8_t event_[uroa::wire::DebugEventLayout::
             ByteLength]{}; ///< 最後に配送した20バイトの状態イベント。publishState()が重複を除く。
     uint32_t lastProgressMs_ = 0; ///< RunningのPC・命令数を最大1秒に1回公開する。
@@ -125,12 +122,10 @@ class BytecodeDebugger {
     std::unique_ptr<uint16_t[]> pending_; ///< 確定前のPC列の所有領域。handle()が受信し、cancelTransfer()が解放する。
     uint32_t count_ = 0; ///< 開始要求で指定されたPC総数。行停止点とステップ停止点で上限が異なる。
     uint32_t received_ = 0; ///< pending_へ順番にコピー済みのPC数。次の受信位置の検査にも使う。
-    uint32_t expectedCrc_ = 0; ///< 開始要求で指定されたPC列のCRC-32。COMMITで照合する。
     uint32_t lastReceive_ = 0; ///< 直前のPC一覧受信時刻（millis）。process()が5秒の期限を監視する。
     uint32_t stopId_ = 0; ///< 接続をまたいでも再利用しない。周回時は取得を拒否する。
     bool snapshotAttempted_ = false; ///< 現在の一時停止についてSnapshot確保を一度試したか。再試行を抑止する。
     std::unique_ptr<uint8_t[]> snapshot_; ///< 一時停止時の不変Snapshotの所有領域。再開・Stop・接続変更で破棄する。
     uint32_t snapshotLength_ = 0; ///< snapshot_の有効バイト数。取得要求のoffset検査に使う。
-    uint32_t snapshotCrc_ = 0; ///< 停止Snapshot全体のCRC-32。状態イベントへ格納する。
     Code snapshotError_ = Code::Ok; ///< Snapshotの確保・直列化結果。invalidateSnapshot()でOkへ戻す。
 };
