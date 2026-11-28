@@ -1,3 +1,4 @@
+#include <uroa_wire.generated.h>
 /**
  * @file bytecode_receiver.cpp
  * @brief 一括転送version=2を蓄積しloop()でコード・PCを検証する。
@@ -83,17 +84,7 @@ namespace {
         return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
     }
 
-    /**
-     * @brief uint32をlittle endianで書く。
-     * @param p 出力先。
-     * @param value 数値。
-     */
-    void write32(uint8_t *p, uint32_t value) {
-        p[0] = uint8_t(value);
-        p[1] = uint8_t(value >> 8);
-        p[2] = uint8_t(value >> 16);
-        p[3] = uint8_t(value >> 24);
-    }
+
     /**
      * @brief CRC-32/ISO-HDLC。
      * @param data 入力。
@@ -167,10 +158,11 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
         xSemaphoreGive(lock_);
         return;
     }
-    const uint8_t op = data[1];
-    const uint16_t id = read16(data + 2);
-    const uint16_t seq = read16(data + 4);
-    const uint32_t pos = read32(data + 6);
+    const auto header = uroa::wire::readTransferHeader(data);
+    const uint8_t op = header.op;
+    const uint16_t id = header.transfer;
+    const uint16_t seq = header.sequence;
+    const uint32_t pos = header.position;
     if (op == 1 && id > transferId_ && seq == 1 && !deploymentPending) {
         pending_.reset();
         transferId_ = id;
@@ -186,7 +178,7 @@ void BytecodeReceiver::enqueue(const uint8_t *data, size_t length, ControlSessio
             reject(Range);
         }
         else {
-            expectedCrc_ = read32(data + 10);
+            expectedCrc_ = uroa::wire::readTransferBegin(data).crc;
             pending_.reset(new (std::nothrow) uint8_t[pos]);
             if (!pending_) {
                 reject(Memory);
@@ -321,15 +313,16 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
     if (!p || total_ < 40 || crc32(p, total_) != expectedCrc_) {
         return Crc;
     }
-    const uint32_t length = read32(p + 8);
-    const uint32_t bpCount = read32(p + 12);
-    const uint32_t pointsCount = read32(p + 16);
+    const auto header = uroa::wire::readBundleHeader(p);
+    const uint32_t length = header.length;
+    const uint32_t bpCount = header.breakpoints;
+    const uint32_t pointsCount = header.points;
     const size_t pcOffset = 24 + size_t(length) + length % 2;
-    if (read32(p) != 0x32525055 || read16(p + 4) != 1 || read16(p + 6) > 1 || length < 16 || length > MaxLength ||
+    if (header.signature != 0x32525055 || header.version != 1 || header.flags > 1 || length < 16 || length > MaxLength ||
         bpCount > 4096 || pointsCount > 65536 || uint64_t(pcOffset) + uint64_t(bpCount + pointsCount) * 2 != total_) {
         return Format;
     }
-    if ((length % 2 && p[24 + length] != 0) || crc32(p + 24, length) != read32(p + 20)) {
+    if ((length % 2 && p[24 + length] != 0) || crc32(p + 24, length) != header.crc) {
         return Crc;
     }
     const Code valid = validate(p + 24, length);
@@ -340,8 +333,8 @@ BytecodeReceiver::Code BytecodeReceiver::adopt() {
     if (!current_(session_) || programRevision == UINT32_MAX) {
         return Start;
     }
-    startRequested = (read16(p + 6) & 1) != 0;
-    programCrc32 = read32(p + 20);
+    startRequested = (header.flags & 1) != 0;
+    programCrc32 = header.crc;
     programLength = length;
     breakpointCount = bpCount;
     stepCount = pointsCount;
@@ -396,29 +389,29 @@ void BytecodeReceiver::cancelDeployment() {
  * @brief 排他して結果をコピーした後、排他外で配送する。
  */
 void BytecodeReceiver::publishResult() {
-    uint8_t result[20]{};
-    result[0] = 2;
+    uroa::wire::TransferResult packet{};
+    packet.version = 2;
+    packet.frame = MaxFrame;
     ControlSession session;
     if (lock_) {
         xSemaphoreTake(lock_, portMAX_DELAY);
-        result[1] = error_;
-        result[2] = uint8_t(transferId_);
-        result[3] = uint8_t(transferId_ >> 8);
-        result[6] = operation_;
-        result[7] = state_;
-        write32(result + 8, received_);
-        write32(result + 12, programRevision);
-        write32(result + 16, programCrc32);
+        packet.code = error_;
+        packet.transfer = transferId_;
+        packet.op = operation_;
+        packet.state = state_;
+        packet.received = received_;
+        packet.revision = programRevision;
+        packet.crc = programCrc32;
         session = session_;
         dirty_ = false;
         xSemaphoreGive(lock_);
     }
     else {
-        result[1] = Memory;
-        result[7] = 3;
+        packet.code = Memory;
+        packet.state = 3;
     }
-    result[4] = uint8_t(MaxFrame);
-    result[5] = uint8_t(MaxFrame >> 8);
+    uint8_t result[uroa::wire::TransferResultLayout::ByteLength];
+    uroa::wire::writeTransferResult(result, packet);
     if (publish_) {
         publish_(result, sizeof result, session);
     }

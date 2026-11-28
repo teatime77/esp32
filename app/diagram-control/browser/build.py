@@ -93,6 +93,8 @@ def main():
                "browser_rpc_register", "browser_rpc_begin", "browser_rpc_result", "browser_rpc_release"]
     run([emcc, project / "browser/host.cpp", *[project / "src" / name for name in
          ["bytecode_vm.cpp", "bytecode_format.cpp", "bytecode_heap.cpp", "numpy_native.cpp"]],
+         project / "../../lib/protocol/src/uroa_wire.generated.cpp",
+         "-I" + str(project / "../../lib/protocol/include"),
          "-I" + str(project / "include"), "-std=c++17", "-O2", "-sMODULARIZE=1", "-sEXPORT_ES6=1",
          "-sENVIRONMENT=worker", "-sALLOW_MEMORY_GROWTH=1", "-sFILESYSTEM=0", "-sEXPORT_NAME=createPythonVM",
          "-sEXPORTED_FUNCTIONS=" + json.dumps(["_" + name for name in exports]),

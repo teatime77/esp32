@@ -35,26 +35,6 @@ namespace uroa {
         }
 
         /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out パケット全長以上の出力領域。
-         * @param packet 呼出元が確定した幅・固定値の値。
-         */
-        void encodeTelemetryHeader(uint8_t *out, const TelemetryHeader &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[TelemetryHeaderLayout::version] = static_cast<uint8_t>(versionValue);
-            const uint32_t flagsValue = static_cast<uint32_t>(packet.flags);
-            out[TelemetryHeaderLayout::flags] = static_cast<uint8_t>(flagsValue);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[TelemetryHeaderLayout::sequence] = static_cast<uint8_t>(sequenceValue);
-            out[TelemetryHeaderLayout::sequence + 1] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t millisValue = static_cast<uint32_t>(packet.millis);
-            out[TelemetryHeaderLayout::millis] = static_cast<uint8_t>(millisValue);
-            out[TelemetryHeaderLayout::millis + 1] = static_cast<uint8_t>(millisValue >> 8);
-            out[TelemetryHeaderLayout::millis + 2] = static_cast<uint8_t>(millisValue >> 16);
-            out[TelemetryHeaderLayout::millis + 3] = static_cast<uint8_t>(millisValue >> 24);
-        }
-
-        /**
          * @brief 全長一致時だけ復号する。版等の不正値も応答照合用に保持する。
          * @param data 入力バイト列。
          * @param length 入力のバイト数。

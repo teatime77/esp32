@@ -1,3 +1,4 @@
+#include <uroa_wire.generated.h>
 /**
  * @file uroa_ble.cpp
  * @brief BLE接続、指令受信、状態通知と認証済み設定転送を管理する。
@@ -217,8 +218,9 @@ namespace uroa {
         }
         if (bytecode) {
             const uint16_t frame = std::min<uint16_t>(244, info.getMTU() - 3);
-            result[4] = uint8_t(frame);
-            result[5] = uint8_t(frame >> 8);
+            auto packet = wire::readTransferResult(result);
+            packet.frame = frame;
+            wire::writeTransferResult(result, packet);
         }
         characteristic->setValue(result, sizeof result);
     }
@@ -412,8 +414,9 @@ namespace uroa {
         if (value.size() < 1) {
             return;
         }
-        // 先頭0=初期化、1=続き、2=確定。既存diagramの分割JSON転送を維持する。
-        if (uint8_t(value[0]) == 0) {
+        const auto frame = wire::readProvisionFrame(reinterpret_cast<const uint8_t *>(value.data()));
+        // 分割JSONの順序と認証・上限・消去はこの所有者が維持する。
+        if (frame.op == 0) {
             input_ = "";
         }
         if (value.size() > 1 && input_.length() + value.size() - 1 < 384) {
@@ -426,7 +429,7 @@ namespace uroa {
             reply_ = "{\"error\":\"Request too large\"}";
             return;
         }
-        if (uint8_t(value[0]) != 2) {
+        if (frame.op != 2) {
             return;
         }
         reply_ = owner_.callbacks_.configure(input_);

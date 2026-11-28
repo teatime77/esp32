@@ -5,6 +5,7 @@
  * 優先STOPは従来の生バイト条件で判定する。C++構造体のパディングを通信へ含めない。
  */
 #include "uroa_protocol.h"
+#include "uroa_wire.generated.h"
 
 namespace uroa {
     /** @brief 符号付き16bit値へ変換する。@param bytes 先頭バイト。@return 符号付き値。 */
@@ -99,28 +100,7 @@ namespace uroa {
      * @return 必要なバイト数。不正な配列・未対応種別・サイズのオーバーフローでは0。
      */
     size_t Protocol::deviceTelemetryLength(const uint8_t *sensorTypes, size_t sensorCount) {
-        if (sensorCount > 0 && sensorTypes == nullptr) {
-            return 0;
-        }
-        size_t length = DeviceTelemetryHeaderLength;
-        for (size_t index = 0; index < sensorCount; ++index) {
-            size_t recordLength = 0;
-            switch (sensorTypes[index]) {
-                case IMU6AxisDeviceType:
-                    recordLength = IMU6AxisRecordLength;
-                    break;
-                case UltrasonicDeviceType:
-                    recordLength = UltrasonicRecordLength;
-                    break;
-                default:
-                    return 0;
-            }
-            if (length > SIZE_MAX - recordLength) {
-                return 0;
-            }
-            length += recordLength;
-        }
-        return length;
+        return wire::TelemetryRecordsLength(sensorTypes, sensorCount);
     }
 
     /**
@@ -138,40 +118,29 @@ namespace uroa {
      */
     size_t Protocol::deviceTelemetry(uint8_t *out, size_t capacity, uint8_t flags, uint16_t sequence, uint32_t now,
         const uint8_t *sensorTypes, size_t sensorCount, const uint8_t *imuRaw, uint16_t distanceMm) {
-        const size_t length = deviceTelemetryLength(sensorTypes, sensorCount);
-        if (out == nullptr || length == 0 || capacity < length) {
-            return 0;
-        }
-        // 全レコードを検査してから書く。後半の引数が不正でも部分的な通知を残さない。
+        wire::ImuRecord imu{};
+        imu.deviceType = IMU6AxisDeviceType;
         for (size_t index = 0; index < sensorCount; ++index) {
-            if (sensorTypes[index] == IMU6AxisDeviceType && imuRaw == nullptr) {
-                return 0;
-            }
-            if (sensorTypes[index] == UltrasonicDeviceType && distanceMm != InvalidDistanceMm &&
-                (distanceMm < MinDistanceMm || distanceMm > MaxDistanceMm)) {
+            if (sensorTypes == nullptr || (sensorTypes[index] == IMU6AxisDeviceType && imuRaw == nullptr)) {
                 return 0;
             }
         }
-        const rpc::TelemetryHeader header{DeviceTelemetryVersion, flags, sequence, now};
-        rpc::encodeTelemetryHeader(out, header);
-        size_t offset = DeviceTelemetryHeaderLength;
-        for (size_t index = 0; index < sensorCount; ++index) {
-            out[offset] = sensorTypes[index];
-            if (sensorTypes[index] == IMU6AxisDeviceType) {
-                using Layout = rpc::ImuRecordLayout;
-                for (size_t axis = 0; axis < 3; ++axis) {
-                    out[offset + Layout::accX + 2 * axis] = imuRaw[2 * axis + 1];
-                    out[offset + Layout::accX + 1 + 2 * axis] = imuRaw[2 * axis];
-                    out[offset + Layout::gyroX + 2 * axis] = imuRaw[9 + 2 * axis];
-                    out[offset + Layout::gyroX + 1 + 2 * axis] = imuRaw[8 + 2 * axis];
-                }
-                offset += IMU6AxisRecordLength;
-            }
-            else {
-                write16(out + offset + rpc::DistanceRecordLayout::distanceMm, distanceMm);
-                offset += UltrasonicRecordLength;
-            }
+        if (imuRaw != nullptr) {
+            // MPU-6050のレジスター順はbig endian。温度2バイトを除いて値へ変換する。
+            const auto sensor16 = [](const uint8_t *raw) -> int16_t {
+                const uint16_t bits = (uint16_t(raw[0]) << 8) | raw[1];
+                return bits >= 0x8000 ? int32_t(bits) - 0x10000 : bits;
+            };
+            imu.accX = sensor16(imuRaw);
+            imu.accY = sensor16(imuRaw + 2);
+            imu.accZ = sensor16(imuRaw + 4);
+            imu.gyroX = sensor16(imuRaw + 8);
+            imu.gyroY = sensor16(imuRaw + 10);
+            imu.gyroZ = sensor16(imuRaw + 12);
         }
-        return offset;
+        const wire::DistanceRecord distance{UltrasonicDeviceType, distanceMm};
+        const wire::TelemetryHeader header{DeviceTelemetryVersion, flags, sequence, now};
+        const wire::TelemetryRecordsValues values{imu, distance};
+        return wire::writeTelemetryRecords(out, capacity, header, sensorTypes, sensorCount, values);
     }
 }

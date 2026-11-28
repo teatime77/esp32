@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "uroa_rpc.generated.h"
+#include "uroa_wire.generated.h"
 
 namespace uroa {
     /**
@@ -19,7 +20,7 @@ namespace uroa {
      */
     class Protocol {
         public:
-        static constexpr uint8_t DeviceTelemetryVersion = 3; ///< 機器種別付きTelemetryの版番号。
+        static constexpr uint8_t DeviceTelemetryVersion = wire::TelemetryHeaderLayout::versionDefault; ///< 機器種別付きTelemetryの版番号。
         static constexpr size_t DeviceTelemetryHeaderLength =
             rpc::TelemetryHeaderLayout::ByteLength; ///< version・flags・sequence・millisの長さ。
         static constexpr size_t IMU6AxisRecordLength =
@@ -28,9 +29,9 @@ namespace uroa {
         static constexpr size_t UltrasonicRecordLength =
             rpc::DistanceRecordLayout::ByteLength; ///< 種別1バイトと距離mmのuint16。
         static constexpr uint8_t UltrasonicDeviceType = 2; ///< diagramのDeviceType::UltrasonicDistanceSensorと共通。
-        static constexpr uint16_t InvalidDistanceMm = 0xFFFF; ///< 距離の未測定・測定失敗を表す予約値。
-        static constexpr uint16_t MinDistanceMm = 20; ///< 有効距離の下限（mm）。
-        static constexpr uint16_t MaxDistanceMm = 4000; ///< 有効距離の上限（mm）。
+        static constexpr uint16_t InvalidDistanceMm = wire::DistanceRecordLayout::distanceMmSentinel; ///< 距離の未測定・測定失敗を表す予約値。
+        static constexpr uint16_t MinDistanceMm = wire::DistanceRecordLayout::distanceMmMin; ///< 有効距離の下限（mm）。
+        static constexpr uint16_t MaxDistanceMm = wire::DistanceRecordLayout::distanceMmMax; ///< 有効距離の上限（mm）。
 
         /**
          * @brief protocol v1の指令操作番号。

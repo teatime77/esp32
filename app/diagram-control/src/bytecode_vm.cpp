@@ -1,3 +1,4 @@
+#include <uroa_wire.generated.h>
 /**
  * @file bytecode_vm.cpp
  * @brief 値スロット・関数フレーム・ネイティブ呼出しとGCヒープを持つPythonサブセットVM。
@@ -74,8 +75,8 @@ namespace {
      */
     void snapshotValue(uint8_t *record, const BytecodeVM::Value &value) {
         using Type = BytecodeVM::Type;
-        std::memset(record, 0, 8);
-        record[0] = uint8_t(value.type);
+        uroa::wire::SnapshotValue packet{};
+        packet.tag = static_cast<uint8_t>(value.type);
         uint32_t payload = 0;
         if (value.type == Type::Float) {
             std::memcpy(&payload, &value.real, sizeof payload);
@@ -87,10 +88,10 @@ namespace {
             payload = value.address;
         }
         if (value.type == Type::HeapReference || value.type == Type::Object) {
-            record[2] = uint8_t(value.classId);
-            record[3] = uint8_t(value.classId >> 8);
+            packet.classId = value.classId;
         }
-        write32(record + 4, payload);
+        packet.payload = payload;
+        uroa::wire::writeSnapshotValue(record, packet);
     }
 
     /**
@@ -1992,15 +1993,8 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
         return false;
     }
     std::memset(data, 0, length);
-    data[0] = 6;
-    data[1] = pauseReason;
-    data[2] = 8;
-    const uint32_t header[] = {pc, bp, sp, globalCount, sp};
-    for (size_t index = 0; index < 5; ++index) {
-        for (size_t byte = 0; byte < 4; ++byte) {
-            data[4 + index * 4 + byte] = uint8_t(header[index] >> (byte * 8));
-        }
-    }
+    const uroa::wire::SnapshotHeader header{6, pauseReason, 8, pc, bp, sp, globalCount, sp};
+    uroa::wire::writeSnapshotHeader(data, header);
     for (uint32_t index = 0; index < globalCount + sp; ++index) {
         const Value &value = index < globalCount ? globals[index] : stack_[index - globalCount];
         snapshotValue(data + 24 + index * 8, value);
@@ -2019,16 +2013,12 @@ bool BytecodeVM::copyDebugSnapshot(uint8_t *data, size_t length) const {
         if (!stringBytes(value, text, bytes) || offset + 8 + bytes > length) {
             return false;
         }
-        for (size_t byte = 0; byte < 4; ++byte) {
-            data[offset + byte] = uint8_t(value.address >> (byte * 8));
-            data[offset + 4 + byte] = uint8_t(uint32_t(bytes) >> (byte * 8));
-        }
+        const uroa::wire::StringHeader entry{value.address, static_cast<uint32_t>(bytes)};
+        uroa::wire::writeStringHeader(data + offset, entry);
         std::memcpy(data + offset + 8, text, bytes);
         offset += 8 + bytes;
         ++count;
     }
-    for (size_t byte = 0; byte < 4; ++byte) {
-        data[countOffset + byte] = uint8_t(count >> (byte * 8));
-    }
+    uroa::wire::writeWord32(data + countOffset, uroa::wire::Word32{count});
     return offset == length;
 }

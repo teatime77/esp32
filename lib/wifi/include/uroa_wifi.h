@@ -210,6 +210,20 @@ namespace uroa {
         /** @brief 認証済みRead要求へ現世代の値と要求番号を署名して返す。@param req 要求。@return HTTP応答処理の結果。 */
         esp_err_t controlValueHTTP(httpd_req_t *req);
         /**
+         * @brief 生成したRead資源の選択。状態ロック・世代検査は呼出元が行う。
+         * @param path HTTPパス。
+         * @return 選択した値。不明ならnullptr。
+         */
+        const ControlValue *generatedControlValue(const String &path) const;
+        /**
+         * @brief .protoから生成した制御HTTPとOPTIONSの窓口を登録する。
+         */
+        void registerGeneratedControlRoutes();
+        /**
+         * @brief .protoから生成したカメラHTTPとOPTIONSの窓口を登録する。
+         */
+        void registerGeneratedCameraRoutes();
+        /**
          * @brief 乱数を16進文字列へ変換する。
          * @param bytes 生成する乱数のバイト数。
          * @return 指定バイト数の2倍の長さの文字列。

@@ -1,3 +1,4 @@
+#include <uroa_wire.generated.h>
 /**
  * @file bytecode_debugger.cpp
  * @brief BLE／Wi-Fiデバッグの段階受信、opcode bit7の設定と停止時の値転送。
@@ -11,32 +12,9 @@
 #include <new>
 
 namespace {
-    /**
-     * @brief 非整列little endianを読む。
-     * @param data 2バイト。
-     * @return 値。
-     */
-    uint16_t read16(const uint8_t *data) {
-        return uint16_t(data[0]) | uint16_t(data[1]) << 8;
-    }
-    /**
-     * @brief 非整列little endianを読む。
-     * @param data 4バイト。
-     * @return 値。
-     */
-    uint32_t read32(const uint8_t *data) {
-        return uint32_t(data[0]) | uint32_t(data[1]) << 8 | uint32_t(data[2]) << 16 | uint32_t(data[3]) << 24;
-    }
-    /**
-     * @brief little endianで書く。
-     * @param data 出力。
-     * @param value 値。
-     */
-    void write32(uint8_t *data, uint32_t value) {
-        for (size_t index = 0; index < 4; ++index) {
-            data[index] = uint8_t(value >> (8 * index));
-        }
-    }
+
+
+
     /**
      * @brief CRC-32/ISO-HDLC。
      * @param data 内容。
@@ -254,16 +232,9 @@ bool BytecodeDebugger::installDeployment() {
  * @param extra 操作別値。
  */
 void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
-    std::memset(result_, 0, sizeof result_);
-    result_[0] = 1;
-    result_[1] = operation_;
-    result_[2] = uint8_t(requestId_);
-    result_[3] = uint8_t(requestId_ >> 8);
-    result_[4] = code;
-    result_[5] = uint8_t(vm_.state);
-    write32(result_ + 8, receiver_.programRevision);
-    write32(result_ + 12, value);
-    write32(result_ + 16, extra);
+    const uroa::wire::DebugResult packet{1, operation_, requestId_, static_cast<uint8_t>(code),
+        static_cast<uint8_t>(vm_.state), 0, receiver_.programRevision, value, extra};
+    uroa::wire::writeDebugResult(result_, packet);
     transport_.publishDebugResult(result_, sizeof result_, session_);
 }
 
@@ -274,7 +245,8 @@ void BytecodeDebugger::reply(Code code, uint32_t value, uint32_t extra) {
  */
 void BytecodeDebugger::handle(const Request &request) {
     const uint8_t *data = request.bytes;
-    const uint16_t id = read16(data + 2);
+    const auto header = uroa::wire::readDebugHeader(data);
+    const uint16_t id = header.request;
     if (id == requestId_ && id != 0 && request.length == lastRequest_.length &&
         std::memcmp(data, lastRequest_.bytes, request.length) == 0) {
         transport_.publishDebugResult(result_, sizeof result_, session_);
@@ -284,14 +256,14 @@ void BytecodeDebugger::handle(const Request &request) {
         return;
     }
     requestId_ = id;
-    operation_ = data[1];
+    operation_ = header.op;
     lastRequest_ = request;
-    if (data[0] != 1 || operation_ < 1 || operation_ > 13) {
+    if (header.version != 1 || operation_ < 1 || operation_ > 13) {
         reply(Format);
         return;
     }
     if (operation_ == 4) {
-        if (request.length != 8 || read32(data + 4) != 0) {
+        if (request.length != 8 || header.revision != 0) {
             reply(Format);
         }
         else {
@@ -299,7 +271,7 @@ void BytecodeDebugger::handle(const Request &request) {
         }
         return;
     }
-    if (!receiver_.program || read32(data + 4) != receiver_.programRevision) {
+    if (!receiver_.program || header.revision != receiver_.programRevision) {
         reply(Stale);
         return;
     }
@@ -308,8 +280,9 @@ void BytecodeDebugger::handle(const Request &request) {
             reply(Format);
             return;
         }
-        const uint32_t offset = read32(data + 12);
-        if (vm_.state != BytecodeVM::State::Paused || !snapshot_ || read32(data + 8) != stopId_) {
+        const auto chunk = uroa::wire::readDebugChunk(data);
+        const uint32_t offset = chunk.offset;
+        if (vm_.state != BytecodeVM::State::Paused || !snapshot_ || chunk.stopId != stopId_) {
             reply(Stale);
         }
         else if (offset >= snapshotLength_) {
@@ -336,7 +309,7 @@ void BytecodeDebugger::handle(const Request &request) {
             reply(Format);
             return;
         }
-        const uint32_t selectedStop = read32(data + 8);
+        const uint32_t selectedStop = uroa::wire::readDebugExecute(data).stopId;
         if (receiving_ || vm_.state != BytecodeVM::State::Paused || !snapshot_ || selectedStop != stopId_) {
             reply(Stale);
             return;
@@ -358,11 +331,12 @@ void BytecodeDebugger::handle(const Request &request) {
     }
     const uint8_t transferOperation = operation_ >= 7 ? operation_ - 6 : operation_;
     if (transferOperation == 1) {
-        if (request.length != 20 || read32(data + 16) != receiver_.programCrc32) {
+        const auto begin = uroa::wire::readDebugBegin(data);
+        if (request.length != 20 || begin.imageCrc != receiver_.programCrc32) {
             reply(Invalid);
             return;
         }
-        const uint32_t count = read32(data + 8);
+        const uint32_t count = begin.count;
         if (count > (operation_ == 7 ? 65536U : 4096U)) {
             reply(Range);
             return;
@@ -379,7 +353,7 @@ void BytecodeDebugger::handle(const Request &request) {
         pointsTransfer_ = operation_ == 7;
         pending_ = std::move(pending);
         count_ = count;
-        expectedCrc_ = read32(data + 12);
+        expectedCrc_ = begin.crc;
         receiving_ = true;
         lastReceive_ = millis();
         reply(Ok);
@@ -395,12 +369,12 @@ void BytecodeDebugger::handle(const Request &request) {
             return;
         }
         const uint32_t count = (request.length - 12) / 2;
-        if (read32(data + 8) != received_ || count > count_ - received_) {
+        if (uroa::wire::readDebugData(data).index != received_ || count > count_ - received_) {
             reply(Order);
             return;
         }
         for (uint32_t index = 0; index < count; ++index) {
-            const uint16_t pc = read16(data + 12 + index * 2);
+            const uint16_t pc = uroa::wire::readPc(data + uroa::wire::DebugDataLayout::ByteLength + index * uroa::wire::PcLayout::ByteLength).value;
             if (received_ && pc <= pending_[received_ - 1]) {
                 cancelTransfer();
                 reply(Order);
@@ -435,8 +409,8 @@ void BytecodeDebugger::publishState() {
         return;
     }
     const uint32_t now = millis();
-    if (vm_.state == BytecodeVM::State::Running && event_[0] == 2 && event_[1] == uint8_t(vm_.state) &&
-        read32(event_ + 8) == receiver_.programRevision && uint32_t(now - lastProgressMs_) < 1000) {
+    if (vm_.state == BytecodeVM::State::Running && uroa::wire::readDebugEvent(event_).version == 2 && uroa::wire::readDebugEvent(event_).state == uint8_t(vm_.state) &&
+        uroa::wire::readDebugEvent(event_).revision == receiver_.programRevision && uint32_t(now - lastProgressMs_) < 1000) {
         return;
     }
     if (vm_.state != BytecodeVM::State::Paused) {
@@ -470,16 +444,13 @@ void BytecodeDebugger::publishState() {
             }
         }
     }
-    uint8_t event[20]{};
-    event[0] = 2;
-    event[1] = uint8_t(vm_.state);
-    event[2] = snapshotError_;
     const bool paused = vm_.state == BytecodeVM::State::Paused;
-    event[3] = vm_.state == BytecodeVM::State::Error ? uint8_t(vm_.error) : 0;
-    write32(event + 4, paused ? stopId_ : vm_.state == BytecodeVM::State::Error ? vm_.errorPc : 0);
-    write32(event + 8, receiver_.programRevision);
-    write32(event + 12, paused ? snapshotLength_ : vm_.instructions);
-    write32(event + 16, paused ? snapshotCrc_ : vm_.pc);
+    const uroa::wire::DebugEvent packet{2, static_cast<uint8_t>(vm_.state), static_cast<uint8_t>(snapshotError_),
+        static_cast<uint8_t>(vm_.state == BytecodeVM::State::Error ? uint8_t(vm_.error) : 0),
+        paused ? stopId_ : vm_.state == BytecodeVM::State::Error ? vm_.errorPc : 0,
+        receiver_.programRevision, paused ? snapshotLength_ : vm_.instructions, paused ? snapshotCrc_ : vm_.pc};
+    uint8_t event[uroa::wire::DebugEventLayout::ByteLength];
+    uroa::wire::writeDebugEvent(event, packet);
     if (std::memcmp(event_, event, sizeof event_) != 0) {
         std::memcpy(event_, event, sizeof event_);
         lastProgressMs_ = now;

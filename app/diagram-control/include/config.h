@@ -4,6 +4,7 @@
  * @details UUIDと教材用共通値はuroaのdiagramに合わせる。実際のWi-Fi認証情報は書かない。
  */
 #pragma once
+#include <uroa_wire.generated.h>
 #include <stdint.h>
 
 #if defined(UROA_BOARD_SUPERMINI_ESP32S3)
@@ -51,19 +52,19 @@ constexpr uint16_t MAX_ANGLE = 18000; ///< 全CH共通の角度指令の最大�
 constexpr uint16_t MIN_PULSE_US = 500; ///< 0度指令に対応するパルス幅（µs）。
 constexpr uint16_t MAX_PULSE_US = 2500; ///< 180度指令に対応するパルス幅（µs）。
 constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 5000; ///< 有効な指令が途絶えたとき、loop()が出力と通知を停止する期限（ms）。
-constexpr char SERVICE_UUID[] = "f3641400-00b0-4240-ba50-05ca45bf8abc"; ///< diagram-controlのBLE制御サービスのUUID。
-constexpr char COMMAND_UUID[] = "f3641401-00b0-4240-ba50-05ca45bf8abc"; ///< 通常指令を受け付けるGATT特性のUUID。
-constexpr char TELEMETRY_UUID[] = "f3641402-00b0-4240-ba50-05ca45bf8abc"; ///< センサー通知を送るGATT特性のUUID。
-constexpr char STATUS_UUID[] = "f3641403-00b0-4240-ba50-05ca45bf8abc"; ///< 通常指令の受付結果をRead/Notifyで公開する特性のUUID。
-constexpr char CONFIG_UUID[] = "f3641404-00b0-4240-ba50-05ca45bf8abc"; ///< Wi-Fi設定要求を受け付けるGATT特性のUUID。
-constexpr char RESULT_UUID[] = "f3641405-00b0-4240-ba50-05ca45bf8abc"; ///< Wi-Fi設定の処理結果を公開するGATT特性のUUID。
-constexpr char DEVICE_INFO_UUID[] = "f3641406-00b0-4240-ba50-05ca45bf8abc"; ///< 機器情報の書込窓口。
-constexpr char BYTECODE_UUID[] = "f3641407-00b0-4240-ba50-05ca45bf8abc"; ///< バイトコードの分割受信窓口。
-constexpr char BYTECODE_RESULT_UUID[] = "f3641408-00b0-4240-ba50-05ca45bf8abc"; ///< バイトコード受付結果のRead窓口。
-constexpr char DEBUG_CONTROL_UUID[] = "f3641409-00b0-4240-ba50-05ca45bf8abc"; ///< デバッグ要求のWrite窓口。
-constexpr char DEBUG_RESULT_UUID[] = "f364140a-00b0-4240-ba50-05ca45bf8abc"; ///< デバッグACKのRead窓口。
-constexpr char DEBUG_EVENT_UUID[] = "f364140b-00b0-4240-ba50-05ca45bf8abc"; ///< VM状態のRead/Notify窓口。
-constexpr char DEBUG_DATA_UUID[] = "f364140c-00b0-4240-ba50-05ca45bf8abc"; ///< 停止値チャンクのRead窓口。
+constexpr const char *SERVICE_UUID = uroa::wire::GattUuidValues::service; ///< diagram-controlのBLE制御サービスのUUID。
+constexpr const char *COMMAND_UUID = uroa::wire::GattUuidValues::command; ///< 通常指令を受け付けるGATT特性のUUID。
+constexpr const char *TELEMETRY_UUID = uroa::wire::GattUuidValues::telemetry; ///< センサー通知を送るGATT特性のUUID。
+constexpr const char *STATUS_UUID = uroa::wire::GattUuidValues::status; ///< 通常指令の受付結果をRead/Notifyで公開する特性のUUID。
+constexpr const char *CONFIG_UUID = uroa::wire::GattUuidValues::wifiConfig; ///< Wi-Fi設定要求を受け付けるGATT特性のUUID。
+constexpr const char *RESULT_UUID = uroa::wire::GattUuidValues::wifiResult; ///< Wi-Fi設定の処理結果を公開するGATT特性のUUID。
+constexpr const char *DEVICE_INFO_UUID = uroa::wire::GattUuidValues::deviceInfo; ///< 機器情報の書込窓口。
+constexpr const char *BYTECODE_UUID = uroa::wire::GattUuidValues::bytecode; ///< バイトコードの分割受信窓口。
+constexpr const char *BYTECODE_RESULT_UUID = uroa::wire::GattUuidValues::bytecodeResult; ///< バイトコード受付結果のRead窓口。
+constexpr const char *DEBUG_CONTROL_UUID = uroa::wire::GattUuidValues::debugControl; ///< デバッグ要求のWrite窓口。
+constexpr const char *DEBUG_RESULT_UUID = uroa::wire::GattUuidValues::debugResult; ///< デバッグACKのRead窓口。
+constexpr const char *DEBUG_EVENT_UUID = uroa::wire::GattUuidValues::debugEvent; ///< VM状態のRead/Notify窓口。
+constexpr const char *DEBUG_DATA_UUID = uroa::wire::GattUuidValues::debugData; ///< 停止値チャンクのRead窓口。
 constexpr uint32_t PAIRING_CODE = 123456; ///< diagramと共通の教材用BLEペアリングコード。公開設定として扱う。
 // 公開の教材用共通値。robot-wifi.tsのteachingConnectionKeyと揃える。
 constexpr char TEACHING_CONNECTION_KEY[] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"; ///< Web側のteachingConnectionKeyと合わせる公開の教材用接続キー。

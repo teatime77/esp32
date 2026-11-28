@@ -9,7 +9,7 @@
 namespace uroa {
     namespace rpc {
         constexpr uint32_t ApiVersion = 1; ///< 呼出しAPIの版。既存Commandの版とは別。
-        constexpr char SchemaFingerprint[] = "024c72760355b575cbd0458dd0d85fa550880ef04bc5c685d07c17574b68e4ed"; ///< 生成物整合用。現在の通信で交換しない。
+        constexpr char SchemaFingerprint[] = "99d8eab721a50d2deda1e415c268665dc3730d66c80a19104a87439d890d8730"; ///< 生成物整合用。現在の通信で交換しない。
         /**
          * @brief 既存パケットの操作・結果番号。
          */
@@ -171,6 +171,7 @@ namespace uroa {
         struct TelemetryHeaderLayout {
             static constexpr size_t ByteLength = 8; ///< パケット全長。
             static constexpr size_t version = 0; ///< 8bitの先頭位置。
+            static constexpr uint8_t versionValue = 3; ///< 通常形式の固定値。
             static constexpr size_t flags = 1; ///< 8bitの先頭位置。
             static constexpr size_t sequence = 2; ///< 16bitの先頭位置。
             static constexpr size_t millis = 4; ///< 32bitの先頭位置。
@@ -185,13 +186,6 @@ namespace uroa {
             uint16_t sequence; ///< 16bitの値。
             uint32_t millis; ///< 32bitの値。
         };
-
-        /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out ByteLength以上の出力領域。
-         * @param packet 呼出元が確定した幅・固定値の値。
-         */
-        void encodeTelemetryHeader(uint8_t *out, const TelemetryHeader &packet);
 
         /**
          * @brief 宣言順・little endian・パディングなしの位置。sizeofで通信サイズを求めない。

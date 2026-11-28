@@ -12,6 +12,7 @@
 #include <uroa_ble.h>
 #include <uroa_imu.h>
 #include <uroa_protocol.h>
+#include <uroa_wire.generated.h>
 #include <uroa_servo.h>
 #include <uroa_ultrasonic.h>
 #include <atomic>
@@ -463,28 +464,24 @@ namespace {
         size_t count = 0;
         size_t offset = 0;
         while (offset < length) {
-            DeviceInfoEntry entry{};
-            entry.type = static_cast<DeviceType>(data[offset]);
-            switch (entry.type) {
-                case DeviceType::IMU6Axis:
-                case DeviceType::IMU9Axis:
-                case DeviceType::UltrasonicDistanceSensor:
-                case DeviceType::Camera:
-                    ++offset;
-                    break;
-                case DeviceType::ServoMotor:
-                    if (length - offset < 3 || data[offset + 1] >= 16 || data[offset + 2] > 1) {
-                        Serial.println("DeviceInfo rejected: invalid servo record");
-                        return;
-                    }
-                    entry.channel = data[offset + 1];
-                    entry.mode = data[offset + 2];
-                    offset += 3;
-                    break;
-                default:
-                    Serial.println("DeviceInfo rejected: unknown device type");
-                    return;
+            const auto tag = uroa::wire::readDeviceTag(data + offset);
+            const size_t bytes = uroa::wire::DeviceInfoRecordsRecordLength(tag.deviceType);
+            if (bytes == 0 || bytes > length - offset) {
+                Serial.println("DeviceInfo rejected: invalid record length or type");
+                return;
             }
+            DeviceInfoEntry entry{};
+            entry.type = static_cast<DeviceType>(tag.deviceType);
+            if (entry.type == DeviceType::ServoMotor) {
+                const auto record = uroa::wire::readDeviceServo(data + offset);
+                if (!uroa::wire::validDeviceServo(record)) {
+                    Serial.println("DeviceInfo rejected: invalid servo record");
+                    return;
+                }
+                entry.channel = record.channel;
+                entry.mode = record.mode;
+            }
+            offset += bytes;
             received[count] = entry;
             ++count;
         }
@@ -920,9 +917,9 @@ void setup() {
     bleConfig.debugResultUuid = DEBUG_RESULT_UUID;
     bleConfig.debugEventUuid = DEBUG_EVENT_UUID;
     bleConfig.debugDataUuid = DEBUG_DATA_UUID;
-    bleConfig.rpcControlUuid = "f364140d-00b0-4240-ba50-05ca45bf8abc";
-    bleConfig.rpcResultUuid = "f364140e-00b0-4240-ba50-05ca45bf8abc";
-    bleConfig.rpcEventUuid = "f364140f-00b0-4240-ba50-05ca45bf8abc";
+    bleConfig.rpcControlUuid = uroa::wire::GattUuidValues::rpcControl;
+    bleConfig.rpcResultUuid = uroa::wire::GattUuidValues::rpcResult;
+    bleConfig.rpcEventUuid = uroa::wire::GattUuidValues::rpcEvent;
     bleConfig.telemetryMaxLength = DeviceTelemetryMaxLength;
     // 大きいTelemetryに必要な既存MTUも維持し、コードは最大244バイトのWriteへ制限する。
     bleConfig.preferredMtu = DeviceTelemetryMaxLength + NotificationHeaderLength > 247
