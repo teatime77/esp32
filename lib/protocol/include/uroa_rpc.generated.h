@@ -1,6 +1,6 @@
 /**
  * @file uroa_rpc.generated.h
- * @brief device.protoから生成した既存パケットの番号・配置。手動編集しない。
+ * @brief device.protoから生成した既存パケットの番号・配置・方向別codec。手動編集しない。
  */
 #pragma once
 #include <stddef.h>
@@ -9,7 +9,7 @@
 namespace uroa {
     namespace rpc {
         constexpr uint32_t ApiVersion = 1; ///< 呼出しAPIの版。既存Commandの版とは別。
-        constexpr char SchemaFingerprint[] = "9b6d122783bfd1d23f220efa049c42290ff38ff269f495305092d0ef84bd4c41"; ///< 生成物整合用。現在の通信で交換しない。
+        constexpr char SchemaFingerprint[] = "96abe482f3caf69b9da8c28e3bea8dd753a5b1787a0d944c45a0d635e1ab6dc6"; ///< 生成物整合用。現在の通信で交換しない。
         /**
          * @brief 既存パケットの操作番号。
          */
@@ -72,10 +72,12 @@ namespace uroa {
         struct CommandPacketLayout {
             static constexpr size_t ByteLength = 10; ///< パケット全長。
             static constexpr size_t version = 0; ///< 8bitの先頭位置。
+            static constexpr uint8_t versionValue = 1; ///< 通常形式の固定値。
             static constexpr size_t opcode = 1; ///< 8bitの先頭位置。
             static constexpr size_t sequence = 2; ///< 16bitの先頭位置。
             static constexpr size_t channel = 4; ///< 8bitの先頭位置。
             static constexpr size_t reserved = 5; ///< 8bitの先頭位置。
+            static constexpr uint8_t reservedValue = 0; ///< 通常形式の固定値。
             static constexpr size_t value = 6; ///< 16bitの先頭位置。
             static constexpr size_t duration = 8; ///< 16bitの先頭位置。
         };
@@ -94,11 +96,19 @@ namespace uroa {
         };
 
         /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out ByteLength以上の出力領域。
-         * @param packet 幅を確定した値。
+         * @brief 全長が一致するパケットを読む。形式検査は別途行う。
+         * @param data 入力バイト列。
+         * @param length 入力のバイト数。
+         * @return 長さ不正またはnullptrなら全フィールド0、それ以外は復号した値。
          */
-        void encodeCommandPacket(uint8_t *out, const CommandPacket &packet);
+        CommandPacket decodeCommandPacket(const uint8_t *data, size_t length);
+
+        /**
+         * @brief 固定値・enum・下限による通常の形式検査。機器の範囲検査は含まない。
+         * @param packet 復号した値。
+         * @return 形式が正しければtrue。
+         */
+        bool validateCommandPacket(const CommandPacket &packet);
 
         /**
          * @brief 宣言順・little endian・パディングなしの位置。sizeofで通信サイズを求めない。
@@ -106,6 +116,7 @@ namespace uroa {
         struct StatusPacketLayout {
             static constexpr size_t ByteLength = 12; ///< パケット全長。
             static constexpr size_t version = 0; ///< 8bitの先頭位置。
+            static constexpr uint8_t versionValue = 1; ///< 通常形式の固定値。
             static constexpr size_t code = 1; ///< 8bitの先頭位置。
             static constexpr size_t sequence = 2; ///< 16bitの先頭位置。
             static constexpr size_t flags = 4; ///< 8bitの先頭位置。
@@ -132,7 +143,7 @@ namespace uroa {
         /**
          * @brief 宣言順に固定長パケットを書く。
          * @param out ByteLength以上の出力領域。
-         * @param packet 幅を確定した値。
+         * @param packet 呼出元が確定した幅・固定値の値。
          */
         void encodeStatusPacket(uint8_t *out, const StatusPacket &packet);
 
@@ -160,7 +171,7 @@ namespace uroa {
         /**
          * @brief 宣言順に固定長パケットを書く。
          * @param out ByteLength以上の出力領域。
-         * @param packet 幅を確定した値。
+         * @param packet 呼出元が確定した幅・固定値の値。
          */
         void encodeTelemetryHeader(uint8_t *out, const TelemetryHeader &packet);
 
@@ -192,13 +203,6 @@ namespace uroa {
         };
 
         /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out ByteLength以上の出力領域。
-         * @param packet 幅を確定した値。
-         */
-        void encodeImuRecord(uint8_t *out, const ImuRecord &packet);
-
-        /**
          * @brief 宣言順・little endian・パディングなしの位置。sizeofで通信サイズを求めない。
          */
         struct DistanceRecordLayout {
@@ -214,13 +218,6 @@ namespace uroa {
             uint8_t deviceType; ///< 8bitの値。
             uint16_t distanceMm; ///< 16bitの値。
         };
-
-        /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out ByteLength以上の出力領域。
-         * @param packet 幅を確定した値。
-         */
-        void encodeDistanceRecord(uint8_t *out, const DistanceRecord &packet);
 
     }
 }

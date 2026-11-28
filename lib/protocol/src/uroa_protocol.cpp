@@ -1,10 +1,10 @@
 /**
  * @file uroa_protocol.cpp
  * @brief diagramと共有するprotocol v1と機器種別付きTelemetryのパケットを読み書きする。
- * @details uroa_rpc.generated.hの配置へ明示的に書き込み、C++構造体のパディングを通信へ含めない。
+ * @details Command復号・通常形式検査とStatus符号化は生成codecを呼ぶ。
+ * 優先STOPは従来の生バイト条件で判定する。C++構造体のパディングを通信へ含めない。
  */
 #include "uroa_protocol.h"
-#include <string.h>
 
 namespace uroa {
     /** @brief 符号付き16bit値へ変換する。@param bytes 先頭バイト。@return 符号付き値。 */
@@ -44,17 +44,13 @@ namespace uroa {
     }
 
     /**
-     * @brief 受信データを固定長の指令へコピーする。
+     * @brief 生成codecで全長一致時だけ指令を復号する。不正形式の値も保持する。
      * @param data 入力または出力のバイト配列。
      * @param length データ長（バイト）。
      * @return 長さが不正な場合はversion=0の指令。
      */
     Protocol::Command Protocol::command(const uint8_t *data, size_t length) {
-        Command result;
-        if (length == sizeof result.bytes) {
-            memcpy(result.bytes, data, length);
-        }
-        return result;
+        return rpc::decodeCommandPacket(data, length);
     }
 
     /**
@@ -63,10 +59,7 @@ namespace uroa {
      * @return 指令形式が正しければtrue。値の範囲は教材側で検査する。
      */
     bool Protocol::valid(const Command &command) {
-        const auto *b = command.bytes;
-        using Layout = rpc::CommandPacketLayout;
-        return b[Layout::version] == 1 && b[Layout::reserved] == 0 && b[Layout::opcode] >= ARM &&
-            b[Layout::opcode] <= VM_STOP;
+        return rpc::validateCommandPacket(command);
     }
 
     /**
@@ -77,7 +70,8 @@ namespace uroa {
      */
     bool Protocol::urgentStop(const uint8_t *data, size_t length) {
         using Layout = rpc::CommandPacketLayout;
-        return length == Layout::ByteLength && data[Layout::version] == 1 && data[Layout::opcode] == STOP;
+        return length == Layout::ByteLength && data[Layout::version] == Layout::versionValue &&
+            data[Layout::opcode] == STOP;
     }
 
     /**
@@ -94,7 +88,7 @@ namespace uroa {
     void Protocol::status(uint8_t *out, uint8_t code, uint16_t sequence, uint8_t flags, uint8_t channel,
         uint16_t current, uint16_t target, uint16_t remaining) {
         rpc::StatusPacket packet{};
-        packet.version = 1;
+        packet.version = rpc::StatusPacketLayout::versionValue;
         packet.code = code;
         packet.sequence = sequence;
         packet.flags = flags;

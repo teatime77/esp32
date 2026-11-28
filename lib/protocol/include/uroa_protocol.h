@@ -1,7 +1,9 @@
 /**
  * @file uroa_protocol.h
  * @brief diagramと共有するprotocol v1と機器種別付きTelemetryのパケットを読み書きする。
- * @details 操作番号・固定長配置はuroa/diagram/rpc/device.protoを正本とし、uroa_rpc.generated.hから使う。
+ * @details 操作番号・固定長配置・Command復号/通常形式検査・Status符号化は
+ * uroa/diagram/rpc/device.protoを正本とし、uroa_rpc.generated.h/.cppから使う。
+ * main.cppは復号した値をloop()で扱う。優先STOPの生バイト判定は通常形式検査と分けて維持する。
  * バイナリは既存形式を維持し、API用の番号や指紋をパケットへ追加しない。
  */
 #pragma once
@@ -65,11 +67,9 @@ namespace uroa {
         };
 
         /**
-         * @brief version、操作、sequence、CH、値と時間を含む10バイトの指令。
+         * @brief 10バイトの指令から生成codecで復号した値。メモリー配置を通信サイズに使わない。
          */
-        struct Command {
-            uint8_t bytes[rpc::CommandPacketLayout::ByteLength]{};
-        };
+        using Command = rpc::CommandPacket;
 
         /**
          * @brief little endianの16bit値を読み取る。
@@ -94,8 +94,9 @@ namespace uroa {
          */
         static void write32(uint8_t *bytes, uint32_t value);
         /**
-         * @brief 受信データを固定長の指令へコピーする。
-         * @details 長さ不正はversion=0の指令へ変換し、通常の形式エラー応答に回す。
+         * @brief 受信データを生成codecで指令の値へ復号する。
+         * @details nullptr・長さ不正は全フィールド0にして通常の形式エラー応答に回す。
+         * 全長一致時は不正な版・予約値・opcodeでもsequence等を保持し、valid()で形式を検査する。
          * @param data 入力または出力のバイト配列。
          * @param length データ長（バイト）。
          * @return 長さが不正な場合はversion=0の指令。

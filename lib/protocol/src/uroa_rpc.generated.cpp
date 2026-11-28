@@ -1,6 +1,6 @@
 /**
  * @file uroa_rpc.generated.cpp
- * @brief device.protoから生成した固定長パケットの書込み。手動編集しない。
+ * @brief device.protoから生成した方向別の固定長codecと形式検査。手動編集しない。
  */
 #include "uroa_rpc.generated.h"
 
@@ -9,32 +9,7 @@ namespace uroa {
         /**
          * @brief 宣言順に固定長パケットを書く。
          * @param out パケット全長以上の出力領域。
-         * @param packet 幅を確定した値。
-         */
-        void encodeCommandPacket(uint8_t *out, const CommandPacket &packet) {
-            const uint32_t versionValue = static_cast<uint32_t>(packet.version);
-            out[CommandPacketLayout::version] = static_cast<uint8_t>(versionValue);
-            const uint32_t opcodeValue = static_cast<uint32_t>(packet.opcode);
-            out[CommandPacketLayout::opcode] = static_cast<uint8_t>(opcodeValue);
-            const uint32_t sequenceValue = static_cast<uint32_t>(packet.sequence);
-            out[CommandPacketLayout::sequence] = static_cast<uint8_t>(sequenceValue);
-            out[CommandPacketLayout::sequence + 1] = static_cast<uint8_t>(sequenceValue >> 8);
-            const uint32_t channelValue = static_cast<uint32_t>(packet.channel);
-            out[CommandPacketLayout::channel] = static_cast<uint8_t>(channelValue);
-            const uint32_t reservedValue = static_cast<uint32_t>(packet.reserved);
-            out[CommandPacketLayout::reserved] = static_cast<uint8_t>(reservedValue);
-            const uint32_t valueValue = static_cast<uint32_t>(packet.value);
-            out[CommandPacketLayout::value] = static_cast<uint8_t>(valueValue);
-            out[CommandPacketLayout::value + 1] = static_cast<uint8_t>(valueValue >> 8);
-            const uint32_t durationValue = static_cast<uint32_t>(packet.duration);
-            out[CommandPacketLayout::duration] = static_cast<uint8_t>(durationValue);
-            out[CommandPacketLayout::duration + 1] = static_cast<uint8_t>(durationValue >> 8);
-        }
-
-        /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out パケット全長以上の出力領域。
-         * @param packet 幅を確定した値。
+         * @param packet 呼出元が確定した幅・固定値の値。
          */
         void encodeStatusPacket(uint8_t *out, const StatusPacket &packet) {
             const uint32_t versionValue = static_cast<uint32_t>(packet.version);
@@ -62,7 +37,7 @@ namespace uroa {
         /**
          * @brief 宣言順に固定長パケットを書く。
          * @param out パケット全長以上の出力領域。
-         * @param packet 幅を確定した値。
+         * @param packet 呼出元が確定した幅・固定値の値。
          */
         void encodeTelemetryHeader(uint8_t *out, const TelemetryHeader &packet) {
             const uint32_t versionValue = static_cast<uint32_t>(packet.version);
@@ -80,44 +55,39 @@ namespace uroa {
         }
 
         /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out パケット全長以上の出力領域。
-         * @param packet 幅を確定した値。
+         * @brief 全長一致時だけ復号する。版等の不正値も応答照合用に保持する。
+         * @param data 入力バイト列。
+         * @param length 入力のバイト数。
+         * @return nullptrまたは長さ不正なら全フィールド0。
          */
-        void encodeImuRecord(uint8_t *out, const ImuRecord &packet) {
-            const uint32_t deviceTypeValue = static_cast<uint32_t>(packet.deviceType);
-            out[ImuRecordLayout::deviceType] = static_cast<uint8_t>(deviceTypeValue);
-            const uint32_t accXValue = static_cast<uint32_t>(packet.accX);
-            out[ImuRecordLayout::accX] = static_cast<uint8_t>(accXValue);
-            out[ImuRecordLayout::accX + 1] = static_cast<uint8_t>(accXValue >> 8);
-            const uint32_t accYValue = static_cast<uint32_t>(packet.accY);
-            out[ImuRecordLayout::accY] = static_cast<uint8_t>(accYValue);
-            out[ImuRecordLayout::accY + 1] = static_cast<uint8_t>(accYValue >> 8);
-            const uint32_t accZValue = static_cast<uint32_t>(packet.accZ);
-            out[ImuRecordLayout::accZ] = static_cast<uint8_t>(accZValue);
-            out[ImuRecordLayout::accZ + 1] = static_cast<uint8_t>(accZValue >> 8);
-            const uint32_t gyroXValue = static_cast<uint32_t>(packet.gyroX);
-            out[ImuRecordLayout::gyroX] = static_cast<uint8_t>(gyroXValue);
-            out[ImuRecordLayout::gyroX + 1] = static_cast<uint8_t>(gyroXValue >> 8);
-            const uint32_t gyroYValue = static_cast<uint32_t>(packet.gyroY);
-            out[ImuRecordLayout::gyroY] = static_cast<uint8_t>(gyroYValue);
-            out[ImuRecordLayout::gyroY + 1] = static_cast<uint8_t>(gyroYValue >> 8);
-            const uint32_t gyroZValue = static_cast<uint32_t>(packet.gyroZ);
-            out[ImuRecordLayout::gyroZ] = static_cast<uint8_t>(gyroZValue);
-            out[ImuRecordLayout::gyroZ + 1] = static_cast<uint8_t>(gyroZValue >> 8);
+        CommandPacket decodeCommandPacket(const uint8_t *data, size_t length) {
+            CommandPacket packet{};
+            if (data == nullptr || length != CommandPacketLayout::ByteLength) {
+                return packet;
+            }
+            packet.version = data[CommandPacketLayout::version];
+            packet.opcode = data[CommandPacketLayout::opcode];
+            packet.sequence = static_cast<uint16_t>(
+                (static_cast<uint32_t>(data[CommandPacketLayout::sequence])) |
+                (static_cast<uint32_t>(data[CommandPacketLayout::sequence + 1]) << 8));
+            packet.channel = data[CommandPacketLayout::channel];
+            packet.reserved = data[CommandPacketLayout::reserved];
+            packet.value = static_cast<uint16_t>(
+                (static_cast<uint32_t>(data[CommandPacketLayout::value])) |
+                (static_cast<uint32_t>(data[CommandPacketLayout::value + 1]) << 8));
+            packet.duration = static_cast<uint16_t>(
+                (static_cast<uint32_t>(data[CommandPacketLayout::duration])) |
+                (static_cast<uint32_t>(data[CommandPacketLayout::duration + 1]) << 8));
+            return packet;
         }
 
         /**
-         * @brief 宣言順に固定長パケットを書く。
-         * @param out パケット全長以上の出力領域。
-         * @param packet 幅を確定した値。
+         * @brief 生成元の固定値・enum・下限を検査する。
+         * @param packet 復号した値。
+         * @return 通常の形式が正しければtrue。
          */
-        void encodeDistanceRecord(uint8_t *out, const DistanceRecord &packet) {
-            const uint32_t deviceTypeValue = static_cast<uint32_t>(packet.deviceType);
-            out[DistanceRecordLayout::deviceType] = static_cast<uint8_t>(deviceTypeValue);
-            const uint32_t distanceMmValue = static_cast<uint32_t>(packet.distanceMm);
-            out[DistanceRecordLayout::distanceMm] = static_cast<uint8_t>(distanceMmValue);
-            out[DistanceRecordLayout::distanceMm + 1] = static_cast<uint8_t>(distanceMmValue >> 8);
+        bool validateCommandPacket(const CommandPacket &packet) {
+            return packet.version == 1 && (packet.opcode >= 1 && packet.opcode <= 11) && packet.reserved == 0;
         }
 
     }

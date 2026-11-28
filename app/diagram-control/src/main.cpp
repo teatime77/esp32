@@ -118,7 +118,7 @@ namespace {
      * @brief 受信指令と、その受信元・接続世代を保持する。
      */
     struct Queued {
-        Protocol::Command command; ///< 通常指令の固定長コピー。isDeviceInfo=falseのときに使う。
+        Protocol::Command command; ///< 生成codecで復号した通常指令の値。isDeviceInfo=falseのときに使う。
         ControlTransport::Session session{}; ///< 受信元と接続世代。キュー取出し後も現接続へ照合する。
         bool isDeviceInfo = false; ///< trueなら通常指令ではなく機器一覧の置換要求。
         uint8_t deviceInfoLength = 0; ///< deviceInfoDataの有効バイト数。0は一覧消去。
@@ -354,7 +354,7 @@ namespace {
     }
 
     /**
-     * @brief 通信タスクから指令をコピーし、STOPを優先フラグへ渡す。
+     * @brief 通信タスクで指令を生成codecの値へ復号・コピーし、STOPを優先フラグへ渡す。
      * @param data コールバック中だけ有効な受信データ。
      * @param length 受信バイト数。
      * @param session 受信元の通信経路と接続世代。
@@ -365,11 +365,11 @@ namespace {
         if (!controlTransport.isCurrent(session)) {
             return;
         }
-        if (session.source == ControlTransport::Source::Wifi && length != 10) {
+        if (session.source == ControlTransport::Source::Wifi && length != uroa::rpc::CommandPacketLayout::ByteLength) {
             return;
         }
         if (Protocol::urgentStop(data, length)) {
-            urgentSeq.store(Protocol::read16(data + 2));
+            urgentSeq.store(Protocol::read16(data + uroa::rpc::CommandPacketLayout::sequence));
             urgentStop.store(true);
             return;
         }
@@ -615,17 +615,18 @@ namespace {
 
     /**
      * @brief loop()内で指令を検査し、機器操作と受付結果の通知を行う。
+     * @details Commandのフィールド復号は受信時の生成codec、通常形式検査はProtocol::valid()が担当する。
+     * SET_SPEEDの符号・単位変換と機器・VMの範囲検査はここで行う。通信コールバックから実行しない。
      * @param command 現在の接続世代で受信した指令。
      * @param allowVmStart このloop()で停止要求がなければtrue。停止した周回ではVM開始を拒否する。
      * @param session 指令を受信した通信経路と接続世代。VM操作の直前にも照合する。
      */
     void handle(const Protocol::Command &command, bool allowVmStart, const ControlSession &session) {
-        const auto *bytes = command.bytes;
-        const uint16_t sequence = Protocol::read16(bytes + 2);
-        const uint16_t value = Protocol::read16(bytes + 6);
-        const uint16_t duration = Protocol::read16(bytes + 8);
-        const uint8_t operation = bytes[1];
-        const uint8_t channel = bytes[4];
+        const uint16_t sequence = command.sequence;
+        const uint16_t value = command.value;
+        const uint16_t duration = command.duration;
+        const uint8_t operation = command.opcode;
+        const uint8_t channel = command.channel;
         if (!Protocol::valid(command)) {
             status(Protocol::CODE_FORMAT, sequence);
             return;
@@ -728,8 +729,8 @@ namespace {
             result = value == 0 && duration == 0 ? servos.armSpeed(channel) : Pca9685Servos::Result::Range;
         }
         else if (operation == Protocol::SET_SPEED) {
-            result = duration == 0 ? servos.setSpeed(channel, Protocol::readSigned16(bytes + 6) / 100.0f)
-                                   : Pca9685Servos::Result::Range;
+            const int32_t speed = value >= 0x8000 ? int32_t(value) - 0x10000 : value;
+            result = duration == 0 ? servos.setSpeed(channel, speed / 100.0f) : Pca9685Servos::Result::Range;
         }
         else if (operation == Protocol::ARM) {
             result = duration <= 10000 ? servos.armAngle(channel, value / 100.0f) : Pca9685Servos::Result::Range;

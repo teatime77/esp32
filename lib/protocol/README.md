@@ -2,13 +2,14 @@
 
 `uroa_protocol.h`の`uroa::Protocol`は、protocol v1と機器種別付きTelemetry version=3の読み書きを担当する。Arduino・BLE・Wi-Fiには依存しない。
 
-操作番号と固定長配置・書込みは[device.proto](../../../uroa/diagram/rpc/device.proto)から生成する。[uroa_rpc.generated.h](include/uroa_rpc.generated.h)と[uroa_rpc.generated.cpp](src/uroa_rpc.generated.cpp)を手動編集しない。生成・照合・ビルドは[検証記録](../../docs/build-and-test.md)を参照する。生成済みC++を含めるため、ESP32単独のビルドにNode.jsやProtobufランタイムは不要。
+操作番号・固定長配置と、指定方向のcodec・通常形式検査は[device.proto](../../../uroa/diagram/rpc/device.proto)から生成する。[uroa_rpc.generated.h](include/uroa_rpc.generated.h)と[uroa_rpc.generated.cpp](src/uroa_rpc.generated.cpp)を手動編集しない。生成・照合・ビルドは[検証記録](../../docs/build-and-test.md)を参照する。生成済みC++を含めるため、ESP32単独のビルドにNode.jsやProtobufランタイムは不要。
 
-- `command(data, length)`は10バイトをコピーする。不正な長さではversion=0を返す。
+- `command(data, length)`は生成codecで復号した値型を返す。通信サイズと不正入力の扱いは[仕様コメント](include/uroa_protocol.h)を参照する。
 - `valid(command)`はversion、reserved、opcodeを検査する。CH・値・時間の検査は教材／機器側で行う。
 - PythonBlockの開始・停止で使う操作の契約は[Opの仕様コメント](include/uroa_protocol.h)、教材側の処理は[main.cpp](../../app/diagram-control/src/main.cpp)を参照する。
 - `urgentStop(data, length)`は従来互換の優先STOP判定。reserved等を検査する通常経路とは意図的に分かれている。
 - `status(out, ...)`には12バイト以上の出力領域を渡す。
+- Command復号とStatus符号化は生成codecへ接続し、未使用だったCommand・IMU・距離のC++符号化関数は生成しない。Telemetry全体の移行は後続段階。
 - `deviceTelemetryLength(sensorTypes, sensorCount)`は、サーボを除いたDeviceInfo順のセンサー種別から必要な通知長を計算する。未対応種別・不正な配列・サイズのオーバーフローでは0を返す。センサー0件はヘッダー8バイト。
 - `deviceTelemetry(out, capacity, flags, sequence, now, sensorTypes, sensorCount, imuRaw, distanceMm)`はversion=3のヘッダーと、指定順のIMU（種別0・13バイト）／超音波距離（種別2・3バイト）を連結する。IMUの14バイト生データと距離は呼出側が測定して渡し、同種別の複数レコードでは同じ物理センサーの結果を共有する。全引数と容量を検査してから書く。成功時は使用バイト数、引数不正・未対応種別・容量不足では0を返し、出力を変更しない。IMUを含まなければ`imuRaw=nullptr`でよい。
 

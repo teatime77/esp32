@@ -1,5 +1,25 @@
 # ビルドと検証
 
+## RPC生成化2：Command復号・Status符号化（2026-11-28）
+
+uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)に従い、[生成器](../../uroa/diagram/rpc/generate.mjs)の方向指定からCommand復号・通常形式検査と既存のStatus符号化を生成した。Protocolは生成codecを呼び、main.cppは復号済みの値を使う。未使用のCommand・IMU・距離の符号化関数は生成対象から除いた。仕様・優先STOP・実行タスクの境界は[Protocol](../lib/protocol/include/uroa_protocol.h)と生成元のコメントを参照する。
+
+生成・照合はuroaルートで行った。ESP32では実行直前に現在の`default_envs = supermini_esp32s3`を確認し、diagram-controlからビルドした。
+
+```powershell
+# D:/usr/prj/uroa
+node diagram/rpc/generate.mjs --esp32
+node diagram/rpc/generate.mjs --check --esp32
+
+# D:/usr/prj/esp32/app/diagram-control
+Get-Content platformio.ini
+& C:/Users/hamad/.platformio/penv/Scripts/platformio.exe run
+```
+
+通常権限での初回は既存PlatformIOの`platforms.lock`への書込み拒否で停止した。既存のロック・キャッシュへのアクセス権限付きで再実行し、整形・最終生成後もコンパイル・リンク・firmware.bin生成に成功（最終41.70秒）。RAM 59916/327680バイト、Flash 1084285/1310720バイト。`-e`による環境変更、他環境のビルド、パッケージ再インストールは行っていない。
+
+両リポジトリーの生成物照合、既存5配置の長さ・位置・整数幅・符号の静的照合、[Webの型・公開ビルド・成果物確認](../../uroa/docs/build-and-test.md)も成功。変更箇所の整形、コメント・リンク・差分を確認した。従来の指定に従いテストは作成・実行せず、codecの実行比較、ブラウザ・BLE／Wi-Fi・Upload・実機は未確認。生成化3以降の操作別送受信・振分け、Python Future等は後続段階。
+
 ## .proto生成の操作番号・固定長配置（2026-11-28）
 
 uroaの[device.proto](../../uroa/diagram/rpc/device.proto)と[生成器](../../uroa/diagram/rpc/generate.mjs)から`lib/protocol/include/uroa_rpc.generated.h`・`src/uroa_rpc.generated.cpp`を生成し、Protocolの操作番号・指令サイズ・StatusとTelemetryヘッダーの書込みへ接続した。配置と契約は生成元と各ソースのコメントを参照する。生成コマンドはuroaルートで`node diagram/rpc/generate.mjs --esp32`、照合は同じコマンドへ`--check`を追加する。
