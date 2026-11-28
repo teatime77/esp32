@@ -87,17 +87,8 @@ namespace uroa {
      */
     void Protocol::status(uint8_t *out, uint8_t code, uint16_t sequence, uint8_t flags, uint8_t channel,
         uint16_t current, uint16_t target, uint16_t remaining) {
-        rpc::StatusPacket packet{};
-        packet.version = rpc::StatusPacketLayout::versionValue;
-        packet.code = code;
-        packet.sequence = sequence;
-        packet.flags = flags;
-        packet.channel = channel;
-        if (channel < 16) {
-            packet.current = current;
-            packet.target = target;
-            packet.remaining = remaining;
-        }
+        const rpc::StatusPacket packet =
+            rpc::makeStatusPacket(code, sequence, flags, channel, current, target, remaining);
         rpc::encodeStatusPacket(out, packet);
     }
 

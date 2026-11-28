@@ -5,6 +5,7 @@
  * HC-SR04のGPIOと同期測定は専用タスクだけが操作し、測定結果をキューでloop()へ渡す。
  * 通常通信の受信元・接続世代の照合と通知配送はcontrol_transport.h/.cppへ委譲する。
  * BLEのRPC登録・整数要求キューはbytecode_rpc.h/.cppが所有し、VM開始時に対応するnative表を選ぶ。
+ * 通常指令の受理・opcode振分け・応答生成はcontrol_rpc.generated.h/.cpp、ここには機能本体と状態取得を置く。
  */
 #include <Arduino.h>
 #include <Wire.h>
@@ -20,6 +21,7 @@
 #include "device_name.h"
 #include "network.h"
 #include "control_transport.h"
+#include "control_rpc.generated.h"
 #include "bytecode_receiver.h"
 #include "bytecode_vm.h"
 #include "bytecode_debugger.h"
@@ -29,6 +31,7 @@
 namespace {
     using uroa::Pca9685Servos;
     using uroa::Protocol;
+    using RpcCode = uroa::rpc::StatusCode;
 
     constexpr size_t DeviceInfoMaxLength = uroa::BleTransport::DeviceInfoMaxLength; ///< 機器情報の最大バイト数。
     constexpr size_t DeviceTelemetryMaxLength = Protocol::DeviceTelemetryHeaderLength +
@@ -164,9 +167,8 @@ namespace {
      * @details 受信器のバッファ置換後は、旧バッファを使うtick()より前にstart()またはstop()する。
      *
      * 一括COMMITの開始フラグがあれば全体検証・PC設定後に開始し、専用Resultへ開始結果を保持する。
-     * 保持専用の転送とVM_START=10による明示開始も利用できる。
-     * VM_STOP=11でVMと所有機器を停止する。Command v1のCH=255、value=duration=0を必須とする。
-     * Protocolの操作番号とWeb側のpython/python-block.tsが共通契約を持ち、ble-wifi/device-connection.tsが
+     * 保持専用の転送とprogram.startによる明示開始、program.stopによるVMと所有機器の停止も利用できる。
+     * 通常指令の操作番号・受理条件はdevice.protoと生成した振分けを参照する。Web側のdevice-connection.tsが
      * 最後の転送・現在の接続・取消を確認する。開始ACKはstart()の結果までで、終了通知ではない。
      * 1周最大128命令を実行し、通常の指令・サーボ・通信・停止処理へ制御を返す。
      * STOP、切断、Wi-Fi切替、接続変更、通信キュー飽和、5秒の通信期限切れでもVMを停止する。
@@ -337,20 +339,51 @@ namespace {
     }
 
     /**
-     * @brief 受付結果と内部指令値をBLE/Wi-Fiへ通知する。
-     * @param code Protocolの受付結果コード。
-     * @param sequence ACK対象の番号。0は自発通知。
-     * @param channel CH0〜15、全体通知は255。
+     * @brief 指定CHの指令状態を取得する。wire変換は生成側が行う。
+     * @param channel CHまたは全体通知の番号。
+     * @return 機器フラグ・角度cdeg・速度%・残り時間。
+     */
+    uroa::rpc::ControlStatusState controlStatusState(uint8_t channel) {
+        uroa::rpc::ControlStatusState snapshot{};
+        const auto *state = channel < uroa::rpc::StatusPacketLayout::ChannelCount ? &servos.states[channel] : nullptr;
+        snapshot.flags = stateFlags();
+        if (state) {
+            snapshot.speedMode = state->mode == Pca9685Servos::Mode::Speed;
+            snapshot.speedPercent = state->speed;
+            snapshot.current = state->current;
+            snapshot.target = state->target;
+        }
+        snapshot.remaining = servos.remaining(channel, millis());
+        return snapshot;
+    }
+
+    /**
+     * @brief 完成済みのStatusを現在のBLE/Wi-Fi経路へ通知する。
+     * @param bytes 生成したバイト列。
+     * @param length バイト数。
+     */
+    void publishControlReply(const uint8_t *bytes, size_t length) {
+        controlTransport.publishStatus(bytes, length);
+    }
+
+    /**
+     * @brief 通常形式が有効な指令の受理時刻を、細部の範囲検査前に記録する。
+     */
+    void acceptControlCommand() {
+        lastCommand = millis();
+    }
+
+    constexpr uroa::rpc::ControlReplyService controlReplies{
+        controlStatusState, publishControlReply, acceptControlCommand}; ///< loop()の共有状態と配送窓口。
+
+    /**
+     * @brief 自発通知・優先STOPにも通常応答と同じ生成Statusを使う。
+     * @param code 受付結果。
+     * @param sequence ACK対象。0は自発通知。
+     * @param channel CHまたは全体。
      */
     void status(uint8_t code, uint16_t sequence, uint8_t channel = 255) {
-        uint8_t packet[12];
-        const auto *state = channel < 16 ? &servos.states[channel] : nullptr;
-        const bool speed = state && state->mode == Pca9685Servos::Mode::Speed;
-        const uint16_t current = speed ? uint16_t(int16_t(lroundf(state->speed * 100))) : state ? state->current : 0;
-        const uint16_t target = speed ? current : state ? state->target : 0;
-        Protocol::status(packet, code, sequence, stateFlags() | (speed ? Protocol::FLAG_SPEED : 0), channel, current,
-            target, servos.remaining(channel, millis()));
-        controlTransport.publishStatus(packet, sizeof packet);
+        uroa::rpc::publishControlStatus(controlReplies, code, sequence, channel);
     }
 
     /**
@@ -596,154 +629,182 @@ namespace {
      * @param result 共通サーボライブラリーの結果。
      * @return Protocolの受付結果コード。
      */
-    uint8_t resultCode(Pca9685Servos::Result result) {
+    RpcCode resultCode(Pca9685Servos::Result result) {
         switch (result) {
             case Pca9685Servos::Result::Ok:
-                return Protocol::CODE_OK;
+                return RpcCode::CODE_OK;
             case Pca9685Servos::Result::Range:
-                return Protocol::CODE_RANGE;
+                return RpcCode::CODE_RANGE;
             case Pca9685Servos::Result::Unavailable:
-                return Protocol::CODE_HARDWARE;
+                return RpcCode::CODE_HARDWARE;
             case Pca9685Servos::Result::NotArmed:
-                return Protocol::CODE_NOT_ARMED;
+                return RpcCode::CODE_NOT_ARMED;
             case Pca9685Servos::Result::WrongMode:
-                return Protocol::CODE_MODE;
+                return RpcCode::CODE_MODE;
             default:
-                return Protocol::CODE_IO_ERROR;
+                return RpcCode::CODE_IO_ERROR;
         }
     }
 
     /**
-     * @brief loop()内で指令を検査し、機器操作と受付結果の通知を行う。
-     * @details Commandのフィールド復号は受信時の生成codec、通常形式検査はProtocol::valid()が担当する。
-     * SET_SPEEDの符号・単位変換と機器・VMの範囲検査はここで行う。通信コールバックから実行しない。
-     * @param command 現在の接続世代で受信した指令。
-     * @param allowVmStart このloop()で停止要求がなければtrue。停止した周回ではVM開始を拒否する。
-     * @param session 指令を受信した通信経路と接続世代。VM操作の直前にも照合する。
+     * @brief 指定CHを角度モードで有効化する。
+     * @param channel 検証済みCH。
+     * @param angle 受信角度を度へ変換した値。範囲はドライバーが検査する。
+     * @return 機器操作の結果。
+     */
+    RpcCode armServoAngle(uint8_t channel, float angle) {
+        return resultCode(servos.armAngle(channel, angle));
+    }
+
+    /**
+     * @brief 指定CHを速度モードで有効化する。
+     * @param channel 検証済みCH。
+     * @return 機器操作の結果。
+     */
+    RpcCode armServoSpeed(uint8_t channel) {
+        return resultCode(servos.armSpeed(channel));
+    }
+
+    /**
+     * @brief 角度の移動補間を開始する。
+     * @param channel 検証済みCH。
+     * @param angle 度単位の目標。
+     * @param duration 移動時間ms。
+     * @return ドライバーが範囲・有効状態を検査した結果。
+     */
+    RpcCode moveServo(uint8_t channel, float angle, uint16_t duration) {
+        return resultCode(servos.moveAngle(channel, angle, duration, millis()));
+    }
+
+    /**
+     * @brief 方向付き速度指令を設定する。
+     * @param channel 検証済みCH。
+     * @param percent 符号と単位を変換した速度指令%。
+     * @return ドライバーが範囲・モードを検査した結果。
+     */
+    RpcCode setServoSpeed(uint8_t channel, float percent) {
+        return resultCode(servos.setSpeed(channel, percent));
+    }
+
+    /**
+     * @brief 指定CHの出力を無効化する。
+     * @param channel 検証済みCH。
+     * @return 機器操作の結果。
+     */
+    RpcCode disableServo(uint8_t channel) {
+        return resultCode(servos.disable(channel));
+    }
+
+    /**
+     * @brief 通常経路の全サーボ停止を行う。優先STOPのキュー処理はloop()に残す。
+     * @return 停止指令の受付成功。
+     */
+    RpcCode stopServos() {
+        servos.allOff();
+        return RpcCode::CODE_OK;
+    }
+
+    /**
+     * @brief VM指令の共通停止と所有イメージ世代の更新を行う。
+     * @details loop()だけで呼ぶ。保持バッファの置換後に旧イメージを読み進めない。
+     */
+    void resetVmForCommand() {
+        bytecodeDebugger.invalidateSnapshot();
+        bytecodeVm.stop();
+        vmRevision = bytecodeReceiver.programRevision;
+        reportedVmState = BytecodeVM::State::Stopped;
+    }
+
+    /**
+     * @brief 所有コードのVMを開始する。成功は初期化までを示す。
+     * @param context 受信元と停止優先の状態。
+     * @return 制御権・開始条件とVM初期化の結果。
+     */
+    RpcCode startProgram(const ControlRpcContext &context) {
+        if (!controlTransport.isCurrent(context.session)) {
+            return RpcCode::CODE_NOT_ARMED;
+        }
+        if (!context.allowVmStart || mustStop.load() || urgentStop.load() || bytecodeReceiver.deploymentPending) {
+            return RpcCode::CODE_BUSY;
+        }
+        resetVmForCommand();
+        if (!bytecodeReceiver.program || bytecodeReceiver.programLength == 0) {
+            return RpcCode::CODE_NOT_ARMED;
+        }
+        vmSession = context.session;
+        const bool started =
+            bytecodeRpc.bindProgram(bytecodeReceiver.program.get(), bytecodeReceiver.programLength, context.session) &&
+            bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
+        // time()の起点はVMの開始成功直後。仕様はdevice_native.cppのfunction_timeを参照する。
+        if (started) {
+            nativeDevices.startProgramClock();
+        }
+        return started ? RpcCode::CODE_OK : RpcCode::CODE_FORMAT;
+    }
+
+    /**
+     * @brief VM・公開要求と一括開始予約を停止する。保持コードは残す。
+     * @param context 受信元と世代。
+     * @return 現在の制御権からの停止なら成功。
+     */
+    RpcCode stopProgram(const ControlRpcContext &context) {
+        if (!controlTransport.isCurrent(context.session)) {
+            return RpcCode::CODE_NOT_ARMED;
+        }
+        resetVmForCommand();
+        bytecodeRpc.stop();
+        bytecodeReceiver.cancelDeployment();
+        return RpcCode::CODE_OK;
+    }
+
+    /**
+     * @brief 登録済みセンサーの共有通知を開始・停止する。
+     * @param rate 生成側が受理した通知Hz。
+     * @return 機器登録・測定準備・現在の通信容量を検査した結果。
+     */
+    RpcCode setStreamRate(uint16_t rate) {
+        if (rate) {
+            if (!deviceInfoReceived) {
+                Serial.println("DeviceTelemetry requires DeviceInfo before STREAM");
+                return RpcCode::CODE_FORMAT;
+            }
+            const size_t length = deviceTelemetryLength();
+            if (length == 0) {
+                Serial.println("DeviceTelemetry unavailable: unsupported sensor type");
+                return RpcCode::CODE_HARDWARE;
+            }
+            if ((hasSensor(DeviceType::IMU6Axis) && !imu.available) ||
+                (hasSensor(DeviceType::UltrasonicDistanceSensor) && !ultrasonicReady.load())) {
+                return RpcCode::CODE_HARDWARE;
+            }
+            if (!controlTransport.canPublishTelemetry(length)) {
+                Serial.printf("DeviceTelemetry requires ATT MTU >= %u; current=%u\n",
+                    static_cast<unsigned>(length + NotificationHeaderLength),
+                    static_cast<unsigned>(bluetooth.mtu.load()));
+                return RpcCode::CODE_RANGE;
+            }
+        }
+        streamHz = rate;
+        setUltrasonicSampling(rate != 0 && hasSensor(DeviceType::UltrasonicDistanceSensor));
+        lastSample = millis();
+        return RpcCode::CODE_OK;
+    }
+
+    constexpr uroa::rpc::ControlServices controlServices{
+        {armServoAngle, armServoSpeed, moveServo, setServoSpeed, disableServo, stopServos}, {startProgram, stopProgram},
+        {setStreamRate}, controlReplies}; ///< 通信の位置・番号を含めず、型付きの機能サービスを登録する。
+
+    /**
+     * @brief loop()の受信元・停止優先状態を生成した振分けへ渡す。
+     * @param command 受信時の生成codecで復号した値。
+     * @param allowVmStart 停止要求を処理した周回ではfalse。
+     * @param session 受信元と接続世代。VM操作の直前にも再照合する。
      */
     void handle(const Protocol::Command &command, bool allowVmStart, const ControlSession &session) {
-        const uint16_t sequence = command.sequence;
-        const uint16_t value = command.value;
-        const uint16_t duration = command.duration;
-        const uint8_t operation = command.opcode;
-        const uint8_t channel = command.channel;
-        if (!Protocol::valid(command)) {
-            status(Protocol::CODE_FORMAT, sequence);
-            return;
-        }
-        lastCommand = millis();
-        // VMはloop()だけが操作する。確定バッファの置換後も旧イメージを読む前にstop()する。
-        if (operation == Protocol::VM_START || operation == Protocol::VM_STOP) {
-            if (channel != 255 || value != 0 || duration != 0) {
-                status(Protocol::CODE_RANGE, sequence);
-                return;
-            }
-            if (!controlTransport.isCurrent(session)) {
-                status(Protocol::CODE_NOT_ARMED, sequence);
-                return;
-            }
-            if (operation == Protocol::VM_START &&
-                (!allowVmStart || mustStop.load() || urgentStop.load() || bytecodeReceiver.deploymentPending)) {
-                status(Protocol::CODE_BUSY, sequence);
-                return;
-            }
-            bytecodeDebugger.invalidateSnapshot();
-            bytecodeVm.stop();
-            vmRevision = bytecodeReceiver.programRevision;
-            reportedVmState = BytecodeVM::State::Stopped;
-            if (operation == Protocol::VM_STOP) {
-                bytecodeRpc.stop();
-                bytecodeReceiver.cancelDeployment();
-                status(Protocol::CODE_OK, sequence);
-                return;
-            }
-            if (!bytecodeReceiver.program || bytecodeReceiver.programLength == 0) {
-                status(Protocol::CODE_NOT_ARMED, sequence);
-                return;
-            }
-            vmSession = session;
-            const bool started =
-                bytecodeRpc.bindProgram(bytecodeReceiver.program.get(), bytecodeReceiver.programLength, session) &&
-                bytecodeVm.start(bytecodeReceiver.program.get(), bytecodeReceiver.programLength);
-            // time()の起点はVMの開始成功直後。仕様はdevice_native.cppのfunction_timeを参照する。
-            if (started) {
-                nativeDevices.startProgramClock();
-            }
-            status(started ? Protocol::CODE_OK : Protocol::CODE_FORMAT, sequence);
-            return;
-        }
-        if (operation == Protocol::PING || operation == Protocol::INFO) {
-            status(Protocol::CODE_OK, sequence, channel);
-            return;
-        }
-        if (operation == Protocol::STREAM) {
-            if (value != 0 && value != 5 && value != 10 && value != 20) {
-                status(Protocol::CODE_RANGE, sequence);
-                return;
-            }
-            if (value) {
-                if (!deviceInfoReceived) {
-                    Serial.println("DeviceTelemetry requires DeviceInfo before STREAM");
-                    status(Protocol::CODE_FORMAT, sequence);
-                    return;
-                }
-                const size_t length = deviceTelemetryLength();
-                if (length == 0) {
-                    Serial.println("DeviceTelemetry unavailable: unsupported sensor type");
-                    status(Protocol::CODE_HARDWARE, sequence);
-                    return;
-                }
-                if ((hasSensor(DeviceType::IMU6Axis) && !imu.available) ||
-                    (hasSensor(DeviceType::UltrasonicDistanceSensor) && !ultrasonicReady.load())) {
-                    status(Protocol::CODE_HARDWARE, sequence);
-                    return;
-                }
-                if (!controlTransport.canPublishTelemetry(length)) {
-                    Serial.printf("DeviceTelemetry requires ATT MTU >= %u; current=%u\n",
-                        static_cast<unsigned>(length + NotificationHeaderLength),
-                        static_cast<unsigned>(bluetooth.mtu.load()));
-                    status(Protocol::CODE_RANGE, sequence);
-                    return;
-                }
-            }
-            streamHz = value;
-            setUltrasonicSampling(value != 0 && hasSensor(DeviceType::UltrasonicDistanceSensor));
-            lastSample = millis();
-            status(Protocol::CODE_OK, sequence);
-            return;
-        }
-        if (operation == Protocol::STOP) {
-            servos.allOff();
-            status(Protocol::CODE_OK, sequence);
-            return;
-        }
-        if (channel >= 16) {
-            status(Protocol::CODE_RANGE, sequence);
-            return;
-        }
-        Pca9685Servos::Result result;
-        if (operation == Protocol::DISABLE) {
-            result = servos.disable(channel);
-        }
-        else if (operation == Protocol::ARM_SPEED) {
-            result = value == 0 && duration == 0 ? servos.armSpeed(channel) : Pca9685Servos::Result::Range;
-        }
-        else if (operation == Protocol::SET_SPEED) {
-            const int32_t speed = value >= 0x8000 ? int32_t(value) - 0x10000 : value;
-            result = duration == 0 ? servos.setSpeed(channel, speed / 100.0f) : Pca9685Servos::Result::Range;
-        }
-        else if (operation == Protocol::ARM) {
-            result = duration <= 10000 ? servos.armAngle(channel, value / 100.0f) : Pca9685Servos::Result::Range;
-        }
-        else {
-            result = servos.moveAngle(channel, value / 100.0f, duration, millis());
-        }
-        // 出力失敗の自発通知と指令への受付結果を別々に返す。
-        if (result == Pca9685Servos::Result::IoError && operation != Protocol::DISABLE) {
-            status(Protocol::CODE_IO_ERROR, 0, channel);
-        }
-        status(resultCode(result), sequence, channel);
+        const ControlRpcContext context{session, allowVmStart};
+        uroa::rpc::dispatchControl(command, context, controlServices);
     }
+
 }
 
 /**

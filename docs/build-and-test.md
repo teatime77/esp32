@@ -1,5 +1,27 @@
 # ビルドと検証
 
+## RPC生成化4：通常指令の振分け・応答生成（2026-11-28）
+
+uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)の生成化4を実施した。[生成器](../../uroa/diagram/rpc/generate.mjs)から[サービス宣言](../app/diagram-control/include/control_rpc.generated.h)と[振分け・応答](../app/diagram-control/src/control_rpc.generated.cpp)を追加し、既存11 opcodeの受理・変換とStatus作成をmain.cppから置換した。機器・VM・STREAMの機能本体をサービス単位で登録し、共有状態・制御権・停止優先の確認とloop()の実行責任は教材側へ残した。ProtocolのStatus組立ても生成処理へ委譲した。契約は生成元と各ソースのコメントを参照する。
+
+uroaルートで生成物7ファイルを生成・照合した。ESP32では実行直前に現在の`default_envs = supermini_esp32s3`を確認し、diagram-controlからビルドした。
+
+```powershell
+# D:/usr/prj/uroa
+node diagram/rpc/generate.mjs --esp32
+node diagram/rpc/generate.mjs --check --esp32
+
+# D:/usr/prj/esp32/app/diagram-control
+Get-Content platformio.ini
+& C:/Users/hamad/.platformio/penv/Scripts/platformio.exe run
+```
+
+既存PlatformIOのロック・キャッシュへのアクセス権限付きでビルド成功。最初は依存ライブラリーを含め112.30秒、必須の関数参照による登録と静的サービス表を含む最終版は35.18秒でコンパイル・リンク・firmware.bin生成に成功した。RAM 59916/327680バイト、Flash 1085209/1310720バイト（生成化3からRAMは同じ、Flashは924バイト増）。別環境への上書き、他環境のビルド、パッケージ再インストールは行っていない。
+
+生成物照合、既存5配置の長さ・位置・整数幅・符号の静的照合、[Webの型・公開ビルド・成果物確認](../../uroa/docs/build-and-test.md)も成功した。受理条件・エラー時のCH・無視するフィールド、速度の符号と単位、通常形式受理時のheartbeat、VMの制御権と停止優先、I/O自発通知とACKの順序を旧ソースと静的に照合した。優先STOPの受理・キュー破棄とVM停止処理、接続世代の照合経路は維持している。
+
+変更箇所の整形、コメント・リンク・差分を確認した。手書きの物理行数は型付き機能本体・共有状態と説明コメントで68行増加したが、opcode振分け・受理・応答作成は生成側へ移した。分類と基準比較は計画書へ記録した。テストは従来の指定に従い作成・実行せず、ブラウザ・BLE／Wi-Fi・停止や応答順の実動作、Upload・実機確認は未実施。生成化5・6とPython Future等は後続段階。
+
 ## RPC生成化3：クライアント生成物との整合（2026-11-28）
 
 uroaの[生成化計画](../../uroa/docs/diagram/python/rpc-implementation-plan.md)の生成化3で、通常指令のブラウザ側クライアントを生成した。宣言の追加に合わせ、生成ヘッダーの結果enum・内部操作番号・整合用指紋を更新した。C++の指令振分け・機能本体・codecの配置は変更していない。ブラウザ側の変更は[Webの検証記録](../../uroa/docs/build-and-test.md)を参照する。

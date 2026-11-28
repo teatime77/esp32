@@ -3,7 +3,8 @@
  * @brief diagramと共有するprotocol v1と機器種別付きTelemetryのパケットを読み書きする。
  * @details 操作番号・固定長配置・Command復号/通常形式検査・Status符号化は
  * uroa/diagram/rpc/device.protoを正本とし、uroa_rpc.generated.h/.cppから使う。
- * main.cppは復号した値をloop()で扱う。優先STOPの生バイト判定は通常形式検査と分けて維持する。
+ * main.cppは復号した値をloop()のcontrol_rpc.generated.cppへ渡し、機能サービスを呼ぶ。
+ * 優先STOPの生バイト判定は通常形式検査と分けて維持する。
  * バイナリは既存形式を維持し、API用の番号や指紋をパケットへ追加しない。
  */
 #pragma once
@@ -34,7 +35,9 @@ namespace uroa {
         /**
          * @brief protocol v1の指令操作番号。
          * @details VM_START/VM_STOPはCH=255、value=duration=0。diagram-controlのmain.cppが
-         * 保持済みコードの開始／VMと所有機器の停止を行う。COMMITだけでは開始しない。
+         * 保持済みコードの明示開始／VMと所有機器の停止を行う。
+         * 一括転送は開始フラグがなければ保持まで。開始フラグ付きCOMMITは全体検証・PC設定後に別経路で開始する。
+         * 転送契約はuroa/diagram/ts/ble-wifi/bytecode-transfer.tsを参照する。
          * 開始ACKはVM初期化までを表し、実行終了は表さない。Web側は
          * uroa/diagram/ts/ble-wifi/device-connection.tsとpython/python-block.tsを参照する。
          */
@@ -56,14 +59,14 @@ namespace uroa {
          * @brief Status通知の受付結果コード。
          */
         enum Code : uint8_t {
-            CODE_OK = 0,
-            CODE_FORMAT = 1,
-            CODE_RANGE = 2,
-            CODE_NOT_ARMED = 3,
-            CODE_HARDWARE = 4,
-            CODE_BUSY = 5,
-            CODE_IO_ERROR = 6,
-            CODE_MODE = 7
+            CODE_OK = static_cast<uint8_t>(rpc::StatusCode::CODE_OK),
+            CODE_FORMAT = static_cast<uint8_t>(rpc::StatusCode::CODE_FORMAT),
+            CODE_RANGE = static_cast<uint8_t>(rpc::StatusCode::CODE_RANGE),
+            CODE_NOT_ARMED = static_cast<uint8_t>(rpc::StatusCode::CODE_NOT_ARMED),
+            CODE_HARDWARE = static_cast<uint8_t>(rpc::StatusCode::CODE_HARDWARE),
+            CODE_BUSY = static_cast<uint8_t>(rpc::StatusCode::CODE_BUSY),
+            CODE_IO_ERROR = static_cast<uint8_t>(rpc::StatusCode::CODE_IO_ERROR),
+            CODE_MODE = static_cast<uint8_t>(rpc::StatusCode::CODE_MODE)
         };
 
         /**
@@ -79,7 +82,7 @@ namespace uroa {
         static uint16_t read16(const uint8_t *bytes);
         /** @brief little endianの符号付き16bit値を読む。@param bytes 先頭バイト。@return 符号付き値。 */
         static int16_t readSigned16(const uint8_t *bytes);
-        static constexpr uint8_t FLAG_SPEED = 0x10; ///< StatusのCHが速度モードなら1。値は符号付き0.01%。
+        static constexpr uint8_t FLAG_SPEED = rpc::StatusPacketLayout::SpeedFlag; ///< 速度モード。値は符号付き0.01%。
 
         /**
          * @brief 16bit値をlittle endianで書き込む。

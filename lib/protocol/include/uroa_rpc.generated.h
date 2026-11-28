@@ -9,7 +9,7 @@
 namespace uroa {
     namespace rpc {
         constexpr uint32_t ApiVersion = 1; ///< 呼出しAPIの版。既存Commandの版とは別。
-        constexpr char SchemaFingerprint[] = "0689de5820168058524a9dfa6ac952941e4a441ae08fb7dd967838c6e53cd10c"; ///< 生成物整合用。現在の通信で交換しない。
+        constexpr char SchemaFingerprint[] = "024c72760355b575cbd0458dd0d85fa550880ef04bc5c685d07c17574b68e4ed"; ///< 生成物整合用。現在の通信で交換しない。
         /**
          * @brief 既存パケットの操作・結果番号。
          */
@@ -139,6 +139,9 @@ namespace uroa {
             static constexpr size_t current = 6; ///< 16bitの先頭位置。
             static constexpr size_t target = 8; ///< 16bitの先頭位置。
             static constexpr size_t remaining = 10; ///< 16bitの先頭位置。
+            static constexpr uint16_t ChannelCount = 16; ///< 値を持つCHの件数。
+            static constexpr uint8_t SpeedFlag = 16; ///< 速度モードの状態ビット。
+            static constexpr uint32_t SpeedScale = 100; ///< 速度指令の整数化倍率。
         };
 
         /**
@@ -233,6 +236,20 @@ namespace uroa {
             uint8_t deviceType; ///< 8bitの値。
             uint16_t distanceMm; ///< 16bitの値。
         };
+
+        /**
+         * @brief 固定値とCHの条件に従ってStatusの値を作る。
+         * @param code 受付結果。
+         * @param sequence 応答対象。
+         * @param flags 機器状態。
+         * @param channel CHまたは全体。
+         * @param current 現在の指令値のビット列。
+         * @param target 目標値のビット列。
+         * @param remaining 残り時間ms。
+         * @return 通信へ書き込む値。全体CHの3値は0。
+         */
+        StatusPacket makeStatusPacket(uint8_t code, uint16_t sequence, uint8_t flags, uint8_t channel,
+            uint16_t current, uint16_t target, uint16_t remaining);
 
     }
 }

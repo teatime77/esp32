@@ -90,5 +90,32 @@ namespace uroa {
             return packet.version == 1 && (packet.opcode >= 1 && packet.opcode <= 11) && packet.reserved == 0;
         }
 
+        /**
+         * @brief 共通Statusの固定値・CHごとの値を設定する。
+         * @param code 受付結果。
+         * @param sequence 応答対象。
+         * @param flags 機器状態。
+         * @param channel CHまたは全体。
+         * @param current 現在の指令値。
+         * @param target 目標値。
+         * @param remaining 残り時間ms。
+         * @return CH条件を適用したStatus。
+         */
+        StatusPacket makeStatusPacket(uint8_t code, uint16_t sequence, uint8_t flags, uint8_t channel,
+            uint16_t current, uint16_t target, uint16_t remaining) {
+            StatusPacket packet{};
+            packet.version = StatusPacketLayout::versionValue;
+            packet.code = code;
+            packet.sequence = sequence;
+            packet.flags = flags;
+            packet.channel = channel;
+            if (channel < StatusPacketLayout::ChannelCount) {
+                packet.current = current;
+                packet.target = target;
+                packet.remaining = remaining;
+            }
+            return packet;
+        }
+
     }
 }
